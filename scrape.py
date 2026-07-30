@@ -4,6 +4,7 @@
 """
 
 import time
+from io import StringIO
 import pathlib
 import requests
 import pandas as pd
@@ -61,7 +62,7 @@ def fetch_history_html(idNo: str, session: requests.Session) -> str:
 def parse_history(html: str, name: str, idNo: str) -> pd.DataFrame:
     """HTML에서 대회참가이력 테이블을 파싱해 DataFrame으로 반환한다."""
     try:
-        tables = pd.read_html(html)
+        tables = pd.read_html(StringIO(html))
         if not tables:
             raise ValueError("테이블 없음")
         df = tables[0]
@@ -71,7 +72,7 @@ def parse_history(html: str, name: str, idNo: str) -> pd.DataFrame:
         if table is None:
             print(f"[warn] {name}({idNo}): 테이블을 찾을 수 없습니다.")
             return pd.DataFrame(columns=COLUMNS)
-        df = pd.read_html(str(table))[0]
+        df = pd.read_html(StringIO(str(table)))[0]
 
     df.columns = [str(c) for c in df.columns]
 
