@@ -13,17 +13,26 @@ RAW_DIR = pathlib.Path("data/raw")
 NO_ID_CSV = pathlib.Path("data/no_id_rows.csv")
 CANDIDATES_CSV = pathlib.Path("data/candidates.csv")
 RESOLVED_CSV = pathlib.Path("data/resolved.csv")
+RECORDS_CSV = pathlib.Path("data/records.csv")
+ATHLETE_INFO_CSV = pathlib.Path("data/athlete_info.csv")
 SESSION = requests.Session()
 HEADERS = {"Content-Type": "application/x-www-form-urlencoded"}
 IDNO_RE = re.compile(r'fnPlayerHistory\(\s*["\']?(\d{6,})')
 REPORTED_COUNT_RE = re.compile(r"선수\s*정보\s*\(\s*([0-9,]+)\s*\)")
 YYYYMM_RE = re.compile(r"(19|20)\d{2}(0[1-9]|1[0-2])$")
+YYYYMMDD_RE = re.compile(r"^(19|20)\d{2}(0[1-9]|1[0-2])([0-2]\d|3[01])$")
+DOTTED_DATE_RE = re.compile(r"^((?:19|20)\d{2})\.(0[1-9]|1[0-2])\.([0-2]\d|3[01])$")
+BIRTH_YEAR_RE = re.compile(r"((?:19|20)\d{2})")
+TEAM_CODE_RE = re.compile(r"^(.*?)\s*\(([^()]*)\)\s*$")
 AFFILIATION_ALIAS_MAP = {"한국체대": "한국체육대학교", "단국대": "단국대학교", "경희대": "경희대학교", "고려대": "고려대학교", "용인대": "용인대학교", "경희사이버대": "경희사이버대학교"}
 def _payload(name="", page=1, id_no=""):
     return {"classCd": "", "toCd": "", "pclassCd": "SK", "eventCd": "", "movSeq": "", "teamCd": "", "idNo": id_no, "pageIndex": str(page), "searchKeyword": name}
 def _search_cache_path(name, page):
     safe_name = name.replace("/", "_").replace("\\", "_").strip() or "empty"
     return RAW_DIR / f"search_{safe_name}_{page}.html"
+def _history_cache_path(id_no):
+    safe_id = str(id_no or "").strip() or "empty"
+    return RAW_DIR / f"history_{safe_id}.html"
 def fetch_search_page(name, page, refresh=False):
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     cache_path = _search_cache_path(name, page)
@@ -38,6 +47,88 @@ def fetch_search_page(name, page, refresh=False):
     html = resp.text
     cache_path.write_text(html, encoding="utf-8")
     return html
+def fetch_history(idNo, refresh=False):
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = _history_cache_path(idNo)
+    if cache_path.exists() and not refresh:
+        return cache_path.read_text(encoding="utf-8")
+    payload = {"pclassCd": "SK", "idNo": str(idNo), "pageIndex": "1"}
+    try:
+        resp = SESSION.post(HISTORY_ENDPOINT, data=payload, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+    except Exception:
+        print(f"[error] INF503 요청 실패: idNo={idNo}")
+        raise
+    html = resp.text
+    cache_path.write_text(html, encoding="utf-8")
+    return html
+def _find_table_by_caption(soup, caption_text):
+    for table in soup.find_all("table"):
+        caption = table.find("caption")
+        if caption and caption.get_text(" ", strip=True) == caption_text:
+            return table
+    return None
+def _normalize_date(raw):
+    value = (raw or "").strip()
+    if YYYYMMDD_RE.fullmatch(value):
+        return f"{value[0:4]}-{value[4:6]}-{value[6:8]}"
+    dotted = DOTTED_DATE_RE.fullmatch(value)
+    if dotted:
+        return f"{dotted.group(1)}-{dotted.group(2)}-{dotted.group(3)}"
+    return ""
+def parse_athlete_info(html):
+    soup = BeautifulSoup(html, "html.parser")
+    table = _find_table_by_caption(soup, "최종등록정보")
+    pairs = {}
+    if table:
+        for tr in table.find_all("tr"):
+            cells = tr.find_all(["th", "td"])
+            values = [c.get_text(" ", strip=True) for c in cells]
+            for i in range(0, len(values) - 1, 2):
+                key = values[i]
+                val = values[i + 1]
+                if key:
+                    pairs[key] = val
+    birth_text = pairs.get("출생년도")
+    birth_year = None
+    if birth_text:
+        m = BIRTH_YEAR_RE.search(birth_text)
+        if m:
+            birth_year = int(m.group(1))
+    team_text = pairs.get("소속팀")
+    team_name = team_text if team_text else None
+    team_code = None
+    if team_text:
+        m = TEAM_CODE_RE.match(team_text)
+        if m:
+            parsed_team_name = m.group(1).strip()
+            team_name = parsed_team_name if parsed_team_name else None
+            parsed_team_code = m.group(2).strip()
+            team_code = parsed_team_code if parsed_team_code else None
+    hidden_id = None
+    id_input = soup.find("input", attrs={"name": "idNo"})
+    if id_input and id_input.has_attr("value"):
+        hidden_id = id_input["value"].strip() or None
+    return {"idNo": hidden_id, "이름": pairs.get("이름") or None, "성별": pairs.get("성별") or None, "출생년도": birth_year, "종별": pairs.get("종별") or None, "소속팀": team_name, "팀코드": team_code, "시도": pairs.get("시도") or None}
+def parse_history(html, idNo):
+    soup = BeautifulSoup(html, "html.parser")
+    table = _find_table_by_caption(soup, "대회참가이력")
+    if not table:
+        return []
+    rows = []
+    current_meet = None
+    for tr in table.find_all("tr"):
+        tds = tr.find_all("td")
+        if len(tds) == 1:
+            current_meet_text = tds[0].get_text(" ", strip=True)
+            current_meet = current_meet_text if current_meet_text else None
+            continue
+        if len(tds) != 7:
+            continue
+        values = [td.get_text(" ", strip=True) for td in tds]
+        date_raw = values[0]
+        rows.append({"idNo": str(idNo), "대회명": current_meet, "일자": date_raw, "일자_정규화": _normalize_date(date_raw), "종별": values[1], "세부종목": values[2], "라운드": values[3], "소속": values[4], "기록": values[5], "순위": values[6]})
+    return rows
 def _count_data_rows_from_tbody(tbody):
     count = 0
     if not tbody:
@@ -218,6 +309,51 @@ def resolve_athletes(refresh=False):
             print(f"[check-fail] {target} expected_aliases={per_name.get(target, {}).get('aliases', [])}")
             print(f"[check-fail] {target} affiliations={rows[0]['소속목록']} gender_list={rows[0]['성별목록']}")
             print(f"[check-fail] {target} compare_result=소속일치:{rows[0]['소속일치']} 성별일치:{rows[0]['성별일치']} 판정:{rows[0]['판정']}")
+def collect_all(refresh=False):
+    if not RESOLVED_CSV.exists():
+        print(f"[error] 파일이 없습니다: {RESOLVED_CSV}. 먼저 `python scrape.py resolve`를 실행하세요.")
+        return
+    resolved_rows = []
+    with RESOLVED_CSV.open("r", newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            id_no = str(row.get("idNo", "")).strip()
+            name = str(row.get("이름", "")).strip()
+            if not id_no:
+                continue
+            resolved_rows.append({"idNo": id_no, "이름": name})
+    athlete_info_rows = []
+    all_records = []
+    total = len(resolved_rows)
+    for idx, row in enumerate(resolved_rows, start=1):
+        id_no = row["idNo"]
+        name = row["이름"]
+        from_cache = _history_cache_path(id_no).exists() and not refresh
+        html = fetch_history(id_no, refresh=refresh)
+        info = parse_athlete_info(html)
+        info["idNo"] = info.get("idNo") or id_no
+        info["이름"] = info.get("이름") or name or None
+        athlete_info_rows.append({"idNo": info.get("idNo"), "이름": info.get("이름"), "성별": info.get("성별"), "출생년도": info.get("출생년도"), "종별": info.get("종별"), "소속팀": info.get("소속팀"), "팀코드": info.get("팀코드"), "시도": info.get("시도")})
+        records = parse_history(html, id_no)
+        all_records.extend(records)
+        print(f"[{idx}/{total}] {name} {id_no} → 기록 {len(records)}건")
+        if not from_cache:
+            time.sleep(1)
+    RECORDS_CSV.parent.mkdir(parents=True, exist_ok=True)
+    with RECORDS_CSV.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=["idNo", "대회명", "일자", "일자_정규화", "종별", "세부종목", "라운드", "소속", "기록", "순위"])
+        writer.writeheader()
+        writer.writerows(all_records)
+    with ATHLETE_INFO_CSV.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=["idNo", "이름", "성별", "출생년도", "종별", "소속팀", "팀코드", "시도"])
+        writer.writeheader()
+        writer.writerows(athlete_info_rows)
+    birth_ok = sum(1 for row in athlete_info_rows if row.get("출생년도") is not None)
+    birth_fail = len(athlete_info_rows) - birth_ok
+    date_ok = sum(1 for row in all_records if row.get("일자_정규화"))
+    date_fail = len(all_records) - date_ok
+    print(f"선수 {len(athlete_info_rows)}명 / 총 기록 {len(all_records):,}건")
+    print(f"출생년도 확보 {birth_ok}명 / 미확보 {birth_fail}명")
+    print(f"일자 정규화 성공 {date_ok:,}건 / 실패 {date_fail:,}건")
 def probe_search_pagination(name, refresh=False):
     for page in range(1, 6):
         from_cache = _search_cache_path(name, page).exists() and not refresh
@@ -247,6 +383,7 @@ def _print_usage():
     print("사용법: python scrape.py search <이름> [--refresh]")
     print("       python scrape.py resolve [--refresh]")
     print("       python scrape.py probe <이름> [--refresh]")
+    print("       python scrape.py history [--refresh]")
 def main():
     raw_args = sys.argv[1:]
     refresh = "--refresh" in raw_args
@@ -262,6 +399,9 @@ def main():
         return
     if args[0] == "probe" and len(args) >= 2:
         probe_search_pagination(" ".join(args[1:]), refresh=refresh)
+        return
+    if args[0] == "history":
+        collect_all(refresh=refresh)
         return
     _print_usage()
 if __name__ == "__main__":
