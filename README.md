@@ -1,10 +1,15 @@
 # splits
 
-대한체육회 경기결과 사이트(result.sports.or.kr)에서 쇼트트랙 국가대표 선수들의 대회 참가 이력을 수집하는 스크래퍼.
-`athletes.py`에 선수 목록(idNo 포함)을 채운 뒤 실행하면 `data/records.csv`에 결과가 저장된다.
-최종 목적: 현 국가대표들이 초등부 시절 몇 등이었는지 분석.
+대한체육회 경기결과 사이트(result.sports.or.kr)에서 쇼트트랙 선수 검색과 idNo 후보 확정을 돕는 스크래퍼.
 
-```
+``` 
 pip install -r requirements.txt
-python scrape.py
+python scrape.py search 남윤창
+python scrape.py probe 남윤창
+python scrape.py resolve
+python scrape.py search 남윤창 --refresh
 ```
+
+- `search`: INF703 선수 검색 결과를 페이지 끝까지 수집해 표로 출력
+- `probe`: 1~5페이지의 행 수/고유 idNo 분포 진단 출력
+- `resolve`: `athletes.py` 목록을 순회해 `data/candidates.csv` 생성
