@@ -9,6 +9,7 @@ python scrape.py probe 남윤창
 python scrape.py resolve
 python scrape.py history
 python analyze.py
+python build_site.py
 python scrape.py search 남윤창 --refresh
 ```
 
@@ -17,3 +18,4 @@ python scrape.py search 남윤창 --refresh
 - `resolve`: `athletes.py` 목록을 순회해 `data/candidates.csv` 생성
 - `history`: `data/resolved.csv`의 확정 선수들을 INF503에서 1회씩 수집해 `data/records.csv`, `data/athlete_info.csv` 생성
 - `analyze`: `data/records.csv`, `data/athlete_info.csv`를 분석해 `clean_records.csv`, `placements.csv`, `youth_summary.csv`, `outliers.csv`, `coverage.csv`, `age_matrix.csv`, `best_heat_times.csv` 생성
+- `build_site`: `placements.csv`, `youth_summary.csv`, `age_matrix.csv`, `athlete_info.csv`, `coverage.csv`를 읽어 `site/index.html` 생성

@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>국가대표 14명의 유년기 기록</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+body{margin:0;background:#F3F5F8;-webkit-font-smoothing:antialiased;text-wrap:pretty}
+a{color:#2E63F6;text-decoration:none}
+a:hover{color:#1B47C4}
+.page{font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;background:#F3F5F8;color:#17181C;padding:0 0 72px;line-height:1.6}
+.container{max-width:700px;margin:0 auto;padding:0 18px;display:flex;flex-direction:column;gap:14px}
+header{padding:44px 4px 12px;display:flex;flex-direction:column;gap:16px}
+.badge{align-self:flex-start;background:#E4EBFF;color:#2E63F6;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px}
+h1{margin:0;font-size:34px;line-height:1.32;font-weight:800;letter-spacing:-0.03em}
+.intro{margin:0;font-size:16px;color:#5B5F68}
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.metric{background:#fff;border-radius:18px;padding:18px 18px 16px}
+.metric-main{font-size:26px;font-weight:800;letter-spacing:-0.02em}
+.metric-sub{font-size:13px;color:#8A8F99;margin-top:2px}
+.section{background:#fff;border-radius:22px;padding:24px 20px}
+h2{margin:0 0 6px;font-size:20px;font-weight:800;letter-spacing:-0.02em}
+.section-note{margin:0 0 16px;font-size:14.5px;color:#6B6F78}
+.summary-list{display:flex;flex-direction:column;gap:14px}
+.summary-item{display:flex;gap:12px;align-items:flex-start}
+.summary-index{flex:none;width:26px;height:26px;border-radius:9px;background:#E4EBFF;color:#2E63F6;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.summary-text{margin:0;font-size:15.5px;color:#3A3D45}
+.read-box{background:#F5F7FA;border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.read-title{font-size:13.5px;font-weight:700;color:#3A3D45}
+.read-row{display:flex;align-items:center;gap:9px;font-size:13.5px;color:#6B6F78}
+.dot-blue{width:11px;height:11px;border-radius:50%;background:#2E63F6;flex:none}
+.dot-gray{width:11px;height:11px;border-radius:50%;background:#C6CBD4;flex:none}
+.line-gray{width:11px;height:3px;border-radius:2px;background:#DFE3E9;flex:none}
+.age-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px}
+.age-card{background:#FAFBFC;border-radius:16px;padding:14px 14px 10px}
+.age-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:2px}
+.age-name{font-size:16px;font-weight:700;letter-spacing:-0.01em}
+.age-birth{font-size:12.5px;color:#9BA0AA}
+.age-summary{font-size:12.5px;color:#2E63F6;font-weight:600;margin-bottom:4px}
+.age-axis{display:flex;justify-content:space-between;font-size:11.5px;color:#A9AEB8;padding:0 2px}
+.section-footnote{margin:16px 0 0;font-size:13.5px;color:#8A8F99}
+.elem-rows{display:flex;flex-direction:column;gap:2px}
+.elem-row{padding:14px 2px;border-top:1px solid #F0F2F5;display:flex;flex-direction:column;gap:9px}
+.elem-row-head{display:flex;align-items:center;gap:8px}
+.elem-rank{font-size:12px;color:#B4B9C2;font-weight:700;width:18px}
+.elem-name{font-size:16px;font-weight:700}
+.elem-count{font-size:12px;color:#8A8F99;background:#F2F4F7;border-radius:999px;padding:3px 9px}
+.elem-summary{margin-left:auto;font-size:13.5px;color:#6B6F78}
+.elem-bar-wrap{position:relative;height:12px;border-radius:999px;background:#F0F2F5;margin-left:26px}
+.elem-bar{position:absolute;top:0;height:12px;border-radius:999px}
+.elem-mid{position:absolute;top:2px;height:8px;width:2px;border-radius:2px;background:#fff}
+.sample-note{margin-top:18px;background:#F5F7FA;border-radius:16px;padding:14px 16px;font-size:13.5px;color:#6B6F78}
+.detail-list{display:flex;flex-direction:column}
+.detail-row{border-top:1px solid #F0F2F5}
+.detail-toggle{cursor:pointer;padding:15px 2px;display:flex;align-items:center;gap:10px}
+.detail-toggle:hover{background:#FAFBFC}
+.detail-name{font-size:16px;font-weight:700}
+.detail-meta{font-size:13px;color:#8A8F99}
+.detail-state{margin-left:auto;font-size:13px;color:#2E63F6;font-weight:600}
+.detail-body{padding:2px 0 18px;display:flex;flex-direction:column;gap:1px}
+.detail-span{font-size:13px;color:#8A8F99;padding:0 2px 8px}
+.detail-year{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;background:#FAFBFC}
+.detail-year-text{font-size:14px;color:#3A3D45;width:64px}
+.detail-age-text{font-size:13px;color:#9BA0AA}
+.detail-rank-text{margin-left:auto;font-size:14.5px;font-weight:700}
+.note-list{display:flex;flex-direction:column;gap:10px}
+.note-card{background:#FAFBFC;border-radius:16px;padding:16px}
+.note-q{font-size:15px;font-weight:700;margin-bottom:5px}
+.note-a{font-size:14.5px;color:#5B5F68}
+footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
+@media (max-width:640px){
+  h1{font-size:31px}
+  .container{padding:0 14px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="container">
+    <header>
+      <span class="badge">공개 경기 기록 정리</span>
+      <h1>쇼트트랙 국가대표 14명은<br>어릴 때 몇 등이었을까요?</h1>
+      <p class="intro">2026/27시즌 쇼트트랙 국가대표 14명이 <b style="font-weight:700;color:#17181C">7살 때부터</b> 국내 대회에서 받은 성적을 정리했어요.</p>
+    </header>
+
+    <div class="metrics">
+      <div class="metric"><div class="metric-main">14명</div><div class="metric-sub">국가대표 선수</div></div>
+      <div class="metric"><div class="metric-main">1,642개</div><div class="metric-sub">모은 경기 성적</div></div>
+      <div class="metric"><div class="metric-main">7~25살</div><div class="metric-sub">기록에 담긴 나이</div></div>
+      <div class="metric"><div class="metric-main">19년치</div><div class="metric-sub">2007년 ~ 2026년</div></div>
+    </div>
+
+    <section class="section">
+      <h2>먼저, 세 줄 요약</h2>
+      <div class="summary-list">
+        <div class="summary-item"><span class="summary-index">1</span><p class="summary-text">초등부 기록이 남아 있는 <b style="font-weight:700;color:#17181C">13명 모두</b> 초등학생 때 이미 최소 한 번은 1~2등을 했습니다.</p></div>
+        <div class="summary-item"><span class="summary-index">2</span><p class="summary-text">그렇다고 늘 앞자리였던 건 아닙니다. 같은 선수들의 초등부 성적 중에는 <b style="font-weight:700;color:#17181C">30등대</b>도 섞여 있습니다.</p></div>
+        <div class="summary-item"><span class="summary-index">3</span><p class="summary-text">처음 대회에 나온 나이는 <b style="font-weight:700;color:#17181C">7살부터 16살까지</b> 제각각이었습니다.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>나이별로 가장 잘했던 등수</h2>
+      <p class="section-note">각 선수가 나이별로 <b style="font-weight:700;color:#17181C">가장 잘했던 등수</b>를 기록했어요. 그래프에서 왼쪽이 7살, 오른쪽이 18살이에요.</p>
+
+      <div class="read-box">
+        <div class="read-title">이렇게 보세요</div>
+        <div class="read-row"><span class="dot-blue"></span>파란 점이 위에 붙을수록 1등에 가깝습니다</div>
+        <div class="read-row"><span class="dot-gray"></span>회색 점은 등수가 뒤로 밀린 해예요 (옆에 등수 표시)</div>
+        <div class="read-row"><span class="line-gray"></span>아래쪽 짧은 선은 그 나이의 기록이 아예 없다는 뜻입니다</div>
+      </div>
+
+      <div id="age-cards" class="age-cards"></div>
+      <p class="section-footnote">비어 있는 구간은 해당 나이의 기록이 시스템에 없다는 뜻이에요. 2012년 이전 대회는 일부만 전산화돼 있어요.</p>
+    </section>
+
+    <section class="section">
+      <h2>초등부 때 성적의 폭</h2>
+      <p class="section-note">막대의 왼쪽 끝이 가장 좋았던 등수, 오른쪽 끝이 가장 나빴던 등수입니다. 하얀 선은 보통 받던 등수(중앙값)예요.</p>
+
+      <div id="elem-rows" class="elem-rows"></div>
+      <div class="sample-note">출전 횟수가 10번이 안 되는 선수는 회색으로 표시했어요. 몇 경기 안 되는 성적이라 '보통 등수'를 그대로 믿기는 어려워요. 노아름(1991년생)은 초등부 기록이 남아 있지 않아 빠졌습니다.</div>
+    </section>
+
+    <section class="section">
+      <h2>선수별로 자세히 보기</h2>
+      <p class="section-note">이름을 누르면 연도별 최고 성적을 볼 수 있어요.</p>
+      <div id="detail-list" class="detail-list"></div>
+    </section>
+
+    <section class="section">
+      <h2>이 자료를 볼 때 알아두실 점</h2>
+      <p class="section-note">숫자를 오해하지 않으시도록, 데이터의 한계를 알려드려요.</p>
+      <div class="note-list">
+        <div class="note-card"><div class="note-q">나이는 어떻게 계산했나요?</div><div class="note-a">대회가 열린 연도에서 태어난 해를 뺐습니다. 생일이 지나지 않았다면 만 나이보다 한 살 많습니다. 겨울 대회가 1~2월에 몰려 있어 대체로 한 살 높게 잡혀 있다고 보시면 됩니다.</div></div>
+        <div class="note-card"><div class="note-q">왜 옛날 선수는 어릴 때 기록이 없나요?</div><div class="note-a">2012년 이전 대회는 일부만 전산화돼 있습니다. 1990년대 중반 이전에 태어난 선수는 유년기 기록이 통째로 비어 있습니다. 노아름(1991년생): 초등부 기록 0건. 출전하지 않은 것이 아니라 기록이 남아 있지 않은 것</div></div>
+        <div class="note-card"><div class="note-q">어떤 경기의 등수인가요?</div><div class="note-a">결승과 채점종합 기준입니다. 예선이나 준결승에서 조 안에 매긴 등수는 전체 성적이 아니라 뺐습니다.</div></div>
+        <div class="note-card"><div class="note-q">기록(시간)은 왜 없나요?</div><div class="note-a">쇼트트랙은 순위 경기입니다. 결승에서 일부러 천천히 타다 마지막에 붙는 경우가 많아, 예선보다 30초 넘게 느린데 1등인 기록도 있습니다. 시간은 실력을 그대로 보여주지 않아 싣지 않았습니다.</div></div>
+        <div class="note-card"><div class="note-q">잘못된 기록은 없나요?</div><div class="note-a">계측 오류로 보이는 기록 35건을 확인했지만, 임의로 고치지 않고 원본 그대로 두었습니다.</div></div>
+        <div class="note-card"><div class="note-q">이 자료로 무엇을 알 수 있나요?</div><div class="note-a">14명이 어릴 때 어떤 성적을 남겼는지 재미로 봐주세요. 특별한 분석을 제공하고 있지 않습니다.</div></div>
+      </div>
+    </section>
+
+    <footer>
+      공개된 경기 기록을 개인이 정리한 페이지입니다. 대한빙상경기연맹 및 대한체육회와 무관합니다.<br>
+      출처: 대한체육회 경기결과 시스템(result.sports.or.kr)
+    </footer>
+  </div>
+</div>
+
+<script>
+const DATA={"meta":{"athleteCount":14,"placementCount":1642,"yearStart":2007,"yearEnd":2026,"yearSpan":19,"ageMin":7,"ageMax":25,"elemTop2Count":13,"elemWorstBand":"30등대","firstAgeMin":7,"firstAgeMax":16,"missingElemNames":["노아름"]},"ages":[7,8,9,10,11,12,13,14,15,16,17,18],"athletes":[{"name":"김건희","birth":2000,"team":"성남시청","first":9,"ages":{"7":null,"8":null,"9":13,"10":12,"11":3,"12":1,"13":1,"14":1,"15":1,"16":2,"17":1,"18":1},"elem":{"best":1,"median":5.0,"worst":16,"count":15}},{"name":"김길리","birth":2004,"team":"성남시청","first":8,"ages":{"7":null,"8":1,"9":null,"10":1,"11":1,"12":1,"13":1,"14":1,"15":1,"16":1,"17":1,"18":1},"elem":{"best":1,"median":1.0,"worst":2,"count":43}},{"name":"김태성","birth":2001,"team":"화성시청","first":11,"ages":{"7":null,"8":null,"9":null,"10":null,"11":2,"12":2,"13":5,"14":2,"15":1,"16":1,"17":1,"18":1},"elem":{"best":2,"median":4.5,"worst":33,"count":8}},{"name":"남윤창","birth":2004,"team":"한국체육대학교","first":8,"ages":{"7":null,"8":2,"9":5,"10":1,"11":3,"12":3,"13":8,"14":5,"15":3,"16":3,"17":1,"18":1},"elem":{"best":1,"median":4.0,"worst":31,"count":33}},{"name":"노아름","birth":1991,"team":"전북특별자치도청","first":16,"ages":{"7":null,"8":null,"9":null,"10":null,"11":null,"12":null,"13":null,"14":null,"15":null,"16":2,"17":1,"18":1},"elem":{"best":null,"median":null,"worst":null,"count":0}},{"name":"배서찬","birth":2002,"team":"고양시청","first":10,"ages":{"7":null,"8":null,"9":null,"10":3,"11":5,"12":2,"13":2,"14":2,"15":3,"16":5,"17":1,"18":4},"elem":{"best":2,"median":5.0,"worst":37,"count":13}},{"name":"신동민","birth":2005,"team":"화성시청","first":8,"ages":{"7":null,"8":1,"9":null,"10":1,"11":3,"12":1,"13":1,"14":1,"15":1,"16":3,"17":1,"18":1},"elem":{"best":1,"median":1.5,"worst":15,"count":20}},{"name":"심석희","birth":1997,"team":"서울시청","first":10,"ages":{"7":null,"8":null,"9":null,"10":11,"11":1,"12":1,"13":1,"14":1,"15":1,"16":null,"17":null,"18":1},"elem":{"best":1,"median":2.5,"worst":13,"count":8}},{"name":"이규호","birth":2006,"team":"한국체육대학교","first":7,"ages":{"7":2,"8":1,"9":2,"10":1,"11":1,"12":1,"13":1,"14":14,"15":1,"16":3,"17":2,"18":1},"elem":{"best":1,"median":3.0,"worst":37,"count":52}},{"name":"이동현","birth":2004,"team":"단국대학교","first":8,"ages":{"7":null,"8":1,"9":1,"10":1,"11":1,"12":1,"13":1,"14":2,"15":1,"16":1,"17":1,"18":1},"elem":{"best":1,"median":2.0,"worst":21,"count":45}},{"name":"이정민","birth":2002,"team":"성남시청","first":9,"ages":{"7":null,"8":null,"9":15,"10":1,"11":1,"12":1,"13":1,"14":1,"15":1,"16":1,"17":1,"18":1},"elem":{"best":1,"median":2.0,"worst":22,"count":37}},{"name":"임종언","birth":2007,"team":"고양시청","first":9,"ages":{"7":null,"8":null,"9":4,"10":1,"11":2,"12":1,"13":1,"14":null,"15":1,"16":1,"17":1,"18":1},"elem":{"best":1,"median":2.0,"worst":17,"count":36}},{"name":"최민정","birth":1998,"team":"성남시청","first":9,"ages":{"7":null,"8":null,"9":9,"10":null,"11":3,"12":8,"13":2,"14":1,"15":1,"16":1,"17":null,"18":null},"elem":{"best":2,"median":6.5,"worst":22,"count":8}},{"name":"최지현","birth":1994,"team":"전북특별자치도청","first":13,"ages":{"7":null,"8":null,"9":null,"10":null,"11":null,"12":null,"13":1,"14":1,"15":3,"16":1,"17":1,"18":1},"elem":{"best":1,"median":1.0,"worst":1,"count":2}}]};
+const AGES=DATA.ages;
+const CAP=40;
+const W=300;
+const TOP=10;
+const BOT=64;
+let openName=null;
+
+function esc(v){
+  return String(v??"").replace(/[&<>"']/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+}
+
+function yPos(rank){
+  const r=Math.min(rank,CAP);
+  return TOP+Math.sqrt((r-1)/(CAP-1))*(BOT-TOP);
+}
+
+function xPos(age){
+  const i=AGES.indexOf(age);
+  return 12+(i/(AGES.length-1))*(W-26);
+}
+
+function formatMedian(value){
+  return value===null||value===undefined?"-":Number(value).toFixed(1);
+}
+
+function presentAges(athlete){
+  return AGES.filter((age)=>athlete.ages[String(age)]!==null&&athlete.ages[String(age)]!==undefined);
+}
+
+function renderAgeCards(){
+  const root=document.getElementById("age-cards");
+  root.textContent="";
+  for(const a of DATA.athletes){
+    const missing=[];
+    const runs=[];
+    const dots=[];
+    const labels=[];
+    let run=[];
+
+    const flush=()=>{
+      if(run.length>1){
+        runs.push(run.join(" "));
+      }
+      run=[];
+    };
+
+    for(const age of AGES){
+      const rank=a.ages[String(age)];
+      if(rank===null||rank===undefined){
+        missing.push({x:xPos(age)});
+        flush();
+        continue;
+      }
+      const x=xPos(age);
+      const y=yPos(rank);
+      run.push(`${x},${y}`);
+      dots.push({x,y,r:rank===1?4.5:3.6,fill:rank<=2?"#2E63F6":"#C6CBD4"});
+      if(rank>2){
+        labels.push({x:x+6,y:y+4,text:rank});
+      }
+    }
+    flush();
+
+    const present=presentAges(a).map(Number).sort((x,y)=>x-y);
+    const wins=present.filter((age)=>a.ages[String(age)]===1).length;
+    const summary=wins>0?`1등 ${wins}번 · ${present.length}개 나이 기록`:`${present.length}개 나이 기록`;
+
+    const card=document.createElement("div");
+    card.className="age-card";
+    card.innerHTML=`
+      <div class="age-head">
+        <b class="age-name">${esc(a.name)}</b>
+        <span class="age-birth">${a.birth?`${esc(a.birth)}년생`:"출생년도 미상"}</span>
+      </div>
+      <div class="age-summary">${esc(summary)}</div>
+      <svg viewBox="0 0 300 92" preserveAspectRatio="none" style="width:100%;height:92px;display:block;overflow:visible">
+        <line x1="0" y1="10" x2="300" y2="10" stroke="#E3E7ED" stroke-width="1"></line>
+        <text x="0" y="7" font-size="9" fill="#B4B9C2">1등</text>
+        ${missing.map((m)=>`<line x1="${m.x}" y1="70" x2="${m.x}" y2="76" stroke="#DFE3E9" stroke-width="2" stroke-linecap="round"></line>`).join("")}
+        ${runs.map((points)=>`<polyline points="${points}" fill="none" stroke="#B9CCFB" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></polyline>`).join("")}
+        ${dots.map((d)=>`<circle cx="${d.x}" cy="${d.y}" r="${d.r}" fill="${d.fill}"></circle>`).join("")}
+        ${labels.map((l)=>`<text x="${l.x}" y="${l.y}" font-size="10" font-weight="600" fill="#8A8F99">${l.text}</text>`).join("")}
+      </svg>
+      <div class="age-axis"><span>7살</span><span>12살</span><span>18살</span></div>
+    `;
+    root.appendChild(card);
+  }
+}
+
+function renderElemRows(){
+  const rows=DATA.athletes
+    .filter((a)=>(a.elem?.count??0)>0)
+    .slice()
+    .sort((p,q)=>{
+      const pm=Number.isFinite(p.elem?.median)?p.elem.median:9999;
+      const qm=Number.isFinite(q.elem?.median)?q.elem.median:9999;
+      return pm-qm||p.name.localeCompare(q.name,"ko");
+    });
+
+  const root=document.getElementById("elem-rows");
+  root.textContent="";
+
+  rows.forEach((a,index)=>{
+    const e=a.elem||{};
+    const best=e.best??1;
+    const worst=e.worst??best;
+    const median=Number.isFinite(e.median)?e.median:best;
+    const left=((best-1)/40)*100;
+    const width=Math.max(((worst-best)/40)*100,2);
+    const mid=Math.min(((median-1)/40)*100,98);
+    const thin=(e.count??0)<10;
+
+    const row=document.createElement("div");
+    row.className="elem-row";
+    row.innerHTML=`
+      <div class="elem-row-head">
+        <span class="elem-rank">${index+1}</span>
+        <b class="elem-name">${esc(a.name)}</b>
+        <span class="elem-count">${e.count??0}번 출전</span>
+        <span class="elem-summary">최고 ${best}등 · 보통 ${formatMedian(e.median)}등 · 최저 ${worst}등</span>
+      </div>
+      <div class="elem-bar-wrap">
+        <span class="elem-bar" style="left:${left}%;width:${width}%;background:${thin?"#C6CBD4":"#2E63F6"}"></span>
+        <span class="elem-mid" style="left:${mid}%"></span>
+      </div>
+    `;
+    root.appendChild(row);
+  });
+}
+
+function renderDetailList(){
+  const root=document.getElementById("detail-list");
+  root.textContent="";
+
+  for(const a of DATA.athletes){
+    const present=presentAges(a).map(Number).sort((x,y)=>x-y);
+    const isOpen=openName===a.name;
+    const firstLabel=a.first?`${a.first}살`:"-";
+
+    const row=document.createElement("div");
+    row.className="detail-row";
+
+    let bodyHtml="";
+    if(isOpen){
+      const spanLabel=present.length
+        ?(a.birth
+          ?`기록이 남아 있는 기간 ${a.birth+present[0]}년 ~ ${a.birth+present[present.length-1]}년`
+          :"기록이 남아 있는 기간 정보 없음")
+        :"기록 없음";
+      const yearRows=present.map((age)=>{
+        const rank=a.ages[String(age)];
+        const color=rank<=2?"#2E63F6":"#3A3D45";
+        const yearText=a.birth?`${a.birth+age}년`:"연도 미상";
+        return `
+          <div class="detail-year">
+            <span class="detail-year-text">${yearText}</span>
+            <span class="detail-age-text">${age}살</span>
+            <span class="detail-rank-text" style="color:${color}">${rank}등</span>
+          </div>
+        `;
+      }).join("");
+      bodyHtml=`
+        <div class="detail-body">
+          <div class="detail-span">${esc(spanLabel)}</div>
+          ${yearRows}
+        </div>
+      `;
+    }
+
+    row.innerHTML=`
+      <div class="detail-toggle" data-name="${esc(a.name)}">
+        <b class="detail-name">${esc(a.name)}</b>
+        <span class="detail-meta">${esc(a.team)} · 첫 대회 ${firstLabel}</span>
+        <span class="detail-state">${isOpen?"접기":"펼치기"}</span>
+      </div>
+      ${bodyHtml}
+    `;
+    root.appendChild(row);
+  }
+
+  root.querySelectorAll(".detail-toggle").forEach((btn)=>{
+    btn.addEventListener("click",()=>{
+      const name=btn.getAttribute("data-name")||"";
+      openName=openName===name?null:name;
+      renderDetailList();
+    });
+  });
+}
+
+renderAgeCards();
+renderElemRows();
+renderDetailList();
+</script>
+</body>
+</html>
