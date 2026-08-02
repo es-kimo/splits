@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 DATA_DIR = Path("data")
-SITE_HTML = Path("site/index.html")
+SITE_HTML = Path("index.html")
 INPUT_FILES = [
     "placements.csv",
     "youth_summary.csv",
