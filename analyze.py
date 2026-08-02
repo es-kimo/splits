@@ -97,30 +97,27 @@ def all_times(df):
     return df.copy()
 def best_placement(df):
     group_cols = ["idNo", "이름", "대회명", "대회연도", "거리", "SF여부"]
+    candidate = df[df["라운드종류"].isin(["채점종합", "결승", "결승B"])].copy()
     selected = []
-    for _, group in df.groupby(group_cols, dropna=False, sort=False):
+    for _, group in candidate.groupby(group_cols, dropna=False, sort=False):
         pr = group["라운드종류"].map({"채점종합": 1, "결승": 2, "결승B": 2}).fillna(99)
         cand = group.assign(_priority=pr)
         cand = cand[cand["_priority"] < 99]
         if not cand.empty:
-            selected.append(cand.sort_values("_priority").iloc[0])
+            picked = cand.sort_values("_priority").iloc[0].copy()
+            picked["원본행수"] = len(group)
+            selected.append(picked)
     if not selected:
-        return pd.DataFrame(columns=["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "순위", "결승구분", "기록_초"])
+        return pd.DataFrame(columns=["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "SF여부", "순위", "결승구분", "라운드종류", "원본행수", "기록_초"])
     placements = pd.DataFrame(selected).copy()
-    before = len(placements)
-    placements["_has_year"] = placements["대회연도"].notna().astype(int)
-    placements["_order"] = range(len(placements))
-    placements = placements.sort_values(["_has_year", "_order"], ascending=[False, True]).drop_duplicates(
-        subset=["idNo", "대회명", "거리", "순위", "기록"], keep="first"
-    ).sort_values("_order")
-    after = len(placements)
-    placements.attrs["dedup_before"] = before
-    placements.attrs["dedup_after"] = after
-    placements.attrs["dedup_removed"] = before - after
     placements["결승구분"] = placements["라운드종류"].map({"결승B": "B", "결승": "A", "채점종합": "종합"})
     placements["순위"] = placements["순위_정수"].astype("Int64")
-    cols = ["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "순위", "결승구분", "기록_초"]
-    return placements[cols].sort_values(["이름", "대회연도", "대회명", "거리"], na_position="last")
+    placements["원본행수"] = pd.Series(placements["원본행수"], dtype="Int64")
+    placements.attrs["records_rows"] = len(df)
+    placements.attrs["candidate_rows"] = len(candidate)
+    placements.attrs["grouped_rows"] = len(placements)
+    cols = ["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "SF여부", "순위", "결승구분", "라운드종류", "원본행수", "기록_초"]
+    return placements[cols].sort_values(["이름", "대회연도", "대회명", "거리", "SF여부"], na_position="last")
 
 def infer_winter_game_year(meet_name):
     text = str(meet_name or "").strip()
@@ -359,6 +356,8 @@ def main():
     coverage_df = build_coverage(clean_df)
     age_matrix_df = build_age_matrix(placements_df, summary_df["이름"].astype(str).tolist())
     best_heat_df = build_best_heat_times(clean_df)
+    dup_check = placements_df.groupby(["이름", "대회명", "거리", "SF여부"], dropna=False).size().reset_index(name="행수")
+    dup_bad = dup_check[dup_check["행수"] >= 2]
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     clean_df.to_csv(CLEAN_RECORDS_CSV, index=False, encoding="utf-8-sig")
     placements_df.to_csv(PLACEMENTS_CSV, index=False, encoding="utf-8-sig")
@@ -369,12 +368,15 @@ def main():
     best_heat_df.to_csv(BEST_HEAT_TIMES_CSV, index=False, encoding="utf-8-sig")
     print_console(summary_df, placements_df)
     print(
-        "placements: 중복제거 전 {0}행 → 후 {1}행 (제거 {2}행)".format(
-            placements_df.attrs.get("dedup_before", len(placements_df)),
-            placements_df.attrs.get("dedup_after", len(placements_df)),
-            placements_df.attrs.get("dedup_removed", 0),
+        "records {0} → 성적행 후보 {1} → (선수,대회,거리,SF여부) 그룹핑 후 {2}".format(
+            placements_df.attrs.get("records_rows", len(clean_df)),
+            placements_df.attrs.get("candidate_rows", 0),
+            placements_df.attrs.get("grouped_rows", len(placements_df)),
         )
     )
+    print(f"검증: (이름, 대회명, 거리, SF여부) 2행 이상 조합 {len(dup_bad)}건")
+    if not dup_bad.empty:
+        print(dup_bad[["이름", "대회명", "거리", "SF여부", "행수"]].to_string(index=False))
     print(f"대회연도 복원 후 결측 행수: {clean_df.attrs.get('year_missing_after_restore', 0)}행")
     if clean_df.attrs.get("winter_round_fallback_unknown", 0):
         print(f"전국동계체전 회차 복원(목록 외 회차): {clean_df.attrs.get('winter_round_fallback_unknown', 0)}행")
