@@ -12,14 +12,12 @@ YOUTH_SUMMARY_CSV = DATA_DIR / "youth_summary.csv"
 OUTLIERS_CSV = DATA_DIR / "outliers.csv"
 COVERAGE_CSV = DATA_DIR / "coverage.csv"
 AGE_MATRIX_CSV = DATA_DIR / "age_matrix.csv"
+BEST_HEAT_TIMES_CSV = DATA_DIR / "best_heat_times.csv"
 YEAR_RE = re.compile(r"(19|20)\d{2}")
 DISTANCE_RE = re.compile(r"(500|1000|1500|2000|3000)M")
-OUTLIER_BOUNDS = {
-    500: {"초등": (42, 90), "중등이상": (40, 60)},
-    1000: {"초등": (90, 180), "중등이상": (80, 120)},
-    1500: {"초등": (140, 300), "중등이상": (130, 200)},
-}
-
+LOWER_BOUNDS = {500: 40, 1000: 82, 1500: 128, 3000: 260}
+OPEN_GENERAL_UPPER_BOUNDS = {500: 70, 1000: 140, 1500: 220}
+LOWER_NEAR_MARGIN = 2.0
 def parse_time_to_seconds(value):
     text = str(value or "").strip()
     if not text:
@@ -35,7 +33,6 @@ def parse_time_to_seconds(value):
     except ValueError:
         return None
     return None
-
 def parse_rank(value):
     match = re.search(r"\d+", str(value or "").strip())
     return int(match.group(0)) if match else None
@@ -57,12 +54,10 @@ def classify_school_level(category):
     if "일반" in text:
         return "일반"
     return None
-
 def parse_event_detail(event_name):
     text = str(event_name or "").upper().replace(" ", "")
     match = DISTANCE_RE.search(text)
     return (int(match.group(1)) if match else None), ("S.F" in text or "SF" in text)
-
 def classify_round(round_name):
     text = str(round_name or "").strip().replace(" ", "")
     if "채점종합" in text:
@@ -78,7 +73,6 @@ def classify_round(round_name):
     if "예선" in text:
         return "예선"
     return "기타"
-
 def extract_meet_year(normalized_date, raw_date):
     for value in [normalized_date, raw_date]:
         text = str(value or "").strip()
@@ -92,16 +86,13 @@ def extract_meet_year(normalized_date, raw_date):
         if match:
             return int(match.group(0))
     return None
-
 def estimate_age(meet_year, birth_year):
     # 출생년도만 있어 생일 반영이 불가하며 1~2월 대회는 만 나이 대비 최대 1살 높게 추정될 수 있다.
     if pd.isna(meet_year) or pd.isna(birth_year):
         return None
     return int(meet_year) - int(birth_year)
-
 def all_times(df):
     return df.copy()
-
 def best_placement(df):
     group_cols = ["idNo", "이름", "대회명", "대회연도", "거리", "SF여부"]
     selected = []
@@ -118,7 +109,6 @@ def best_placement(df):
     placements["순위"] = placements["순위_정수"].astype("Int64")
     cols = ["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "순위", "결승구분", "기록_초"]
     return placements[cols].sort_values(["이름", "대회연도", "대회명", "거리"], na_position="last")
-
 def build_clean_records(records_df, athlete_df):
     athlete = athlete_df.copy()
     athlete["idNo"] = athlete["idNo"].astype(str).str.strip()
@@ -137,10 +127,9 @@ def build_clean_records(records_df, athlete_df):
     clean["라운드종류"] = clean["라운드"].apply(classify_round)
     clean["순위_정수"] = pd.Series(clean["순위"].apply(parse_rank), dtype="Int64")
     return clean
-
 def detect_outliers(clean_df):
     reasons = {}
-    reason_counts = {"하한미달": 0, "상한초과": 0, "결승이예선보다느림": 0}
+    reason_counts = {"하한미달": 0, "상한초과": 0, "계측오류의심": 0}
 
     def add_reason(index, code, detail):
         item = reasons.setdefault(index, {"codes": set(), "details": set()})
@@ -154,29 +143,39 @@ def detect_outliers(clean_df):
         if pd.isna(distance):
             continue
         distance = int(distance)
-        if distance not in OUTLIER_BOUNDS:
+        if distance not in LOWER_BOUNDS:
             continue
-        level_key = "초등" if row["학령구간"] == "초등" else "중등이상"
-        lower, upper = OUTLIER_BOUNDS[distance][level_key]
         value = float(row["기록_초"])
+        lower = LOWER_BOUNDS[distance]
         if value < lower:
-            add_reason(idx, "하한미달", f"{distance}M {level_key} 기준 하한미달({value:.3f} < {lower})")
-        if value > upper:
-            add_reason(idx, "상한초과", f"{distance}M {level_key} 기준 상한초과({value:.3f} > {upper})")
-    groups = all_times(clean_df).groupby(["idNo", "대회명", "대회연도", "거리", "SF여부"], dropna=False)
+            add_reason(idx, "하한미달", f"{distance}M 하한미달({value:.3f} < {lower})")
+        if row["학령구간"] in {"오픈", "일반"} and distance in OPEN_GENERAL_UPPER_BOUNDS:
+            upper = OPEN_GENERAL_UPPER_BOUNDS[distance]
+            if value > upper:
+                add_reason(idx, "상한초과", f"{distance}M 상한초과({value:.3f} > {upper}, 오픈/일반 기준)")
+    # 쇼트트랙은 착순/전술 종목이라 결승 기록이 예선보다 느린 현상이 정상적으로 빈번하다.
+    # 따라서 '결승이 예선보다 느림' 규칙은 오탐이 커서 의도적으로 재도입하지 않는다.
+    groups = all_times(clean_df).groupby(["idNo", "이름", "대회명", "거리"], dropna=False)
     for _, group in groups:
-        prelim = group[(group["라운드종류"] == "예선") & group["기록_초"].notna()]
-        finals = group[group["라운드종류"].isin(["채점종합", "결승", "결승B"]) & group["기록_초"].notna()]
-        if prelim.empty or finals.empty:
+        if group["거리"].isna().all():
             continue
-        prelim_best = prelim["기록_초"].min()
-        for idx, row in finals.iterrows():
-            if row["기록_초"] - prelim_best >= 3:
-                add_reason(
-                    idx,
-                    "결승이예선보다느림",
-                    f"결승이 예선보다 3초+ 느림(예선 {prelim_best:.3f}, 결승 {row['기록_초']:.3f})",
-                )
+        distance = int(group["거리"].dropna().iloc[0])
+        if distance not in LOWER_BOUNDS:
+            continue
+        qf = group[(group["라운드종류"] == "준준결승") & group["기록_초"].notna()]
+        finals = group[group["라운드종류"].isin(["채점종합", "결승", "결승B"]) & group["기록_초"].notna()]
+        if qf.empty or finals.empty:
+            continue
+        qf_idx = qf["기록_초"].idxmin()
+        qf_best = float(qf.loc[qf_idx, "기록_초"])
+        final_best = float(finals["기록_초"].min())
+        lower = LOWER_BOUNDS[distance]
+        if final_best - qf_best >= 5 and qf_best <= lower + LOWER_NEAR_MARGIN:
+            add_reason(
+                qf_idx,
+                "계측오류의심",
+                f"준준결승이 결승보다 5초+ 빠르고 하한 근접(준준결승 {qf_best:.3f}, 결승 {final_best:.3f}, 하한 {lower})",
+            )
     if not reasons:
         outliers = clean_df.iloc[0:0].copy()
         outliers["사유"] = pd.Series(dtype=str)
@@ -186,7 +185,6 @@ def detect_outliers(clean_df):
     outliers["사유"] = [", ".join(sorted(reasons[idx]["codes"])) for idx in outliers.index]
     outliers["이상치사유"] = [", ".join(sorted(reasons[idx]["details"])) for idx in outliers.index]
     return outliers, reason_counts
-
 def youth_data_reliability(sixth_grade_year):
     if pd.isna(sixth_grade_year):
         return None
@@ -196,7 +194,6 @@ def youth_data_reliability(sixth_grade_year):
     if year >= 2012:
         return "medium"
     return "low"
-
 def build_coverage(clean_df):
     year_known = clean_df[clean_df["대회연도"].notna()].copy()
     if year_known.empty:
@@ -209,7 +206,6 @@ def build_coverage(clean_df):
     for col in ["대회연도", "기록건수", "고유선수수", "고유대회수"]:
         coverage[col] = coverage[col].astype("Int64")
     return coverage
-
 def build_age_matrix(placements_df, names):
     ages = list(range(7, 19))
     base = placements_df[
@@ -222,7 +218,16 @@ def build_age_matrix(placements_df, names):
     for col in [str(age) for age in ages]:
         matrix[col] = matrix[col].apply(lambda x: "" if pd.isna(x) else int(x))
     return matrix
-
+def build_best_heat_times(clean_df):
+    cols = ["이름", "출생년도", "나이_추정", "학령구간", "거리", "최고기록_초", "대회명", "일자"]
+    heat = clean_df[(clean_df["라운드종류"] == "예선") & clean_df["기록_초"].notna() & clean_df["거리"].notna()].copy()
+    if heat.empty:
+        return pd.DataFrame(columns=cols)
+    group_cols = ["이름", "출생년도", "나이_추정", "학령구간", "거리"]
+    idx = heat.groupby(group_cols, dropna=False)["기록_초"].idxmin()
+    best = heat.loc[idx, group_cols + ["기록_초", "대회명", "일자"]].copy()
+    best = best.rename(columns={"기록_초": "최고기록_초"})
+    return best[cols].sort_values(["이름", "나이_추정", "거리"], na_position="last")
 def summarize_youth(placements_df, clean_df, athlete_df):
     placement = placements_df.copy()
     athlete_base = athlete_df.copy()
@@ -263,9 +268,9 @@ def summarize_youth(placements_df, clean_df, athlete_df):
     for col in ["최초_출전연도", "최초_출전나이", "초등부_최고순위", "초등부_최저순위", "초등부_출전수", "중등부_최고순위", "중등부_출전수", "고등부_최고순위", "고등부_출전수", "초등6학년_추정연도"]:
         summary[col] = pd.Series(summary[col], dtype="Int64")
     return summary.sort_values("이름")
-
 def print_console(summary_df, placements_df):
     print("주의: 나이_추정은 대회연도-출생년도이며 만 나이보다 최대 1살 높습니다. 동계 대회(1~2월) 집중으로 다수 행에서 체계적으로 +1 편향이 생길 수 있습니다.")
+    print("주의: 결승 기록은 전술 영향을 받으므로 성장 추이 분석에 부적합하다. 기록 기반 분석에는 예선(Heat) 기록만 사용할 것. 순위 기반 분석에는 기존대로 채점종합/결승을 사용한다.")
     print("이름 | 최초출전나이 | 초등부 최고·최저순위 | 출전수")
     for _, row in summary_df.iterrows():
         best = "-" if pd.isna(row["초등부_최고순위"]) else str(int(row["초등부_최고순위"]))
@@ -303,7 +308,6 @@ def print_console(summary_df, placements_df):
             else:
                 print(f"{age}세: 성적 {rank_count}건 / 선수 {athlete_count}명 / {spread}")
     print("나이 구간별로 포함된 선수가 다르므로 나이 간 직접 비교는 부적절함")
-
 def main():
     if not RECORDS_CSV.exists() or not ATHLETE_INFO_CSV.exists():
         print("[error] data/records.csv 또는 data/athlete_info.csv 파일이 없습니다.")
@@ -316,6 +320,7 @@ def main():
     outliers_df, outlier_reason_counts = detect_outliers(clean_df)
     coverage_df = build_coverage(clean_df)
     age_matrix_df = build_age_matrix(placements_df, summary_df["이름"].astype(str).tolist())
+    best_heat_df = build_best_heat_times(clean_df)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     clean_df.to_csv(CLEAN_RECORDS_CSV, index=False, encoding="utf-8-sig")
     placements_df.to_csv(PLACEMENTS_CSV, index=False, encoding="utf-8-sig")
@@ -323,11 +328,10 @@ def main():
     outliers_df.to_csv(OUTLIERS_CSV, index=False, encoding="utf-8-sig")
     coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
     age_matrix_df.to_csv(AGE_MATRIX_CSV, index=False, encoding="utf-8-sig")
+    best_heat_df.to_csv(BEST_HEAT_TIMES_CSV, index=False, encoding="utf-8-sig")
     print_console(summary_df, placements_df)
     print(f"데이터 커버리지 저장 완료: data/coverage.csv ({int(coverage_df['대회연도'].min())}~{int(coverage_df['대회연도'].max())})" if not coverage_df.empty else "데이터 커버리지 저장 완료: data/coverage.csv (연도 정보 없음)")
-    print(f"이상치 사유별 건수: 하한미달 {outlier_reason_counts['하한미달']}건 / 상한초과 {outlier_reason_counts['상한초과']}건 / 결승이예선보다느림 {outlier_reason_counts['결승이예선보다느림']}건")
+    print("이상치 사유별 건수: 하한미달 {0}건 / 상한초과 {1}건 / 계측오류의심 {2}건".format(outlier_reason_counts["하한미달"], outlier_reason_counts["상한초과"], outlier_reason_counts["계측오류의심"]))
     print(f"이상치 {len(outliers_df)}건 검출 (data/outliers.csv)")
-
-
 if __name__ == "__main__":
     main()
