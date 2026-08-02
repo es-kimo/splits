@@ -16,4 +16,4 @@ python scrape.py search 남윤창 --refresh
 - `probe`: 1~5페이지의 행 수/고유 idNo 분포 진단 출력
 - `resolve`: `athletes.py` 목록을 순회해 `data/candidates.csv` 생성
 - `history`: `data/resolved.csv`의 확정 선수들을 INF503에서 1회씩 수집해 `data/records.csv`, `data/athlete_info.csv` 생성
-- `analyze`: `data/records.csv`, `data/athlete_info.csv`를 분석해 `clean_records.csv`, `placements.csv`, `youth_summary.csv`, `outliers.csv`, `coverage.csv` 생성
+- `analyze`: `data/records.csv`, `data/athlete_info.csv`를 분석해 `clean_records.csv`, `placements.csv`, `youth_summary.csv`, `outliers.csv`, `coverage.csv`, `age_matrix.csv` 생성
