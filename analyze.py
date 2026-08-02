@@ -15,9 +15,11 @@ AGE_MATRIX_CSV = DATA_DIR / "age_matrix.csv"
 BEST_HEAT_TIMES_CSV = DATA_DIR / "best_heat_times.csv"
 YEAR_RE = re.compile(r"(19|20)\d{2}")
 DISTANCE_RE = re.compile(r"(500|1000|1500|2000|3000)M")
+WINTER_GAME_ROUND_RE = re.compile(r"제\s*(\d+)\s*회")
 LOWER_BOUNDS = {500: 40, 1000: 82, 1500: 128, 3000: 260}
 OPEN_GENERAL_UPPER_BOUNDS = {500: 70, 1000: 140, 1500: 220}
 LOWER_NEAR_MARGIN = 2.0
+KNOWN_WINTER_ROUNDS = {88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 103, 104, 105, 107}
 def parse_time_to_seconds(value):
     text = str(value or "").strip()
     if not text:
@@ -105,10 +107,31 @@ def best_placement(df):
     if not selected:
         return pd.DataFrame(columns=["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "순위", "결승구분", "기록_초"])
     placements = pd.DataFrame(selected).copy()
+    before = len(placements)
+    placements["_has_year"] = placements["대회연도"].notna().astype(int)
+    placements["_order"] = range(len(placements))
+    placements = placements.sort_values(["_has_year", "_order"], ascending=[False, True]).drop_duplicates(
+        subset=["idNo", "대회명", "거리", "순위", "기록"], keep="first"
+    ).sort_values("_order")
+    after = len(placements)
+    placements.attrs["dedup_before"] = before
+    placements.attrs["dedup_after"] = after
+    placements.attrs["dedup_removed"] = before - after
     placements["결승구분"] = placements["라운드종류"].map({"결승B": "B", "결승": "A", "채점종합": "종합"})
     placements["순위"] = placements["순위_정수"].astype("Int64")
     cols = ["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "순위", "결승구분", "기록_초"]
     return placements[cols].sort_values(["이름", "대회연도", "대회명", "거리"], na_position="last")
+
+def infer_winter_game_year(meet_name):
+    text = str(meet_name or "").strip()
+    if "전국동계체육대회" not in text:
+        return None, False
+    match = WINTER_GAME_ROUND_RE.search(text)
+    if not match:
+        return None, False
+    round_no = int(match.group(1))
+    return round_no - 88 + 2007, round_no not in KNOWN_WINTER_ROUNDS
+
 def build_clean_records(records_df, athlete_df):
     athlete = athlete_df.copy()
     athlete["idNo"] = athlete["idNo"].astype(str).str.strip()
@@ -118,6 +141,21 @@ def build_clean_records(records_df, athlete_df):
     records["idNo"] = records["idNo"].astype(str).str.strip()
     clean = records.merge(athlete, on="idNo", how="left")
     clean["대회연도"] = pd.Series([extract_meet_year(n, r) for n, r in zip(clean["일자_정규화"], clean["일자"])], dtype="Int64")
+    by_id_meet = clean.groupby(["idNo", "대회명"])["대회연도"].transform(lambda s: s.dropna().iloc[0] if not s.dropna().empty else pd.NA)
+    by_meet = clean.groupby("대회명")["대회연도"].transform(lambda s: s.dropna().iloc[0] if not s.dropna().empty else pd.NA)
+    clean["대회연도"] = clean["대회연도"].fillna(by_id_meet).fillna(by_meet)
+    missing_idx = clean[clean["대회연도"].isna()].index
+    out_of_known_rounds = 0
+    for idx in missing_idx:
+        guessed_year, is_unknown_round = infer_winter_game_year(clean.at[idx, "대회명"])
+        if guessed_year is None:
+            continue
+        clean.at[idx, "대회연도"] = guessed_year
+        if is_unknown_round:
+            out_of_known_rounds += 1
+    clean["대회연도"] = pd.Series(clean["대회연도"], dtype="Int64")
+    clean.attrs["year_missing_after_restore"] = int(clean["대회연도"].isna().sum())
+    clean.attrs["winter_round_fallback_unknown"] = out_of_known_rounds
     clean["나이_추정"] = pd.Series([estimate_age(y, b) for y, b in zip(clean["대회연도"], clean["출생년도"])], dtype="Int64")
     clean["학령구간"] = clean["종별"].apply(classify_school_level)
     parsed = clean["세부종목"].apply(parse_event_detail)
@@ -330,6 +368,16 @@ def main():
     age_matrix_df.to_csv(AGE_MATRIX_CSV, index=False, encoding="utf-8-sig")
     best_heat_df.to_csv(BEST_HEAT_TIMES_CSV, index=False, encoding="utf-8-sig")
     print_console(summary_df, placements_df)
+    print(
+        "placements: 중복제거 전 {0}행 → 후 {1}행 (제거 {2}행)".format(
+            placements_df.attrs.get("dedup_before", len(placements_df)),
+            placements_df.attrs.get("dedup_after", len(placements_df)),
+            placements_df.attrs.get("dedup_removed", 0),
+        )
+    )
+    print(f"대회연도 복원 후 결측 행수: {clean_df.attrs.get('year_missing_after_restore', 0)}행")
+    if clean_df.attrs.get("winter_round_fallback_unknown", 0):
+        print(f"전국동계체전 회차 복원(목록 외 회차): {clean_df.attrs.get('winter_round_fallback_unknown', 0)}행")
     print(f"데이터 커버리지 저장 완료: data/coverage.csv ({int(coverage_df['대회연도'].min())}~{int(coverage_df['대회연도'].max())})" if not coverage_df.empty else "데이터 커버리지 저장 완료: data/coverage.csv (연도 정보 없음)")
     print("이상치 사유별 건수: 하한미달 {0}건 / 상한초과 {1}건 / 계측오류의심 {2}건".format(outlier_reason_counts["하한미달"], outlier_reason_counts["상한초과"], outlier_reason_counts["계측오류의심"]))
     print(f"이상치 {len(outliers_df)}건 검출 (data/outliers.csv)")
