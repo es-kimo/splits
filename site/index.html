@@ -1,207 +1,4 @@
-import json
-from pathlib import Path
-
-import pandas as pd
-
-DATA_DIR = Path("data")
-SITE_HTML = Path("site/index.html")
-INPUT_FILES = [
-    "placements.csv",
-    "youth_summary.csv",
-    "age_matrix.csv",
-    "athlete_info.csv",
-    "coverage.csv",
-]
-AGES = [str(age) for age in range(7, 19)]
-
-
-def as_int(value):
-    text = str(value or "").strip()
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return int(digits) if digits else None
-
-
-def read_csv(name):
-    path = DATA_DIR / name
-    if not path.exists():
-        raise FileNotFoundError(f"[error] 파일이 없습니다: {path}")
-    return pd.read_csv(path, dtype=str, encoding="utf-8-sig").fillna("")
-
-
-def rank_band_text(rank):
-    if rank is None:
-        return "-"
-    if rank < 10:
-        return "한 자리수"
-    return f"{(rank // 10) * 10}등대"
-
-
-def build_payload():
-    frames = {name: read_csv(name) for name in INPUT_FILES}
-    placements = frames["placements.csv"]
-    summary = frames["youth_summary.csv"]
-    matrix = frames["age_matrix.csv"]
-    athlete_info = frames["athlete_info.csv"]
-    coverage = frames["coverage.csv"]
-
-    placements["순위_num"] = placements["순위"].map(as_int)
-    placements["대회연도_num"] = placements["대회연도"].map(as_int)
-    placements["나이_추정_num"] = placements["나이_추정"].map(as_int)
-
-    elem = placements[(placements["학령구간"] == "초등") & placements["순위_num"].notna()].copy()
-    elem_median = elem.groupby("이름")["순위_num"].median().to_dict()
-
-    names = [n for n in matrix["이름"].astype(str).tolist() if n.strip()]
-    for candidate in summary["이름"].astype(str).tolist() + athlete_info["이름"].astype(str).tolist():
-        candidate = candidate.strip()
-        if candidate and candidate not in names:
-            names.append(candidate)
-
-    info_by_name = {}
-    for name, group in athlete_info.groupby("이름", sort=False):
-        teams = [v.strip() for v in group.get("소속팀", pd.Series(dtype=str)).tolist() if str(v).strip()]
-        births = [as_int(v) for v in group.get("출생년도", pd.Series(dtype=str)).tolist() if as_int(v) is not None]
-        info_by_name[name] = {"birth": births[0] if births else None, "team": teams[0] if teams else "-"}
-
-    summary_by_name = {}
-    for _, row in summary.iterrows():
-        name = str(row.get("이름", "")).strip()
-        if not name:
-            continue
-        summary_by_name[name] = {
-            "first": as_int(row.get("최초_출전나이")),
-            "elemBest": as_int(row.get("초등부_최고순위")),
-            "elemWorst": as_int(row.get("초등부_최저순위")),
-            "elemCount": as_int(row.get("초등부_출전수")) or 0,
-        }
-
-    matrix_by_name = {}
-    for _, row in matrix.iterrows():
-        name = str(row.get("이름", "")).strip()
-        if not name:
-            continue
-        matrix_by_name[name] = {age: as_int(row.get(age, "")) for age in AGES}
-
-    athletes = []
-    for name in names:
-        s = summary_by_name.get(name, {})
-        info = info_by_name.get(name, {"birth": None, "team": "-"})
-        median = elem_median.get(name)
-        median_value = float(median) if median is not None else None
-        athletes.append(
-            {
-                "name": name,
-                "birth": info["birth"],
-                "team": info["team"],
-                "first": s.get("first"),
-                "ages": matrix_by_name.get(name, {age: None for age in AGES}),
-                "elem": {
-                    "best": s.get("elemBest"),
-                    "median": median_value,
-                    "worst": s.get("elemWorst"),
-                    "count": s.get("elemCount", 0),
-                },
-            }
-        )
-
-    years = [as_int(v) for v in coverage.get("대회연도", pd.Series(dtype=str)).tolist()]
-    years = [y for y in years if y is not None]
-    if not years:
-        years = [y for y in placements["대회연도_num"].tolist() if y is not None]
-    year_start, year_end = (min(years), max(years)) if years else (None, None)
-
-    all_ages = [a for a in placements["나이_추정_num"].tolist() if isinstance(a, int)]
-    ages_for_span = [a for a in all_ages if a <= 25] or all_ages
-    age_min = min(ages_for_span) if ages_for_span else None
-    age_max = max(ages_for_span) if ages_for_span else None
-
-    elem_with_data = [a for a in athletes if (a["elem"].get("count") or 0) > 0]
-    elem_top2_count = sum(1 for a in elem_with_data if (a["elem"].get("best") or 9999) <= 2)
-    elem_worst_max = max((a["elem"].get("worst") or 0) for a in elem_with_data) if elem_with_data else None
-
-    first_ages = [a.get("first") for a in athletes if a.get("first") is not None]
-    first_age_min = min(first_ages) if first_ages else None
-    first_age_max = max(first_ages) if first_ages else None
-
-    missing_elem_names = [a["name"] for a in athletes if (a["elem"].get("count") or 0) == 0]
-
-    return {
-        "meta": {
-            "athleteCount": len(athletes),
-            "placementCount": int(len(placements)),
-            "yearStart": year_start,
-            "yearEnd": year_end,
-            "yearSpan": (year_end - year_start) if year_start is not None and year_end is not None else None,
-            "ageMin": age_min,
-            "ageMax": age_max,
-            "elemTop2Count": elem_top2_count,
-            "elemWorstBand": rank_band_text(elem_worst_max),
-            "firstAgeMin": first_age_min,
-            "firstAgeMax": first_age_max,
-            "missingElemNames": missing_elem_names,
-        },
-        "ages": [int(age) for age in AGES],
-        "athletes": athletes,
-    }
-
-
-def build_html(payload):
-    meta = payload["meta"]
-    data_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-
-    athlete_count = f"{meta.get('athleteCount') or 0}명"
-    placement_count = f"{format(meta.get('placementCount') or 0, ',')}개"
-    if meta.get("ageMin") is not None and meta.get("ageMax") is not None:
-        age_span = f"{meta['ageMin']}~{meta['ageMax']}살"
-    else:
-        age_span = "-"
-
-    if meta.get("yearSpan") is not None and meta.get("yearStart") is not None and meta.get("yearEnd") is not None:
-        year_span_head = f"{meta['yearSpan']}년치"
-        year_span_tail = f"{meta['yearStart']}년 ~ {meta['yearEnd']}년"
-    else:
-        year_span_head = "-"
-        year_span_tail = "기간 정보 없음"
-
-    line1 = (
-        "초등부 기록이 남아 있는 "
-        f"<b style=\"font-weight:700;color:#17181C\">{meta.get('elemTop2Count') or 0}명 모두</b> "
-        "초등학생 때 이미 최소 한 번은 1~2등을 했습니다."
-    )
-    first_age_min = meta.get("firstAgeMin")
-    first_age_max = meta.get("firstAgeMax")
-    first_age_text = "-" if first_age_min is None or first_age_max is None else f"{first_age_min}살부터 {first_age_max}살까지"
-    line2 = (
-        "그렇다고 늘 앞자리였던 건 아닙니다. 같은 선수들의 초등부 성적 중에는 "
-        f"<b style=\"font-weight:700;color:#17181C\">{meta.get('elemWorstBand') or '-'}</b>도 섞여 있습니다."
-    )
-    line3 = (
-        "처음 대회에 나온 나이는 "
-        f"<b style=\"font-weight:700;color:#17181C\">{first_age_text}</b> 제각각이었습니다."
-    )
-
-    missing_names = []
-    by_name = {a["name"]: a for a in payload["athletes"]}
-    for name in meta.get("missingElemNames", []):
-        birth = by_name.get(name, {}).get("birth")
-        if birth is None:
-            missing_names.append(name)
-        else:
-            missing_names.append(f"{name}({birth}년생)")
-    if not missing_names:
-        missing_elem_note = "초등부 기록이 남아 있지 않은 선수는 없습니다."
-        missing_limit_note = "초등부 누락 데이터가 확인된 선수는 없습니다."
-    elif len(missing_names) == 1:
-        missing_elem_note = f"{missing_names[0]}은 초등부 기록이 남아 있지 않아 빠졌습니다."
-        missing_limit_note = (
-            f"{missing_names[0]}: 초등부 기록 0건. 출전하지 않은 것이 아니라 기록이 남아 있지 않은 것"
-        )
-    else:
-        names_text = ", ".join(missing_names)
-        missing_elem_note = f"{names_text}은 초등부 기록이 남아 있지 않아 빠졌습니다."
-        missing_limit_note = f"{names_text}: 초등부 기록 누락 확인"
-
-    template = """<!doctype html>
+<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
@@ -288,18 +85,18 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
     </header>
 
     <div class="metrics">
-      <div class="metric"><div class="metric-main">__ATHLETE_COUNT__</div><div class="metric-sub">국가대표 선수</div></div>
-      <div class="metric"><div class="metric-main">__PLACEMENT_COUNT__</div><div class="metric-sub">모은 경기 성적</div></div>
-      <div class="metric"><div class="metric-main">__AGE_SPAN__</div><div class="metric-sub">기록에 담긴 나이</div></div>
-      <div class="metric"><div class="metric-main">__YEAR_SPAN_HEAD__</div><div class="metric-sub">__YEAR_SPAN_TAIL__</div></div>
+      <div class="metric"><div class="metric-main">14명</div><div class="metric-sub">국가대표 선수</div></div>
+      <div class="metric"><div class="metric-main">1,642개</div><div class="metric-sub">모은 경기 성적</div></div>
+      <div class="metric"><div class="metric-main">7~25살</div><div class="metric-sub">기록에 담긴 나이</div></div>
+      <div class="metric"><div class="metric-main">19년치</div><div class="metric-sub">2007년 ~ 2026년</div></div>
     </div>
 
     <section class="section">
       <h2>먼저, 세 줄 요약</h2>
       <div class="summary-list">
-        <div class="summary-item"><span class="summary-index">1</span><p class="summary-text">__SUMMARY_LINE_1__</p></div>
-        <div class="summary-item"><span class="summary-index">2</span><p class="summary-text">__SUMMARY_LINE_2__</p></div>
-        <div class="summary-item"><span class="summary-index">3</span><p class="summary-text">__SUMMARY_LINE_3__</p></div>
+        <div class="summary-item"><span class="summary-index">1</span><p class="summary-text">초등부 기록이 남아 있는 <b style="font-weight:700;color:#17181C">13명 모두</b> 초등학생 때 이미 최소 한 번은 1~2등을 했습니다.</p></div>
+        <div class="summary-item"><span class="summary-index">2</span><p class="summary-text">그렇다고 늘 앞자리였던 건 아닙니다. 같은 선수들의 초등부 성적 중에는 <b style="font-weight:700;color:#17181C">30등대</b>도 섞여 있습니다.</p></div>
+        <div class="summary-item"><span class="summary-index">3</span><p class="summary-text">처음 대회에 나온 나이는 <b style="font-weight:700;color:#17181C">7살부터 16살까지</b> 제각각이었습니다.</p></div>
       </div>
     </section>
 
@@ -323,7 +120,7 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
       <p class="section-note">막대의 왼쪽 끝이 가장 좋았던 등수, 오른쪽 끝이 가장 나빴던 등수입니다. 하얀 선은 보통 받던 등수(중앙값)예요.</p>
 
       <div id="elem-rows" class="elem-rows"></div>
-      <div class="sample-note">출전 횟수가 10번이 안 되는 선수는 회색으로 표시했습니다. 몇 경기 안 되는 성적이라 '보통 등수'를 그대로 믿기는 어렵습니다. __MISSING_ELEM_NOTE__</div>
+      <div class="sample-note">출전 횟수가 10번이 안 되는 선수는 회색으로 표시했습니다. 몇 경기 안 되는 성적이라 '보통 등수'를 그대로 믿기는 어렵습니다. 노아름(1991년생)은 초등부 기록이 남아 있지 않아 빠졌습니다.</div>
     </section>
 
     <section class="section">
@@ -337,7 +134,7 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
       <p class="section-note">숫자를 오해하지 않으시도록, 데이터의 한계를 그대로 적었습니다.</p>
       <div class="note-list">
         <div class="note-card"><div class="note-q">나이는 어떻게 계산했나요?</div><div class="note-a">대회가 열린 연도에서 태어난 해를 뺐습니다. 생일이 지나지 않았다면 만 나이보다 한 살 많습니다. 겨울 대회가 1~2월에 몰려 있어 대체로 한 살 높게 잡혀 있다고 보시면 됩니다.</div></div>
-        <div class="note-card"><div class="note-q">왜 옛날 선수는 어릴 때 기록이 없나요?</div><div class="note-a">2012년 이전 대회는 일부만 전산화돼 있습니다. 1990년대 중반 이전에 태어난 선수는 유년기 기록이 통째로 비어 있습니다. __MISSING_LIMIT_NOTE__</div></div>
+        <div class="note-card"><div class="note-q">왜 옛날 선수는 어릴 때 기록이 없나요?</div><div class="note-a">2012년 이전 대회는 일부만 전산화돼 있습니다. 1990년대 중반 이전에 태어난 선수는 유년기 기록이 통째로 비어 있습니다. 노아름(1991년생): 초등부 기록 0건. 출전하지 않은 것이 아니라 기록이 남아 있지 않은 것</div></div>
         <div class="note-card"><div class="note-q">어떤 경기의 등수인가요?</div><div class="note-a">결승과 채점종합 기준입니다. 예선이나 준결승에서 조 안에 매긴 등수는 전체 성적이 아니라 뺐습니다.</div></div>
         <div class="note-card"><div class="note-q">기록(시간)은 왜 없나요?</div><div class="note-a">쇼트트랙은 순위 경기입니다. 결승에서 일부러 천천히 타다 마지막에 붙는 경우가 많아, 예선보다 30초 넘게 느린데 1등인 기록도 있습니다. 시간은 실력을 그대로 보여주지 않아 싣지 않았습니다.</div></div>
         <div class="note-card"><div class="note-q">잘못된 기록은 없나요?</div><div class="note-a">계측 오류로 보이는 기록 35건을 확인했지만, 임의로 고치지 않고 원본 그대로 두었습니다.</div></div>
@@ -353,7 +150,7 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
 </div>
 
 <script>
-const DATA=__DATA_JSON__;
+const DATA={"meta":{"athleteCount":14,"placementCount":1642,"yearStart":2007,"yearEnd":2026,"yearSpan":19,"ageMin":7,"ageMax":25,"elemTop2Count":13,"elemWorstBand":"30등대","firstAgeMin":7,"firstAgeMax":16,"missingElemNames":["노아름"]},"ages":[7,8,9,10,11,12,13,14,15,16,17,18],"athletes":[{"name":"김건희","birth":2000,"team":"성남시청","first":9,"ages":{"7":null,"8":null,"9":13,"10":12,"11":3,"12":1,"13":1,"14":1,"15":1,"16":2,"17":1,"18":1},"elem":{"best":1,"median":5.0,"worst":16,"count":15}},{"name":"김길리","birth":2004,"team":"성남시청","first":8,"ages":{"7":null,"8":1,"9":null,"10":1,"11":1,"12":1,"13":1,"14":1,"15":1,"16":1,"17":1,"18":1},"elem":{"best":1,"median":1.0,"worst":2,"count":43}},{"name":"김태성","birth":2001,"team":"화성시청","first":11,"ages":{"7":null,"8":null,"9":null,"10":null,"11":2,"12":2,"13":5,"14":2,"15":1,"16":1,"17":1,"18":1},"elem":{"best":2,"median":4.5,"worst":33,"count":8}},{"name":"남윤창","birth":2004,"team":"한국체육대학교","first":8,"ages":{"7":null,"8":2,"9":5,"10":1,"11":3,"12":3,"13":8,"14":5,"15":3,"16":3,"17":1,"18":1},"elem":{"best":1,"median":4.0,"worst":31,"count":33}},{"name":"노아름","birth":1991,"team":"전북특별자치도청","first":16,"ages":{"7":null,"8":null,"9":null,"10":null,"11":null,"12":null,"13":null,"14":null,"15":null,"16":2,"17":1,"18":1},"elem":{"best":null,"median":null,"worst":null,"count":0}},{"name":"배서찬","birth":2002,"team":"고양시청","first":10,"ages":{"7":null,"8":null,"9":null,"10":3,"11":5,"12":2,"13":2,"14":2,"15":3,"16":5,"17":1,"18":4},"elem":{"best":2,"median":5.0,"worst":37,"count":13}},{"name":"신동민","birth":2005,"team":"화성시청","first":8,"ages":{"7":null,"8":1,"9":null,"10":1,"11":3,"12":1,"13":1,"14":1,"15":1,"16":3,"17":1,"18":1},"elem":{"best":1,"median":1.5,"worst":15,"count":20}},{"name":"심석희","birth":1997,"team":"서울시청","first":10,"ages":{"7":null,"8":null,"9":null,"10":11,"11":1,"12":1,"13":1,"14":1,"15":1,"16":null,"17":null,"18":1},"elem":{"best":1,"median":2.5,"worst":13,"count":8}},{"name":"이규호","birth":2006,"team":"한국체육대학교","first":7,"ages":{"7":2,"8":1,"9":2,"10":1,"11":1,"12":1,"13":1,"14":14,"15":1,"16":3,"17":2,"18":1},"elem":{"best":1,"median":3.0,"worst":37,"count":52}},{"name":"이동현","birth":2004,"team":"단국대학교","first":8,"ages":{"7":null,"8":1,"9":1,"10":1,"11":1,"12":1,"13":1,"14":2,"15":1,"16":1,"17":1,"18":1},"elem":{"best":1,"median":2.0,"worst":21,"count":45}},{"name":"이정민","birth":2002,"team":"성남시청","first":9,"ages":{"7":null,"8":null,"9":15,"10":1,"11":1,"12":1,"13":1,"14":1,"15":1,"16":1,"17":1,"18":1},"elem":{"best":1,"median":2.0,"worst":22,"count":37}},{"name":"임종언","birth":2007,"team":"고양시청","first":9,"ages":{"7":null,"8":null,"9":4,"10":1,"11":2,"12":1,"13":1,"14":null,"15":1,"16":1,"17":1,"18":1},"elem":{"best":1,"median":2.0,"worst":17,"count":36}},{"name":"최민정","birth":1998,"team":"성남시청","first":9,"ages":{"7":null,"8":null,"9":9,"10":null,"11":3,"12":8,"13":2,"14":1,"15":1,"16":1,"17":null,"18":null},"elem":{"best":2,"median":6.5,"worst":22,"count":8}},{"name":"최지현","birth":1994,"team":"전북특별자치도청","first":13,"ages":{"7":null,"8":null,"9":null,"10":null,"11":null,"12":null,"13":1,"14":1,"15":3,"16":1,"17":1,"18":1},"elem":{"best":1,"median":1.0,"worst":1,"count":2}}]};
 const AGES=DATA.ages;
 const CAP=40;
 const W=300;
@@ -549,34 +346,3 @@ renderDetailList();
 </script>
 </body>
 </html>
-"""
-
-    return (
-        template.replace("__ATHLETE_COUNT__", athlete_count)
-        .replace("__PLACEMENT_COUNT__", placement_count)
-        .replace("__AGE_SPAN__", age_span)
-        .replace("__YEAR_SPAN_HEAD__", year_span_head)
-        .replace("__YEAR_SPAN_TAIL__", year_span_tail)
-        .replace("__SUMMARY_LINE_1__", line1)
-        .replace("__SUMMARY_LINE_2__", line2)
-        .replace("__SUMMARY_LINE_3__", line3)
-        .replace("__MISSING_ELEM_NOTE__", missing_elem_note)
-        .replace("__MISSING_LIMIT_NOTE__", missing_limit_note)
-        .replace("__DATA_JSON__", data_json)
-    )
-
-
-def main():
-    try:
-        payload = build_payload()
-    except FileNotFoundError as exc:
-        print(str(exc))
-        return
-
-    SITE_HTML.parent.mkdir(parents=True, exist_ok=True)
-    SITE_HTML.write_text(build_html(payload), encoding="utf-8")
-    print(f"[ok] 생성 완료: {SITE_HTML}")
-
-
-if __name__ == "__main__":
-    main()
