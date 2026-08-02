@@ -283,8 +283,8 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
   <div class="container">
     <header>
       <span class="badge">공개 경기 기록 정리</span>
-      <h1>국가대표 14명은<br>어릴 때 몇 등이었을까요?</h1>
-      <p class="intro">2026/27시즌 쇼트트랙 국가대표 14명이 <b style="font-weight:700;color:#17181C">7살 때부터</b> 국내 대회에서 받은 성적을 그대로 모았습니다. 해석은 붙이지 않았습니다.</p>
+      <h1>쇼트트랙 국가대표 14명은<br>어릴 때 몇 등이었을까요?</h1>
+      <p class="intro">2026/27시즌 쇼트트랙 국가대표 14명이 <b style="font-weight:700;color:#17181C">7살 때부터</b> 국내 대회에서 받은 성적을 정리했어요.</p>
     </header>
 
     <div class="metrics">
@@ -305,7 +305,7 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
 
     <section class="section">
       <h2>나이별로 가장 잘했던 등수</h2>
-      <p class="section-note">선수 한 명당 그래프 하나입니다. 왼쪽이 7살, 오른쪽이 18살이에요.</p>
+      <p class="section-note">각 선수가 나이별로 <b style="font-weight:700;color:#17181C">가장 잘했던 등수</b>를 기록했어요. 그래프에서 왼쪽이 7살, 오른쪽이 18살이에요.</p>
 
       <div class="read-box">
         <div class="read-title">이렇게 보세요</div>
@@ -315,7 +315,7 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
       </div>
 
       <div id="age-cards" class="age-cards"></div>
-      <p class="section-footnote">비어 있는 구간은 성적이 나빴다는 뜻이 아니라, 그 나이의 기록이 시스템에 없다는 뜻입니다. 2012년 이전 대회는 일부만 전산화돼 있어요.</p>
+      <p class="section-footnote">비어 있는 구간은 해당 나이의 기록이 시스템에 없다는 뜻이에요. 2012년 이전 대회는 일부만 전산화돼 있어요.</p>
     </section>
 
     <section class="section">
@@ -323,25 +323,25 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
       <p class="section-note">막대의 왼쪽 끝이 가장 좋았던 등수, 오른쪽 끝이 가장 나빴던 등수입니다. 하얀 선은 보통 받던 등수(중앙값)예요.</p>
 
       <div id="elem-rows" class="elem-rows"></div>
-      <div class="sample-note">출전 횟수가 10번이 안 되는 선수는 회색으로 표시했습니다. 몇 경기 안 되는 성적이라 '보통 등수'를 그대로 믿기는 어렵습니다. __MISSING_ELEM_NOTE__</div>
+      <div class="sample-note">출전 횟수가 10번이 안 되는 선수는 회색으로 표시했어요. 몇 경기 안 되는 성적이라 '보통 등수'를 그대로 믿기는 어려워요. __MISSING_ELEM_NOTE__</div>
     </section>
 
     <section class="section">
       <h2>선수별로 자세히 보기</h2>
-      <p class="section-note">이름을 누르면 연도별 최고 성적이 펼쳐집니다.</p>
+      <p class="section-note">이름을 누르면 연도별 최고 성적을 볼 수 있어요.</p>
       <div id="detail-list" class="detail-list"></div>
     </section>
 
     <section class="section">
       <h2>이 자료를 볼 때 알아두실 점</h2>
-      <p class="section-note">숫자를 오해하지 않으시도록, 데이터의 한계를 그대로 적었습니다.</p>
+      <p class="section-note">숫자를 오해하지 않으시도록, 데이터의 한계를 알려드려요.</p>
       <div class="note-list">
         <div class="note-card"><div class="note-q">나이는 어떻게 계산했나요?</div><div class="note-a">대회가 열린 연도에서 태어난 해를 뺐습니다. 생일이 지나지 않았다면 만 나이보다 한 살 많습니다. 겨울 대회가 1~2월에 몰려 있어 대체로 한 살 높게 잡혀 있다고 보시면 됩니다.</div></div>
         <div class="note-card"><div class="note-q">왜 옛날 선수는 어릴 때 기록이 없나요?</div><div class="note-a">2012년 이전 대회는 일부만 전산화돼 있습니다. 1990년대 중반 이전에 태어난 선수는 유년기 기록이 통째로 비어 있습니다. __MISSING_LIMIT_NOTE__</div></div>
         <div class="note-card"><div class="note-q">어떤 경기의 등수인가요?</div><div class="note-a">결승과 채점종합 기준입니다. 예선이나 준결승에서 조 안에 매긴 등수는 전체 성적이 아니라 뺐습니다.</div></div>
         <div class="note-card"><div class="note-q">기록(시간)은 왜 없나요?</div><div class="note-a">쇼트트랙은 순위 경기입니다. 결승에서 일부러 천천히 타다 마지막에 붙는 경우가 많아, 예선보다 30초 넘게 느린데 1등인 기록도 있습니다. 시간은 실력을 그대로 보여주지 않아 싣지 않았습니다.</div></div>
         <div class="note-card"><div class="note-q">잘못된 기록은 없나요?</div><div class="note-a">계측 오류로 보이는 기록 35건을 확인했지만, 임의로 고치지 않고 원본 그대로 두었습니다.</div></div>
-        <div class="note-card"><div class="note-q">이 자료로 무엇을 알 수 있나요?</div><div class="note-a">14명이 어릴 때 어떤 성적을 남겼는지까지입니다. 어릴 때 1등이면 국가대표가 된다는 뜻은 아닙니다. 국가대표가 되지 못한 수많은 선수의 기록은 여기에 없기 때문입니다.</div></div>
+        <div class="note-card"><div class="note-q">이 자료로 무엇을 알 수 있나요?</div><div class="note-a">14명이 어릴 때 어떤 성적을 남겼는지 재미로 봐주세요. 특별한 분석을 제공하고 있지 않습니다.</div></div>
       </div>
     </section>
 
