@@ -747,7 +747,7 @@ def build_athlete_html(athlete):
   <div style="max-width:560px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:12px">
 
     <div style="padding:16px 2px 4px">
-      <a href="../../" style="font-size:14px;font-weight:600;color:#6B6F78">← 전체 선수 목록</a>
+      <a href="../" onclick="if(window.history.length>1){window.history.back();return false;}" style="font-size:14px;font-weight:600;color:#6B6F78">← 전체 선수 목록</a>
     </div>
 
     <header style="background:#fff;border-radius:20px;padding:22px 20px 20px;display:flex;flex-direction:column;gap:18px">
@@ -999,6 +999,86 @@ class Component extends DCLogic {
     )
 
 
+def build_athlete_list_html(payload):
+    athletes = payload.get("athletes", [])
+    cards = []
+    for athlete in athletes:
+        id_no = as_id(athlete.get("idNo"))
+        if not id_no:
+            continue
+        name = str(athlete.get("name", "") or id_no).strip()
+        birth = athlete.get("birth")
+        team = str(athlete.get("team", "") or "-").strip()
+        gender = str(athlete.get("gender", "") or "").strip()
+        history = athlete.get("history", [])
+        race_count = len(history)
+        gold_count = sum(1 for item in history if item.get("rank") == 1 and not item.get("sf"))
+        meta_parts = [f"{birth}년생" if birth is not None else "출생년도 미상", team]
+        if gender:
+            meta_parts.append(gender)
+        meta_text = " · ".join(meta_parts)
+        cards.append(
+            "<a href=\"./{id_no}/\" style=\"display:block;text-decoration:none;color:inherit;background:#FAFBFC;border-radius:16px;padding:14px 14px 12px\">"
+            "<div style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\">"
+            "<b style=\"font-size:16px;font-weight:800;letter-spacing:-0.01em\">{name}</b>"
+            "<span style=\"font-size:12.5px;font-weight:700;color:#2E63F6\">자세히 보기</span>"
+            "</div>"
+            "<div style=\"margin-top:5px;font-size:13.5px;color:#6B6F78\">{meta}</div>"
+            "<div style=\"margin-top:10px;display:flex;gap:8px\">"
+            "<span style=\"font-size:12.5px;color:#8A8F99;background:#F2F4F7;border-radius:999px;padding:4px 9px\">전체 {races}경기</span>"
+            "<span style=\"font-size:12.5px;color:#5B7BD4;background:#E9F0FF;border-radius:999px;padding:4px 9px\">1등 {golds}회</span>"
+            "</div>"
+            "</a>".format(
+                id_no=esc_html(id_no),
+                name=esc_html(name),
+                meta=esc_html(meta_text),
+                races=race_count,
+                golds=gold_count,
+            )
+        )
+
+    cards_html = "\n".join(cards) if cards else '<div style="font-size:14px;color:#8A8F99">선수 데이터가 없습니다.</div>'
+    return """<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>쇼트트랙 선수 목록</title>
+<meta name="description" content="선수 개별 기록 페이지로 이동할 수 있는 쇼트트랙 선수 목록입니다.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+body{margin:0;background:#F3F5F8;-webkit-font-smoothing:antialiased;text-wrap:pretty}
+a{color:#2E63F6;text-decoration:none}
+a:hover{color:#1B47C4}
+</style>
+</head>
+<body>
+<div style="font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;color:#17181C;line-height:1.55;background:#F3F5F8;padding-bottom:60px">
+  <div style="max-width:560px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:12px">
+    <div style="padding:16px 2px 4px">
+      <a href="../" style="font-size:14px;font-weight:600;color:#6B6F78">← 메인으로</a>
+    </div>
+    <header style="background:#fff;border-radius:20px;padding:22px 20px 20px;display:flex;flex-direction:column;gap:8px">
+      <h1 style="margin:0;font-size:29px;font-weight:800;letter-spacing:-0.03em">전체 선수 목록</h1>
+      <p style="margin:0;font-size:14px;color:#6B6F78">선수를 선택하면 개별 기록 페이지로 이동합니다.</p>
+    </header>
+    <section style="background:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:8px">
+      __CARDS_HTML__
+    </section>
+  </div>
+</div>
+</body>
+</html>
+""".replace("__CARDS_HTML__", cards_html)
+
+
+def write_athlete_index(payload):
+    ATHLETE_DIR.mkdir(parents=True, exist_ok=True)
+    path = ATHLETE_DIR / "index.html"
+    path.write_text(build_athlete_list_html(payload), encoding="utf-8")
+    return path
+
+
 def write_athlete_pages(payload):
     count = 0
     for athlete in payload.get("athletes", []):
@@ -1021,8 +1101,10 @@ def main():
 
     SITE_HTML.parent.mkdir(parents=True, exist_ok=True)
     SITE_HTML.write_text(build_html(payload), encoding="utf-8")
+    athlete_index_path = write_athlete_index(payload)
     athlete_page_count = write_athlete_pages(payload)
     print(f"[ok] 생성 완료: {SITE_HTML}")
+    print(f"[ok] 생성 완료: {athlete_index_path}")
     print(f"[ok] 생성 완료: {ATHLETE_DIR}/{{idNo}}/index.html ({athlete_page_count}개)")
 
 
