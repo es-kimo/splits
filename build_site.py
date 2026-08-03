@@ -879,18 +879,23 @@ const MISSING_NOTE = __MISSING_NOTE_JSON__;
 
 function shorten(name){
   const m = name.match(/^(KB금융그룹\\s*)?(제?\\s*[\\d]+회|\\d{4}\\/\\d{2,4}\\s?시즌|\\d{4})/);
-  if (/전국동계체육대회|동계체전/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 전국동계체육대회";
+  const roundMatch = name.match(/제\\s?\\d+회/);
+  const round = roundMatch ? roundMatch[0].replace(/\\s/g,"") : "";
+  if (/전국동계체육대회|동계체전/.test(name)) return round ? round + " 전국동계체육대회" : (m ? m[0] + " 전국동계체육대회" : name);
   if (/국가대표.*선발|자격대회/.test(name)){
     const season = name.match(/\\d{4}\\/\\d{2,4}/);
     const round = name.match(/(\\d)차/);
     return (season ? season[0] + "시즌 " : "") + "국가대표 " + (round ? round[1] + "차 " : "") + "선발대회";
   }
-  if (/회장배/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 회장배";
-  if (/국무총리배/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 국무총리배";
-  if (/종별/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 종별종합 선수권";
-  if (/선수권/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 종합 선수권";
-  if (/유니버시아드/.test(name)) return name.match(/\\d{4}/)[0] + " 유니버시아드 선발전";
-  return m ? name : name;
+  if (/회장배/.test(name)) return round ? round + " 회장배" : name;
+  if (/국무총리배/.test(name)) return round ? round + " 국무총리배" : name;
+  if (/종별/.test(name)) return round ? round + " 종별종합 선수권" : name;
+  if (/선수권/.test(name)) return round ? round + " 종합 선수권" : name;
+  if (/유니버시아드/.test(name)) {
+    const year = name.match(/\\d{4}/);
+    return year ? year[0] + " 유니버시아드 선발전" : name;
+  }
+  return name;
 }
 
 function badge(rank, semi){
