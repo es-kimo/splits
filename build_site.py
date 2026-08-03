@@ -78,11 +78,13 @@ def build_payload():
             continue
         names = [v.strip() for v in group.get("이름", pd.Series(dtype=str)).tolist() if str(v).strip()]
         teams = [v.strip() for v in group.get("소속팀", pd.Series(dtype=str)).tolist() if str(v).strip()]
+        genders = [v.strip() for v in group.get("성별", pd.Series(dtype=str)).tolist() if str(v).strip()]
         births = [as_int(v) for v in group.get("출생년도", pd.Series(dtype=str)).tolist() if as_int(v) is not None]
         info_by_id[id_no] = {
             "name": names[0] if names else id_no,
             "birth": births[0] if births else None,
             "team": teams[0] if teams else "-",
+            "gender": genders[0] if genders else None,
         }
 
     summary_by_id = {}
@@ -144,7 +146,7 @@ def build_payload():
     athletes = []
     for id_no in ids:
         s = summary_by_id.get(id_no, {})
-        info = info_by_id.get(id_no, {"name": id_no, "birth": None, "team": "-"})
+        info = info_by_id.get(id_no, {"name": id_no, "birth": None, "team": "-", "gender": None})
         m = matrix_by_id.get(id_no, {})
         name = info.get("name") or s.get("name") or m.get("name") or id_no
         median = elem_median.get(id_no)
@@ -158,6 +160,7 @@ def build_payload():
                 "name": name,
                 "birth": info["birth"],
                 "team": info["team"],
+                "gender": info["gender"],
                 "first": s.get("first"),
                 "ages": m.get("ages", {age: None for age in AGES}),
                 "elem": {
@@ -645,110 +648,355 @@ def esc_html(value):
     return html.escape(str(value or ""), quote=True)
 
 
+def normalize_group_label(text):
+    value = str(text or "").strip()
+    if "종합" in value:
+        return "종합"
+    if value == "B" or "결승B" in value or value.startswith("B"):
+        return "B"
+    return "A"
+
+
+def build_athlete_raw(history):
+    by_year = {}
+    for item in history:
+        year = item.get("year")
+        rank = item.get("rank")
+        dist = item.get("distance")
+        if year is None or rank is None or dist is None:
+            continue
+        year = int(year)
+        meet = str(item.get("meet", "")).strip() or "-"
+        year_bucket = by_year.setdefault(year, {})
+        results = year_bucket.setdefault(meet, [])
+        row = [int(dist), int(rank), normalize_group_label(item.get("round"))]
+        if item.get("sf"):
+            row.append(1)
+        results.append(row)
+
+    raw = []
+    for year in sorted(by_year.keys(), reverse=True):
+        comps = []
+        for meet, results in by_year[year].items():
+            sorted_results = sorted(results, key=lambda r: (r[0], 1 if len(r) >= 4 and r[3] else 0, r[1]))
+            comps.append([meet, sorted_results])
+        raw.append([year, comps])
+    return raw
+
+
 def build_athlete_html(athlete):
     name = athlete.get("name") or athlete.get("idNo") or "선수"
     birth = athlete.get("birth")
     team = athlete.get("team") or "-"
-    description = f"{name} 선수의 출생년도, 소속, 나이별 성적, 전체 대회 이력을 정리한 페이지입니다."
-    age_rows = []
-    for age in [int(v) for v in AGES]:
-        rank = athlete.get("ages", {}).get(str(age))
-        rank_text = f"{rank}등" if rank is not None else "-"
-        age_rows.append(f"<tr><td>{age}살</td><td>{esc_html(rank_text)}</td></tr>")
-
+    gender = str(athlete.get("gender", "") or "").strip()
     history = athlete.get("history", [])
-    if history:
-        history_rows = []
-        for item in history:
-            year_text = f"{item['year']}년" if item.get("year") is not None else "-"
-            age_text = f"{item['age']}살" if item.get("age") is not None else "-"
-            distance_text = f"{item['distance']}m" if item.get("distance") is not None else "-"
-            sf_text = "S.F" if item.get("sf") else "-"
-            rank_text = f"{item.get('rank')}등" if item.get("rank") is not None else "-"
-            history_rows.append(
-                "<tr>"
-                f"<td>{esc_html(year_text)}</td>"
-                f"<td>{esc_html(age_text)}</td>"
-                f"<td>{esc_html(item.get('meet', '-'))}</td>"
-                f"<td>{esc_html(distance_text)}</td>"
-                f"<td>{esc_html(sf_text)}</td>"
-                f"<td>{esc_html(rank_text)}</td>"
-                f"<td>{esc_html(item.get('round', '-'))}</td>"
-                "</tr>"
-            )
-        history_html = "\n".join(history_rows)
-    else:
-        history_html = '<tr><td colspan="7">기록이 없습니다.</td></tr>'
+    raw = build_athlete_raw(history)
 
-    birth_text = f"{birth}년생" if birth is not None else "출생년도 미상"
-    return f"""<!doctype html>
-<html lang="ko">
+    years = [v[0] for v in raw]
+    if years:
+        min_year = min(years)
+        max_year = max(years)
+        season_span = f"{(max_year - min_year) + 1}년"
+        year_range = f"{min_year}~{max_year}년"
+    else:
+        min_year = None
+        season_span = "-"
+        year_range = "기간 정보 없음"
+
+    if birth is not None and min_year is not None:
+        earliest_age = min_year - int(birth)
+        missing_note = (
+            f"{earliest_age}살({min_year}년) 이전 기록은 시스템에 남아 있지 않습니다. "
+            "대회에 나가지 않았다는 뜻은 아닙니다."
+        )
+    else:
+        missing_note = "초기 시즌 기록은 시스템에 남아 있지 않습니다. 대회에 나가지 않았다는 뜻은 아닙니다."
+
+    subtitle_parts = [f"{birth}년생" if birth is not None else "출생년도 미상", team]
+    if gender:
+        subtitle_parts.append(gender)
+    subtitle = " · ".join([v for v in subtitle_parts if v])
+
+    description = f"{name} 선수의 출생년도, 소속, 나이별 성적, 전체 대회 이력을 정리한 페이지입니다."
+    raw_json = json.dumps(raw, ensure_ascii=False, separators=(",", ":"))
+    birth_js = "null" if birth is None else str(int(birth))
+
+    template = """<!DOCTYPE html>
+<html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{esc_html(name)} 선수 기록</title>
-<meta name="description" content="{esc_html(description)}">
-<style>
-body{{margin:0;background:#F3F5F8;font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;color:#17181C;line-height:1.6}}
-.container{{max-width:860px;margin:0 auto;padding:28px 16px 56px}}
-a{{color:#2E63F6;text-decoration:none}}
-a:hover{{text-decoration:underline}}
-.card{{background:#fff;border-radius:18px;padding:22px 18px;margin-top:14px}}
-h1{{margin:8px 0 0;font-size:32px;letter-spacing:-0.02em}}
-h2{{margin:0 0 10px;font-size:21px;letter-spacing:-0.02em}}
-.meta{{margin-top:6px;color:#6B6F78;font-size:15px}}
-table{{width:100%;border-collapse:collapse}}
-th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #ECEFF3;font-size:14px;vertical-align:top}}
-th{{color:#5B5F68;font-weight:700}}
-.table-wrap{{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}}
-.age-table th,.age-table td{{white-space:nowrap}}
-.record-table{{min-width:700px}}
-.record-table th,.record-table td{{white-space:nowrap}}
-.record-table th:nth-child(3),.record-table td:nth-child(3){{white-space:normal;min-width:220px}}
-@media (max-width:640px){{
-  .container{{padding:20px 12px 44px}}
-  .card{{padding:16px 12px}}
-  h1{{font-size:28px}}
-  h2{{font-size:19px}}
-  .meta{{font-size:14px}}
-  th,td{{padding:9px 6px;font-size:13px}}
-  .record-table{{min-width:620px}}
-}}
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="../../support.js"></script>
 </head>
 <body>
-  <div class="container">
-    <a href="../../">← 메인으로</a>
-    <h1>{esc_html(name)}</h1>
-    <p class="meta">{esc_html(birth_text)} · {esc_html(team)} · idNo {esc_html(athlete.get("idNo", "-"))}</p>
+<x-dc>
+<helmet>
+<title>__NAME__ 선수 기록</title>
+<meta name="description" content="__DESCRIPTION__">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  body{margin:0;background:#F3F5F8;-webkit-font-smoothing:antialiased;text-wrap:pretty}
+  a{color:#2E63F6;text-decoration:none}
+  a:hover{color:#1B47C4}
+  *{box-sizing:border-box}
+</style>
+</helmet>
 
-    <section class="card">
-      <h2>나이별 성적</h2>
-      <div class="table-wrap">
-        <table class="age-table">
-          <thead><tr><th>나이</th><th>해당 나이 최고 순위</th></tr></thead>
-          <tbody>
-            {"".join(age_rows)}
-          </tbody>
-        </table>
+<div style="font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;color:#17181C;line-height:1.55;background:#F3F5F8;padding-bottom:60px">
+  <div style="max-width:560px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:12px">
+
+    <div style="padding:16px 2px 4px">
+      <a href="../../" style="font-size:14px;font-weight:600;color:#6B6F78">← 전체 선수 목록</a>
+    </div>
+
+    <header style="background:#fff;border-radius:20px;padding:22px 20px 20px;display:flex;flex-direction:column;gap:18px">
+      <div>
+        <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-0.03em">__NAME__</h1>
+        <p style="margin:5px 0 0;font-size:15px;color:#6B6F78">__SUBTITLE__</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        <div style="background:#F5F7FA;border-radius:14px;padding:12px 12px 11px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em">{{ totalRaces }}</div>
+          <div style="font-size:12.5px;color:#8A8F99;margin-top:1px">전체 경기</div>
+        </div>
+        <div style="background:#E9F0FF;border-radius:14px;padding:12px 12px 11px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;color:#2E63F6">{{ goldCount }}</div>
+          <div style="font-size:12.5px;color:#5B7BD4;margin-top:1px">1등</div>
+        </div>
+        <div style="background:#F5F7FA;border-radius:14px;padding:12px 12px 11px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em">{{ seasonSpan }}</div>
+          <div style="font-size:12.5px;color:#8A8F99;margin-top:1px">{{ yearRangeLabel }}</div>
+        </div>
+      </div>
+    </header>
+
+    <section style="background:#fff;border-radius:20px;padding:22px 20px">
+      <h2 style="margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:-0.02em">해마다 가장 잘한 등수</h2>
+      <p style="margin:0 0 18px;font-size:14px;color:#6B6F78">막대가 길수록 좋은 성적입니다. 진한 막대는 1등을 한 해예요.</p>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <sc-for list="{{ yearBest }}" as="y" hint-placeholder-count="10">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:13px;color:#8A8F99;width:38px;flex:none;font-variant-numeric:tabular-nums">{{ y.yearShort }}</span>
+            <span style="font-size:12px;color:#C6CBD4;width:30px;flex:none">{{ y.age }}</span>
+            <div style="flex:1;height:20px;background:#F2F4F7;border-radius:6px;position:relative">
+              <span style="{{ y.barStyle }}"></span>
+            </div>
+            <span style="font-size:13.5px;font-weight:700;width:34px;text-align:right;flex:none;color:{{ y.color }}">{{ y.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin:16px 0 0;font-size:13px;color:#9BA0AA">{{ missingNote }}</p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:22px 16px 20px">
+      <div style="padding:0 4px">
+        <h2 style="margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:-0.02em">전체 대회 기록</h2>
+        <p style="margin:0 0 14px;font-size:14px;color:#6B6F78">대회 하나가 카드 하나입니다. 종목별 등수가 오른쪽에 나옵니다.</p>
+      </div>
+
+      <div style="display:flex;gap:6px;overflow-x:auto;padding:0 4px 12px;-webkit-overflow-scrolling:touch">
+        <sc-for list="{{ distChips }}" as="c" hint-placeholder-count="5">
+          <button type="button" onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button>
+        </sc-for>
+      </div>
+      <div style="display:flex;gap:6px;padding:0 4px 16px">
+        <button type="button" onClick="{{ toggleGold }}" style="{{ goldChipStyle }}">1등만 보기</button>
+        <button type="button" onClick="{{ toggleOrder }}" style="flex:none;min-height:44px;padding:0 16px;border:0;border-radius:12px;background:#F2F4F7;color:#5B5F68;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#E9ECF1">{{ orderLabel }}</button>
+      </div>
+
+      <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:36px 12px;text-align:center;font-size:14.5px;color:#8A8F99">조건에 맞는 기록이 없습니다.</div>
+      </sc-if>
+
+      <div style="display:flex;flex-direction:column;gap:22px">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="4">
+          <div>
+            <div style="position:sticky;top:0;z-index:2;background:#fff;padding:6px 4px 10px;display:flex;align-items:baseline;gap:8px">
+              <b style="font-size:17px;font-weight:800;letter-spacing:-0.02em">{{ g.year }}년</b>
+              <span style="font-size:13px;color:#9BA0AA">{{ g.meta }}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ g.comps }}" as="c" hint-placeholder-count="3">
+                <div style="background:#FAFBFC;border-radius:16px;padding:14px 14px 12px;display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;flex-direction:column;gap:3px">
+                    <b style="font-size:15px;font-weight:700;letter-spacing:-0.01em;line-height:1.4">{{ c.short }}</b>
+                    <sc-if value="{{ c.hasFull }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-size:12.5px;color:#A9AEB8;line-height:1.45">{{ c.full }}</span>
+                    </sc-if>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:1px">
+                    <sc-for list="{{ c.results }}" as="r" hint-placeholder-count="2">
+                      <div style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-top:1px solid #F0F2F5">
+                        <span style="font-size:14.5px;font-weight:600;color:#3A3D45;width:62px;flex:none;font-variant-numeric:tabular-nums">{{ r.dist }}</span>
+                        <span style="font-size:12.5px;color:#A9AEB8">{{ r.note }}</span>
+                        <span style="{{ r.badgeStyle }}">{{ r.rankLabel }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
       </div>
     </section>
 
-    <section class="card">
-      <h2>전체 대회 이력</h2>
-      <div class="table-wrap">
-        <table class="record-table">
-          <thead><tr><th>연도</th><th>나이</th><th>대회명</th><th>거리</th><th>SF</th><th>순위</th><th>기준</th></tr></thead>
-          <tbody>
-            {history_html}
-          </tbody>
-        </table>
+    <section style="background:#fff;border-radius:20px;padding:22px 20px">
+      <h2 style="margin:0 0 14px;font-size:18px;font-weight:800;letter-spacing:-0.02em">용어 안내</h2>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">A그룹</span>
+          <p style="margin:0;font-size:14px;color:#5B5F68">상위 선수들이 겨루는 결승입니다. 같은 등수라도 A그룹이 더 높은 순위예요.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">B그룹</span>
+          <p style="margin:0;font-size:14px;color:#5B5F68">A그룹에 들지 못한 선수들의 결승입니다.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">종합</span>
+          <p style="margin:0;font-size:14px;color:#5B5F68">전국동계체육대회처럼 그룹을 나누지 않고 매긴 순위입니다.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">준결승</span>
+          <p style="margin:0;font-size:14px;color:#5B5F68">결승 전 단계입니다. 조 안에서 매긴 등수라 전체 순위와 다릅니다.</p>
+        </div>
       </div>
     </section>
+
+    <footer style="padding:8px 6px 0;font-size:13px;color:#9BA0AA">
+      공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템
+    </footer>
   </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showFullNames&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;요약&quot;,&quot;정식 명칭&quot;],&quot;default&quot;:&quot;요약&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;대회명 표기&quot;}}">
+const BIRTH = __BIRTH_JS__;
+const RAW = __RAW_JSON__;
+const SEASON_SPAN = __SEASON_SPAN_JSON__;
+const YEAR_RANGE = __YEAR_RANGE_JSON__;
+const MISSING_NOTE = __MISSING_NOTE_JSON__;
+
+function shorten(name){
+  const m = name.match(/^(KB금융그룹\\s*)?(제?\\s*[\\d]+회|\\d{4}\\/\\d{2,4}\\s?시즌|\\d{4})/);
+  if (/전국동계체육대회|동계체전/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 전국동계체육대회";
+  if (/국가대표.*선발|자격대회/.test(name)){
+    const season = name.match(/\\d{4}\\/\\d{2,4}/);
+    const round = name.match(/(\\d)차/);
+    return (season ? season[0] + "시즌 " : "") + "국가대표 " + (round ? round[1] + "차 " : "") + "선발대회";
+  }
+  if (/회장배/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 회장배";
+  if (/국무총리배/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 국무총리배";
+  if (/종별/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 종별종합 선수권";
+  if (/선수권/.test(name)) return name.match(/제\\s?\\d+회/)[0].replace(/\\s/g,"") + " 종합 선수권";
+  if (/유니버시아드/.test(name)) return name.match(/\\d{4}/)[0] + " 유니버시아드 선발전";
+  return m ? name : name;
+}
+
+function badge(rank, semi){
+  const base = "margin-left:auto;flex:none;min-width:46px;text-align:center;font-size:14px;font-weight:700;border-radius:10px;padding:5px 10px;font-variant-numeric:tabular-nums;";
+  if (semi) return base + "background:#F2F4F7;color:#9BA0AA";
+  if (rank === 1) return base + "background:#2E63F6;color:#fff";
+  if (rank <= 3) return base + "background:#E9F0FF;color:#2E63F6";
+  return base + "background:#F2F4F7;color:#5B5F68";
+}
+
+class Component extends DCLogic {
+  state = { dist: 0, goldOnly: false, newestFirst: true };
+
+  renderVals(){
+    const { dist, goldOnly, newestFirst } = this.state;
+    const showFull = (this.props.showFullNames ?? "요약") === "정식 명칭";
+
+    let total = 0, gold = 0;
+    for (const [, comps] of RAW) for (const [, rs] of comps) for (const r of rs){ total++; if (r[1] === 1 && !r[3]) gold++; }
+
+    const yearBest = RAW.map(([year, comps]) => {
+      let best = 99;
+      for (const [, rs] of comps) for (const r of rs) if (!r[3] && r[1] < best) best = r[1];
+      if (best === 99) return null;
+      const w = Math.max((11 - Math.min(best, 10)) / 10 * 100, 6);
+      const isGold = best === 1;
+      const ageText = BIRTH === null ? "-" : (year - BIRTH) + "살";
+      return {
+        yearShort: year,
+        age: ageText,
+        label: best + "등",
+        color: isGold ? "#2E63F6" : "#5B5F68",
+        barStyle: "position:absolute;left:0;top:0;height:20px;border-radius:6px;width:" + w + "%;background:" + (isGold ? "#2E63F6" : best <= 3 ? "#A9C3FA" : "#D3D8E0")
+      };
+    }).filter(Boolean);
+
+    const years = newestFirst ? RAW : RAW.slice().reverse();
+    const groups = [];
+    for (const [year, comps] of years){
+      const outComps = [];
+      let count = 0, golds = 0;
+      for (const [name, rs] of comps){
+        const kept = rs.filter(r => (dist === 0 || r[0] === dist) && (!goldOnly || (r[1] === 1 && !r[3])));
+        if (!kept.length) continue;
+        count += kept.length;
+        golds += kept.filter(r => r[1] === 1 && !r[3]).length;
+        const short = shorten(name);
+        outComps.push({
+          short: showFull ? name : short,
+          full: name,
+          hasFull: !showFull && short !== name,
+          results: kept.map(r => ({
+            dist: r[0] + "m",
+            note: r[3] ? "준결승" : (r[2] === "종합" ? "종합 순위" : r[2] + "그룹 결승"),
+            rankLabel: r[1] + "등",
+            badgeStyle: badge(r[1], r[3])
+          }))
+        });
+      }
+      if (outComps.length) groups.push({
+        year,
+        meta: (BIRTH === null ? "" : (year - BIRTH) + "살 · ") + count + "경기" + (golds ? " · 1등 " + golds : ""),
+        comps: outComps
+      });
+    }
+
+    const chip = (on) => "flex:none;min-height:44px;padding:0 16px;border:0;border-radius:12px;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;"
+      + (on ? "background:#17181C;color:#fff" : "background:#F2F4F7;color:#5B5F68");
+
+    const distChips = [0,500,1000,1500,3000].map(d => ({
+      label: d === 0 ? "전체 종목" : d + "m",
+      style: chip(dist === d),
+      onClick: () => this.setState({dist: d})
+    }));
+
+    return {
+      totalRaces: total + "회",
+      goldCount: gold + "회",
+      seasonSpan: SEASON_SPAN,
+      yearRangeLabel: YEAR_RANGE,
+      missingNote: MISSING_NOTE,
+      yearBest, groups,
+      isEmpty: groups.length === 0,
+      distChips,
+      goldChipStyle: chip(goldOnly),
+      toggleGold: () => this.setState(s => ({goldOnly: !s.goldOnly})),
+      orderLabel: newestFirst ? "최신순" : "오래된순",
+      toggleOrder: () => this.setState(s => ({newestFirst: !s.newestFirst}))
+    };
+  }
+}
+</script>
 </body>
 </html>
 """
+
+    return (
+        template.replace("__NAME__", esc_html(name))
+        .replace("__DESCRIPTION__", esc_html(description))
+        .replace("__SUBTITLE__", esc_html(subtitle))
+        .replace("__BIRTH_JS__", birth_js)
+        .replace("__RAW_JSON__", raw_json)
+        .replace("__SEASON_SPAN_JSON__", json.dumps(season_span, ensure_ascii=False))
+        .replace("__YEAR_RANGE_JSON__", json.dumps(year_range, ensure_ascii=False))
+        .replace("__MISSING_NOTE_JSON__", json.dumps(missing_note, ensure_ascii=False))
+    )
 
 
 def write_athlete_pages(payload):
