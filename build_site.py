@@ -1,10 +1,12 @@
 import json
+import html
 from pathlib import Path
 
 import pandas as pd
 
 DATA_DIR = Path("data")
 SITE_HTML = Path("index.html")
+ATHLETE_DIR = Path("athlete")
 INPUT_FILES = [
     "placements.csv",
     "youth_summary.csv",
@@ -19,6 +21,14 @@ def as_int(value):
     text = str(value or "").strip()
     digits = "".join(ch for ch in text if ch.isdigit())
     return int(digits) if digits else None
+
+
+def as_id(value):
+    return str(value or "").strip()
+
+
+def as_bool(value):
+    return str(value or "").strip().lower() in {"true", "1", "y", "yes", "t"}
 
 
 def read_csv(name):
@@ -44,63 +54,119 @@ def build_payload():
     athlete_info = frames["athlete_info.csv"]
     coverage = frames["coverage.csv"]
 
+    required_id_frames = {
+        "placements.csv": placements,
+        "youth_summary.csv": summary,
+        "age_matrix.csv": matrix,
+        "athlete_info.csv": athlete_info,
+    }
+    for frame_name, frame in required_id_frames.items():
+        if "idNo" not in frame.columns:
+            raise ValueError(f"[error] idNo 컬럼이 없습니다: data/{frame_name}")
+        frame["idNo"] = frame["idNo"].map(as_id)
+
     placements["순위_num"] = placements["순위"].map(as_int)
     placements["대회연도_num"] = placements["대회연도"].map(as_int)
     placements["나이_추정_num"] = placements["나이_추정"].map(as_int)
 
     elem = placements[(placements["학령구간"] == "초등") & placements["순위_num"].notna()].copy()
-    elem_median = elem.groupby("이름")["순위_num"].median().to_dict()
+    elem_median = elem.groupby("idNo")["순위_num"].median().to_dict()
 
-    names = [n for n in matrix["이름"].astype(str).tolist() if n.strip()]
-    for candidate in summary["이름"].astype(str).tolist() + athlete_info["이름"].astype(str).tolist():
-        candidate = candidate.strip()
-        if candidate and candidate not in names:
-            names.append(candidate)
-
-    info_by_name = {}
-    for name, group in athlete_info.groupby("이름", sort=False):
+    info_by_id = {}
+    for id_no, group in athlete_info.groupby("idNo", sort=False):
+        if not id_no:
+            continue
+        names = [v.strip() for v in group.get("이름", pd.Series(dtype=str)).tolist() if str(v).strip()]
         teams = [v.strip() for v in group.get("소속팀", pd.Series(dtype=str)).tolist() if str(v).strip()]
         births = [as_int(v) for v in group.get("출생년도", pd.Series(dtype=str)).tolist() if as_int(v) is not None]
-        info_by_name[name] = {"birth": births[0] if births else None, "team": teams[0] if teams else "-"}
+        info_by_id[id_no] = {
+            "name": names[0] if names else id_no,
+            "birth": births[0] if births else None,
+            "team": teams[0] if teams else "-",
+        }
 
-    summary_by_name = {}
+    summary_by_id = {}
     for _, row in summary.iterrows():
+        id_no = as_id(row.get("idNo", ""))
         name = str(row.get("이름", "")).strip()
-        if not name:
+        if not id_no:
             continue
-        summary_by_name[name] = {
+        summary_by_id[id_no] = {
+            "name": name,
             "first": as_int(row.get("최초_출전나이")),
             "elemBest": as_int(row.get("초등부_최고순위")),
             "elemWorst": as_int(row.get("초등부_최저순위")),
             "elemCount": as_int(row.get("초등부_출전수")) or 0,
         }
 
-    matrix_by_name = {}
+    matrix_by_id = {}
     for _, row in matrix.iterrows():
+        id_no = as_id(row.get("idNo", ""))
         name = str(row.get("이름", "")).strip()
-        if not name:
+        if not id_no:
             continue
-        matrix_by_name[name] = {age: as_int(row.get(age, "")) for age in AGES}
+        matrix_by_id[id_no] = {"name": name, "ages": {age: as_int(row.get(age, "")) for age in AGES}}
+
+    primary_ids = [v for v in athlete_info["idNo"].astype(str).map(as_id).tolist() if v]
+    ids = []
+    for candidate in primary_ids:
+        if candidate not in ids:
+            ids.append(candidate)
+    if not ids:
+        for candidate in summary["idNo"].astype(str).map(as_id).tolist():
+            if candidate and candidate not in ids:
+                ids.append(candidate)
+        for candidate in matrix["idNo"].astype(str).map(as_id).tolist():
+            if candidate and candidate not in ids:
+                ids.append(candidate)
+        for candidate in placements["idNo"].astype(str).map(as_id).tolist():
+            if candidate and candidate not in ids:
+                ids.append(candidate)
+
+    history_by_id = {}
+    for _, row in placements.iterrows():
+        id_no = as_id(row.get("idNo", ""))
+        rank = as_int(row.get("순위"))
+        if not id_no or rank is None:
+            continue
+        history_by_id.setdefault(id_no, []).append(
+            {
+                "year": as_int(row.get("대회연도")),
+                "age": as_int(row.get("나이_추정")),
+                "meet": str(row.get("대회명", "")).strip() or "-",
+                "distance": as_int(row.get("거리")),
+                "sf": as_bool(row.get("SF여부", "")),
+                "rank": rank,
+                "round": str(row.get("결승구분", "")).strip() or str(row.get("라운드종류", "")).strip() or "-",
+            }
+        )
 
     athletes = []
-    for name in names:
-        s = summary_by_name.get(name, {})
-        info = info_by_name.get(name, {"birth": None, "team": "-"})
-        median = elem_median.get(name)
+    for id_no in ids:
+        s = summary_by_id.get(id_no, {})
+        info = info_by_id.get(id_no, {"name": id_no, "birth": None, "team": "-"})
+        m = matrix_by_id.get(id_no, {})
+        name = info.get("name") or s.get("name") or m.get("name") or id_no
+        median = elem_median.get(id_no)
         median_value = float(median) if median is not None else None
+        history = history_by_id.get(id_no, [])
+        history = sorted(history, key=lambda x: (x.get("year") is None, -(x.get("year") or 0), x.get("meet", ""), x.get("distance") or 0, x.get("rank") or 9999))
         athletes.append(
             {
+                "idNo": id_no,
+                "url": f"athlete/{id_no}/",
                 "name": name,
                 "birth": info["birth"],
                 "team": info["team"],
                 "first": s.get("first"),
-                "ages": matrix_by_name.get(name, {age: None for age in AGES}),
+                "ages": m.get("ages", {age: None for age in AGES}),
                 "elem": {
                     "best": s.get("elemBest"),
                     "median": median_value,
                     "worst": s.get("elemWorst"),
                     "count": s.get("elemCount", 0),
                 },
+                "history": history,
             }
         )
 
@@ -207,6 +273,7 @@ def build_html(payload):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>국가대표 14명의 유년기 기록</title>
+<meta name="description" content="쇼트트랙 국가대표 선수 14명의 유년기 순위 데이터를 정리한 페이지입니다. 선수별 상세 페이지로 이동해 나이별 성적과 전체 대회 이력을 볼 수 있습니다.">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 body{margin:0;background:#F3F5F8;-webkit-font-smoothing:antialiased;text-wrap:pretty}
@@ -239,6 +306,8 @@ h2{margin:0 0 6px;font-size:20px;font-weight:800;letter-spacing:-0.02em}
 .age-card{background:#FAFBFC;border-radius:16px;padding:14px 14px 10px}
 .age-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:2px}
 .age-name{font-size:16px;font-weight:700;letter-spacing:-0.01em}
+.athlete-link{color:inherit;text-decoration:none}
+.athlete-link:hover{text-decoration:underline}
 .age-birth{font-size:12.5px;color:#9BA0AA}
 .age-summary{font-size:12.5px;color:#2E63F6;font-weight:600;margin-bottom:4px}
 .age-axis{display:flex;justify-content:space-between;font-size:11.5px;color:#A9AEB8;padding:0 2px}
@@ -260,7 +329,10 @@ h2{margin:0 0 6px;font-size:20px;font-weight:800;letter-spacing:-0.02em}
 .detail-toggle:hover{background:#FAFBFC}
 .detail-name{font-size:16px;font-weight:700}
 .detail-meta{font-size:13px;color:#8A8F99}
-.detail-state{margin-left:auto;font-size:13px;color:#2E63F6;font-weight:600}
+.detail-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+.detail-link{font-size:13px;color:#2E63F6;font-weight:600;text-decoration:none}
+.detail-link:hover{text-decoration:underline}
+.detail-state{font-size:13px;color:#2E63F6;font-weight:600}
 .detail-body{padding:2px 0 18px;display:flex;flex-direction:column;gap:1px}
 .detail-span{font-size:13px;color:#8A8F99;padding:0 2px 8px}
 .detail-year{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;background:#FAFBFC}
@@ -425,7 +497,7 @@ function renderAgeCards(){
     card.className="age-card";
     card.innerHTML=`
       <div class="age-head">
-        <b class="age-name">${esc(a.name)}</b>
+        <b class="age-name"><a class="athlete-link" href="${esc(a.url)}">${esc(a.name)}</a></b>
         <span class="age-birth">${a.birth?`${esc(a.birth)}년생`:"출생년도 미상"}</span>
       </div>
       <div class="age-summary">${esc(summary)}</div>
@@ -471,7 +543,7 @@ function renderElemRows(){
     row.innerHTML=`
       <div class="elem-row-head">
         <span class="elem-rank">${index+1}</span>
-        <b class="elem-name">${esc(a.name)}</b>
+        <b class="elem-name"><a class="athlete-link" href="${esc(a.url)}">${esc(a.name)}</a></b>
         <span class="elem-count">${e.count??0}번 출전</span>
         <span class="elem-summary">최고 ${best}등 · 보통 ${formatMedian(e.median)}등 · 최저 ${worst}등</span>
       </div>
@@ -527,7 +599,10 @@ function renderDetailList(){
       <div class="detail-toggle" data-name="${esc(a.name)}">
         <b class="detail-name">${esc(a.name)}</b>
         <span class="detail-meta">${esc(a.team)} · 첫 대회 ${firstLabel}</span>
-        <span class="detail-state">${isOpen?"접기":"펼치기"}</span>
+        <span class="detail-actions">
+          <a class="detail-link" href="${esc(a.url)}" onclick="event.stopPropagation()">개별 페이지</a>
+          <span class="detail-state">${isOpen?"접기":"펼치기"}</span>
+        </span>
       </div>
       ${bodyHtml}
     `;
@@ -566,16 +641,123 @@ renderDetailList();
     )
 
 
+def esc_html(value):
+    return html.escape(str(value or ""), quote=True)
+
+
+def build_athlete_html(athlete):
+    name = athlete.get("name") or athlete.get("idNo") or "선수"
+    birth = athlete.get("birth")
+    team = athlete.get("team") or "-"
+    description = f"{name} 선수의 출생년도, 소속, 나이별 성적, 전체 대회 이력을 정리한 페이지입니다."
+    age_rows = []
+    for age in [int(v) for v in AGES]:
+        rank = athlete.get("ages", {}).get(str(age))
+        rank_text = f"{rank}등" if rank is not None else "-"
+        age_rows.append(f"<tr><td>{age}살</td><td>{esc_html(rank_text)}</td></tr>")
+
+    history = athlete.get("history", [])
+    if history:
+        history_rows = []
+        for item in history:
+            year_text = f"{item['year']}년" if item.get("year") is not None else "-"
+            age_text = f"{item['age']}살" if item.get("age") is not None else "-"
+            distance_text = f"{item['distance']}m" if item.get("distance") is not None else "-"
+            sf_text = "S.F" if item.get("sf") else "-"
+            rank_text = f"{item.get('rank')}등" if item.get("rank") is not None else "-"
+            history_rows.append(
+                "<tr>"
+                f"<td>{esc_html(year_text)}</td>"
+                f"<td>{esc_html(age_text)}</td>"
+                f"<td>{esc_html(item.get('meet', '-'))}</td>"
+                f"<td>{esc_html(distance_text)}</td>"
+                f"<td>{esc_html(sf_text)}</td>"
+                f"<td>{esc_html(rank_text)}</td>"
+                f"<td>{esc_html(item.get('round', '-'))}</td>"
+                "</tr>"
+            )
+        history_html = "\n".join(history_rows)
+    else:
+        history_html = '<tr><td colspan="7">기록이 없습니다.</td></tr>'
+
+    birth_text = f"{birth}년생" if birth is not None else "출생년도 미상"
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc_html(name)} 선수 기록</title>
+<meta name="description" content="{esc_html(description)}">
+<style>
+body{{margin:0;background:#F3F5F8;font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;color:#17181C;line-height:1.6}}
+.container{{max-width:860px;margin:0 auto;padding:28px 16px 56px}}
+a{{color:#2E63F6;text-decoration:none}}
+a:hover{{text-decoration:underline}}
+.card{{background:#fff;border-radius:18px;padding:22px 18px;margin-top:14px}}
+h1{{margin:8px 0 0;font-size:32px;letter-spacing:-0.02em}}
+h2{{margin:0 0 10px;font-size:21px;letter-spacing:-0.02em}}
+.meta{{margin-top:6px;color:#6B6F78;font-size:15px}}
+table{{width:100%;border-collapse:collapse}}
+th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #ECEFF3;font-size:14px;vertical-align:top}}
+th{{color:#5B5F68;font-weight:700}}
+</style>
+</head>
+<body>
+  <div class="container">
+    <a href="../../">← 메인으로</a>
+    <h1>{esc_html(name)}</h1>
+    <p class="meta">{esc_html(birth_text)} · {esc_html(team)} · idNo {esc_html(athlete.get("idNo", "-"))}</p>
+
+    <section class="card">
+      <h2>나이별 성적</h2>
+      <table>
+        <thead><tr><th>나이</th><th>해당 나이 최고 순위</th></tr></thead>
+        <tbody>
+          {"".join(age_rows)}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>전체 대회 이력</h2>
+      <table>
+        <thead><tr><th>연도</th><th>나이</th><th>대회명</th><th>거리</th><th>SF</th><th>순위</th><th>기준</th></tr></thead>
+        <tbody>
+          {history_html}
+        </tbody>
+      </table>
+    </section>
+  </div>
+</body>
+</html>
+"""
+
+
+def write_athlete_pages(payload):
+    count = 0
+    for athlete in payload.get("athletes", []):
+        id_no = as_id(athlete.get("idNo"))
+        if not id_no:
+            continue
+        path = ATHLETE_DIR / id_no / "index.html"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(build_athlete_html(athlete), encoding="utf-8")
+        count += 1
+    return count
+
+
 def main():
     try:
         payload = build_payload()
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         print(str(exc))
         return
 
     SITE_HTML.parent.mkdir(parents=True, exist_ok=True)
     SITE_HTML.write_text(build_html(payload), encoding="utf-8")
+    athlete_page_count = write_athlete_pages(payload)
     print(f"[ok] 생성 완료: {SITE_HTML}")
+    print(f"[ok] 생성 완료: {ATHLETE_DIR}/{{idNo}}/index.html ({athlete_page_count}개)")
 
 
 if __name__ == "__main__":

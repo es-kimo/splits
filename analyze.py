@@ -108,7 +108,9 @@ def best_placement(df):
             picked["원본행수"] = len(group)
             selected.append(picked)
     if not selected:
-        return pd.DataFrame(columns=["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "SF여부", "순위", "결승구분", "라운드종류", "원본행수", "기록_초"])
+        return pd.DataFrame(
+            columns=["idNo", "이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "SF여부", "순위", "결승구분", "라운드종류", "원본행수", "기록_초"]
+        )
     placements = pd.DataFrame(selected).copy()
     placements["결승구분"] = placements["라운드종류"].map({"결승B": "B", "결승": "A", "채점종합": "종합"})
     placements["순위"] = placements["순위_정수"].astype("Int64")
@@ -116,8 +118,8 @@ def best_placement(df):
     placements.attrs["records_rows"] = len(df)
     placements.attrs["candidate_rows"] = len(candidate)
     placements.attrs["grouped_rows"] = len(placements)
-    cols = ["이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "SF여부", "순위", "결승구분", "라운드종류", "원본행수", "기록_초"]
-    return placements[cols].sort_values(["이름", "대회연도", "대회명", "거리", "SF여부"], na_position="last")
+    cols = ["idNo", "이름", "대회연도", "나이_추정", "학령구간", "대회명", "거리", "SF여부", "순위", "결승구분", "라운드종류", "원본행수", "기록_초"]
+    return placements[cols].sort_values(["이름", "idNo", "대회연도", "대회명", "거리", "SF여부"], na_position="last")
 
 def infer_winter_game_year(meet_name):
     text = str(meet_name or "").strip()
@@ -241,15 +243,23 @@ def build_coverage(clean_df):
     for col in ["대회연도", "기록건수", "고유선수수", "고유대회수"]:
         coverage[col] = coverage[col].astype("Int64")
     return coverage
-def build_age_matrix(placements_df, names):
+def build_age_matrix(placements_df, athlete_df):
     ages = list(range(7, 19))
-    base = placements_df[
-        placements_df["순위"].notna() & placements_df["나이_추정"].notna() & placements_df["나이_추정"].between(7, 18)
-    ].copy()
-    pivot = base.pivot_table(index="이름", columns="나이_추정", values="순위", aggfunc="min")
-    pivot = pivot.reindex(index=sorted(names), columns=ages)
-    matrix = pivot.reset_index()
-    matrix.columns = ["이름"] + [str(age) for age in ages]
+    roster = athlete_df.copy()
+    roster["idNo"] = roster["idNo"].astype(str).str.strip()
+    roster["이름"] = roster["이름"].astype(str).str.strip()
+    roster = roster[(roster["idNo"] != "") & (roster["이름"] != "")][["idNo", "이름"]].drop_duplicates(subset=["idNo"], keep="first")
+    roster = roster.sort_values(["이름", "idNo"])
+
+    base = placements_df[placements_df["순위"].notna() & placements_df["나이_추정"].notna() & placements_df["나이_추정"].between(7, 18)].copy()
+    base["idNo"] = base["idNo"].astype(str).str.strip()
+    base["이름"] = base["이름"].astype(str).str.strip()
+    base = base[(base["idNo"] != "") & (base["이름"] != "")]
+
+    pivot = base.pivot_table(index=["idNo", "이름"], columns="나이_추정", values="순위", aggfunc="min").reindex(columns=ages)
+    matrix = roster.merge(pivot.reset_index(), on=["idNo", "이름"], how="left")
+    matrix = matrix[["idNo", "이름"] + ages]
+    matrix.columns = ["idNo", "이름"] + [str(age) for age in ages]
     for col in [str(age) for age in ages]:
         matrix[col] = matrix[col].apply(lambda x: "" if pd.isna(x) else int(x))
     return matrix
@@ -265,15 +275,24 @@ def build_best_heat_times(clean_df):
     return best[cols].sort_values(["이름", "나이_추정", "거리"], na_position="last")
 def summarize_youth(placements_df, clean_df, athlete_df):
     placement = placements_df.copy()
+    placement["idNo"] = placement["idNo"].astype(str).str.strip()
     athlete_base = athlete_df.copy()
+    athlete_base["idNo"] = athlete_base["idNo"].astype(str).str.strip()
+    athlete_base["이름"] = athlete_base["이름"].astype(str).str.strip()
     athlete_base["출생년도"] = pd.to_numeric(athlete_base["출생년도"], errors="coerce").astype("Int64")
-    athlete_names = {n.strip() for n in athlete_base["이름"].astype(str).tolist() if n and str(n).strip()}
-    birth_map = {name: int(group["출생년도"].iloc[0]) for name, group in athlete_base[athlete_base["출생년도"].notna()].groupby("이름")}
-    record_names = {n.strip() for n in clean_df["이름"].astype(str).tolist() if n and str(n).strip()}
+    athlete_base = athlete_base[(athlete_base["idNo"] != "") & (athlete_base["이름"] != "")][["idNo", "이름", "출생년도"]].drop_duplicates(
+        subset=["idNo"], keep="first"
+    )
+
+    clean = clean_df.copy()
+    clean["idNo"] = clean["idNo"].astype(str).str.strip()
+    clean["이름"] = clean["이름"].astype(str).str.strip()
     rows = []
-    for name in sorted(athlete_names | record_names):
-        person_records = clean_df[clean_df["이름"] == name]
-        person_placements = placement[placement["이름"] == name]
+    for _, athlete_row in athlete_base.sort_values(["이름", "idNo"]).iterrows():
+        id_no = athlete_row["idNo"]
+        name = athlete_row["이름"]
+        person_records = clean[clean["idNo"] == id_no]
+        person_placements = placement[placement["idNo"] == id_no]
         first_year, first_age = None, None
         years = person_records["대회연도"].dropna()
         if not years.empty:
@@ -281,8 +300,7 @@ def summarize_youth(placements_df, clean_df, athlete_df):
             ages = person_records[person_records["대회연도"] == first_year]["나이_추정"].dropna()
             if not ages.empty:
                 first_age = int(ages.min())
-        birth_values = person_records["출생년도"].dropna()
-        birth_year = int(birth_values.iloc[0]) if not birth_values.empty else birth_map.get(name)
+        birth_year = None if pd.isna(athlete_row["출생년도"]) else int(athlete_row["출생년도"])
         sixth_grade_year = birth_year + 12 if birth_year is not None else None
 
         def level_stats(level):
@@ -298,11 +316,30 @@ def summarize_youth(placements_df, clean_df, athlete_df):
         elem_best, elem_worst, elem_count = level_stats("초등")
         mid_best, _, mid_count = level_stats("중등")
         high_best, _, high_count = level_stats("고등")
-        rows.append({"이름": name, "최초_출전연도": first_year, "최초_출전나이": first_age, "초등부_최고순위": elem_best, "초등부_최저순위": elem_worst, "초등부_출전수": elem_count, "중등부_최고순위": mid_best, "중등부_출전수": mid_count, "고등부_최고순위": high_best, "고등부_출전수": high_count, "초등6학년_추정연도": sixth_grade_year, "유년기_데이터신뢰도": youth_data_reliability(sixth_grade_year), "나이10_순위목록": age_ranks(10), "나이12_순위목록": age_ranks(12), "나이14_순위목록": age_ranks(14)})
+        rows.append(
+            {
+                "idNo": id_no,
+                "이름": name,
+                "최초_출전연도": first_year,
+                "최초_출전나이": first_age,
+                "초등부_최고순위": elem_best,
+                "초등부_최저순위": elem_worst,
+                "초등부_출전수": elem_count,
+                "중등부_최고순위": mid_best,
+                "중등부_출전수": mid_count,
+                "고등부_최고순위": high_best,
+                "고등부_출전수": high_count,
+                "초등6학년_추정연도": sixth_grade_year,
+                "유년기_데이터신뢰도": youth_data_reliability(sixth_grade_year),
+                "나이10_순위목록": age_ranks(10),
+                "나이12_순위목록": age_ranks(12),
+                "나이14_순위목록": age_ranks(14),
+            }
+        )
     summary = pd.DataFrame(rows)
     for col in ["최초_출전연도", "최초_출전나이", "초등부_최고순위", "초등부_최저순위", "초등부_출전수", "중등부_최고순위", "중등부_출전수", "고등부_최고순위", "고등부_출전수", "초등6학년_추정연도"]:
         summary[col] = pd.Series(summary[col], dtype="Int64")
-    return summary.sort_values("이름")
+    return summary.sort_values(["이름", "idNo"])
 def print_console(summary_df, placements_df):
     print("주의: 나이_추정은 대회연도-출생년도이며 만 나이보다 최대 1살 높습니다. 동계 대회(1~2월) 집중으로 다수 행에서 체계적으로 +1 편향이 생길 수 있습니다.")
     print("주의: 결승 기록은 전술 영향을 받으므로 성장 추이 분석에 부적합하다. 기록 기반 분석에는 예선(Heat) 기록만 사용할 것. 순위 기반 분석에는 기존대로 채점종합/결승을 사용한다.")
@@ -354,7 +391,7 @@ def main():
     summary_df = summarize_youth(placements_df, clean_df, athlete_df)
     outliers_df, outlier_reason_counts = detect_outliers(clean_df)
     coverage_df = build_coverage(clean_df)
-    age_matrix_df = build_age_matrix(placements_df, summary_df["이름"].astype(str).tolist())
+    age_matrix_df = build_age_matrix(placements_df, athlete_df)
     best_heat_df = build_best_heat_times(clean_df)
     dup_check = placements_df.groupby(["이름", "대회명", "거리", "SF여부"], dropna=False).size().reset_index(name="행수")
     dup_bad = dup_check[dup_check["행수"] >= 2]
