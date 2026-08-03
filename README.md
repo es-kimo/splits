@@ -1,21 +1,8 @@
 # splits
+대한체육회 경기결과 데이터에서 쇼트트랙 선수 이력을 수집·정제해 공개하는 프로젝트입니다.
+선수 식별(idNo) 확정, 대회 기록 수집, 분석 산출물 생성 과정을 단일 파이프라인으로 운영합니다.
+현재 14명 기준 선수별 성적/이력 페이지를 정적 사이트로 제공합니다.
 
-대한체육회 경기결과 사이트(result.sports.or.kr)에서 쇼트트랙 선수 검색과 idNo 후보 확정을 돕는 스크래퍼.
-
-``` 
-pip install -r requirements.txt
-python scrape.py search 남윤창
-python scrape.py probe 남윤창
-python scrape.py resolve
-python scrape.py history
-python analyze.py
-python build_site.py
-python scrape.py search 남윤창 --refresh
-```
-
-- `search`: INF703 선수 검색 결과를 페이지 끝까지 수집해 표로 출력
-- `probe`: 1~5페이지의 행 수/고유 idNo 분포 진단 출력
-- `resolve`: `athletes.py` 목록을 순회해 `data/candidates.csv` 생성
-- `history`: `data/resolved.csv`의 확정 선수들을 INF503에서 1회씩 수집해 `data/records.csv`, `data/athlete_info.csv` 생성
-- `analyze`: `data/records.csv`, `data/athlete_info.csv`를 분석해 `clean_records.csv`, `placements.csv`, `youth_summary.csv`, `outliers.csv`, `coverage.csv`, `age_matrix.csv`, `best_heat_times.csv` 생성
-- `build_site`: `placements.csv`, `youth_summary.csv`, `age_matrix.csv`, `athlete_info.csv`, `coverage.csv`를 읽어 `site/index.html` 생성
+배포 URL: https://es-kimo.github.io/splits/
+실행 방법: `pip install -r requirements.txt && python scrape.py history && python analyze.py && python build_site.py`
+reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/splits/splits/reference/`를 참고하세요.
