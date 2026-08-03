@@ -700,6 +700,20 @@ h2{{margin:0 0 10px;font-size:21px;letter-spacing:-0.02em}}
 table{{width:100%;border-collapse:collapse}}
 th,td{{text-align:left;padding:10px 8px;border-bottom:1px solid #ECEFF3;font-size:14px;vertical-align:top}}
 th{{color:#5B5F68;font-weight:700}}
+.table-wrap{{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}}
+.age-table th,.age-table td{{white-space:nowrap}}
+.record-table{{min-width:700px}}
+.record-table th,.record-table td{{white-space:nowrap}}
+.record-table th:nth-child(3),.record-table td:nth-child(3){{white-space:normal;min-width:220px}}
+@media (max-width:640px){{
+  .container{{padding:20px 12px 44px}}
+  .card{{padding:16px 12px}}
+  h1{{font-size:28px}}
+  h2{{font-size:19px}}
+  .meta{{font-size:14px}}
+  th,td{{padding:9px 6px;font-size:13px}}
+  .record-table{{min-width:620px}}
+}}
 </style>
 </head>
 <body>
@@ -710,22 +724,26 @@ th{{color:#5B5F68;font-weight:700}}
 
     <section class="card">
       <h2>나이별 성적</h2>
-      <table>
-        <thead><tr><th>나이</th><th>해당 나이 최고 순위</th></tr></thead>
-        <tbody>
-          {"".join(age_rows)}
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="age-table">
+          <thead><tr><th>나이</th><th>해당 나이 최고 순위</th></tr></thead>
+          <tbody>
+            {"".join(age_rows)}
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="card">
       <h2>전체 대회 이력</h2>
-      <table>
-        <thead><tr><th>연도</th><th>나이</th><th>대회명</th><th>거리</th><th>SF</th><th>순위</th><th>기준</th></tr></thead>
-        <tbody>
-          {history_html}
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="record-table">
+          <thead><tr><th>연도</th><th>나이</th><th>대회명</th><th>거리</th><th>SF</th><th>순위</th><th>기준</th></tr></thead>
+          <tbody>
+            {history_html}
+          </tbody>
+        </table>
+      </div>
     </section>
   </div>
 </body>
