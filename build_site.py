@@ -773,7 +773,7 @@ def build_athlete_html(athlete):
 
     <section style="background:#fff;border-radius:20px;padding:22px 20px">
       <h2 style="margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:-0.02em">해마다 가장 잘한 등수</h2>
-      <p style="margin:0 0 18px;font-size:14px;color:#6B6F78">막대가 길수록 좋은 성적입니다. 진한 막대는 1등을 한 해예요.</p>
+      <p style="margin:0 0 18px;font-size:14px;color:#6B6F78">막대가 길수록 좋은 성적이에요. 진한 막대는 1등을 한 해예요.</p>
       <div style="display:flex;flex-direction:column;gap:5px">
         <sc-for list="{{ yearBest }}" as="y" hint-placeholder-count="10">
           <div style="display:flex;align-items:center;gap:10px">
@@ -792,7 +792,7 @@ def build_athlete_html(athlete):
     <section style="background:#fff;border-radius:20px;padding:22px 16px 20px">
       <div style="padding:0 4px">
         <h2 style="margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:-0.02em">전체 대회 기록</h2>
-        <p style="margin:0 0 14px;font-size:14px;color:#6B6F78">대회 하나가 카드 하나입니다. 종목별 등수가 오른쪽에 나옵니다.</p>
+        <p style="margin:0 0 14px;font-size:14px;color:#6B6F78">대회 하나가 카드 하나예요. 종목별 등수는 오른쪽에 나와요.</p>
       </div>
 
       <div style="display:flex;gap:6px;overflow-x:auto;padding:0 4px 12px;-webkit-overflow-scrolling:touch">
@@ -844,7 +844,7 @@ def build_athlete_html(athlete):
       <div style="display:flex;flex-direction:column;gap:12px">
         <div style="display:flex;gap:10px;align-items:flex-start">
           <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">A그룹</span>
-          <p style="margin:0;font-size:14px;color:#5B5F68">상위 선수들이 겨루는 결승입니다. 같은 등수라도 A그룹이 더 높은 순위예요.</p>
+          <p style="margin:0;font-size:14px;color:#5B5F68">상위 선수들이 겨루는 결승입니다. 같은 등수라도 A그룹이 더 높은 순위입니다.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:flex-start">
           <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">B그룹</span>
@@ -1037,7 +1037,7 @@ a:hover{color:#1B47C4}
     </div>
     <header style="background:#fff;border-radius:20px;padding:22px 20px 20px;display:flex;flex-direction:column;gap:8px">
       <h1 style="margin:0;font-size:29px;font-weight:800;letter-spacing:-0.03em">전체 선수 목록</h1>
-      <p style="margin:0;font-size:14px;color:#6B6F78">선수를 선택하면 개별 기록 페이지로 이동합니다.</p>
+      <p style="margin:0;font-size:14px;color:#6B6F78">선수를 선택하면 개별 기록 페이지로 이동할 수 있어요.</p>
     </header>
     <section style="background:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:8px">
       __CARDS_HTML__
