@@ -821,9 +821,6 @@ def build_athlete_html(athlete):
                 <div style="background:#FAFBFC;border-radius:16px;padding:14px 14px 12px;display:flex;flex-direction:column;gap:10px">
                   <div style="display:flex;flex-direction:column;gap:3px">
                     <b style="font-size:15px;font-weight:700;letter-spacing:-0.01em;line-height:1.4">{{ c.short }}</b>
-                    <sc-if value="{{ c.hasFull }}" hint-placeholder-val="{{ false }}">
-                      <span style="font-size:12.5px;color:#A9AEB8;line-height:1.45">{{ c.full }}</span>
-                    </sc-if>
                   </div>
                   <div style="display:flex;flex-direction:column;gap:1px">
                     <sc-for list="{{ c.results }}" as="r" hint-placeholder-count="2">
@@ -870,33 +867,12 @@ def build_athlete_html(athlete):
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;showFullNames&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;요약&quot;,&quot;정식 명칭&quot;],&quot;default&quot;:&quot;요약&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;대회명 표기&quot;}}">
+<script type="text/x-dc" data-dc-script>
 const BIRTH = __BIRTH_JS__;
 const RAW = __RAW_JSON__;
 const SEASON_SPAN = __SEASON_SPAN_JSON__;
 const YEAR_RANGE = __YEAR_RANGE_JSON__;
 const MISSING_NOTE = __MISSING_NOTE_JSON__;
-
-function shorten(name){
-  const m = name.match(/^(KB금융그룹\\s*)?(제?\\s*[\\d]+회|\\d{4}\\/\\d{2,4}\\s?시즌|\\d{4})/);
-  const roundMatch = name.match(/제\\s?\\d+회/);
-  const round = roundMatch ? roundMatch[0].replace(/\\s/g,"") : "";
-  if (/전국동계체육대회|동계체전/.test(name)) return round ? round + " 전국동계체육대회" : (m ? m[0] + " 전국동계체육대회" : name);
-  if (/국가대표.*선발|자격대회/.test(name)){
-    const season = name.match(/\\d{4}\\/\\d{2,4}/);
-    const round = name.match(/(\\d)차/);
-    return (season ? season[0] + "시즌 " : "") + "국가대표 " + (round ? round[1] + "차 " : "") + "선발대회";
-  }
-  if (/회장배/.test(name)) return round ? round + " 회장배" : name;
-  if (/국무총리배/.test(name)) return round ? round + " 국무총리배" : name;
-  if (/종별/.test(name)) return round ? round + " 종별종합 선수권" : name;
-  if (/선수권/.test(name)) return round ? round + " 종합 선수권" : name;
-  if (/유니버시아드/.test(name)) {
-    const year = name.match(/\\d{4}/);
-    return year ? year[0] + " 유니버시아드 선발전" : name;
-  }
-  return name;
-}
 
 function badge(rank, semi){
   const base = "margin-left:auto;flex:none;min-width:46px;text-align:center;font-size:14px;font-weight:700;border-radius:10px;padding:5px 10px;font-variant-numeric:tabular-nums;";
@@ -911,7 +887,6 @@ class Component extends DCLogic {
 
   renderVals(){
     const { dist, goldOnly, newestFirst } = this.state;
-    const showFull = (this.props.showFullNames ?? "요약") === "정식 명칭";
 
     let total = 0, gold = 0;
     for (const [, comps] of RAW) for (const [, rs] of comps) for (const r of rs){ total++; if (r[1] === 1 && !r[3]) gold++; }
@@ -942,11 +917,8 @@ class Component extends DCLogic {
         if (!kept.length) continue;
         count += kept.length;
         golds += kept.filter(r => r[1] === 1 && !r[3]).length;
-        const short = shorten(name);
         outComps.push({
-          short: showFull ? name : short,
-          full: name,
-          hasFull: !showFull && short !== name,
+          short: name,
           results: kept.map(r => ({
             dist: r[0] + "m",
             note: r[3] ? "준결승" : (r[2] === "종합" ? "종합 순위" : r[2] + "그룹 결승"),
