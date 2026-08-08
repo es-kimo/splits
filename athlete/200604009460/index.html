@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="../../support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<title>최민정 선수 기록</title>
+<meta name="description" content="최민정 선수의 출생년도, 소속, 나이별 성적, 전체 대회 이력을 정리한 페이지입니다.">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  body{margin:0;background:#F3F5F8;-webkit-font-smoothing:antialiased;text-wrap:pretty}
+  a{color:#2E63F6;text-decoration:none}
+  a:hover{color:#1B47C4}
+  *{box-sizing:border-box}
+</style>
+</helmet>
+
+<div style="font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;color:#17181C;line-height:1.55;background:#F3F5F8;padding-bottom:60px">
+  <div style="max-width:560px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:12px">
+
+    <div style="padding:16px 2px 4px">
+      <a href="../" onclick="if(window.history.length>1){window.history.back();return false;}" style="font-size:14px;font-weight:600;color:#6B6F78">← 전체 선수 목록</a>
+    </div>
+
+    <header style="background:#fff;border-radius:20px;padding:22px 20px 20px;display:flex;flex-direction:column;gap:18px">
+      <div>
+        <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-0.03em">최민정</h1>
+        <p style="margin:5px 0 0;font-size:15px;color:#6B6F78">1998년생 · 성남시청 · 여</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        <div style="background:#F5F7FA;border-radius:14px;padding:12px 12px 11px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em">{{ totalRaces }}</div>
+          <div style="font-size:12.5px;color:#8A8F99;margin-top:1px">전체 경기</div>
+        </div>
+        <div style="background:#E9F0FF;border-radius:14px;padding:12px 12px 11px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;color:#2E63F6">{{ goldCount }}</div>
+          <div style="font-size:12.5px;color:#5B7BD4;margin-top:1px">1등</div>
+        </div>
+        <div style="background:#F5F7FA;border-radius:14px;padding:12px 12px 11px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em">{{ seasonSpan }}</div>
+          <div style="font-size:12.5px;color:#8A8F99;margin-top:1px">{{ yearRangeLabel }}</div>
+        </div>
+      </div>
+    </header>
+
+    <section style="background:#fff;border-radius:20px;padding:22px 20px">
+      <h2 style="margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:-0.02em">해마다 가장 잘한 등수</h2>
+      <p style="margin:0 0 18px;font-size:14px;color:#6B6F78">막대가 길수록 좋은 성적이에요. 진한 막대는 1등을 한 해예요.</p>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <sc-for list="{{ yearBest }}" as="y" hint-placeholder-count="10">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:13px;color:#8A8F99;width:38px;flex:none;font-variant-numeric:tabular-nums">{{ y.yearShort }}</span>
+            <span style="font-size:12px;color:#C6CBD4;width:30px;flex:none">{{ y.age }}</span>
+            <div style="flex:1;height:20px;background:#F2F4F7;border-radius:6px;position:relative">
+              <span style="{{ y.barStyle }}"></span>
+            </div>
+            <span style="font-size:13.5px;font-weight:700;width:34px;text-align:right;flex:none;color:{{ y.color }}">{{ y.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin:16px 0 0;font-size:13px;color:#9BA0AA">{{ missingNote }}</p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:22px 16px 20px">
+      <div style="padding:0 4px">
+        <h2 style="margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:-0.02em">전체 대회 기록</h2>
+        <p style="margin:0 0 14px;font-size:14px;color:#6B6F78">대회 하나가 카드 하나예요. 종목별 등수는 오른쪽에 나와요.</p>
+      </div>
+
+      <div style="display:flex;gap:6px;overflow-x:auto;padding:0 4px 12px;-webkit-overflow-scrolling:touch">
+        <sc-for list="{{ distChips }}" as="c" hint-placeholder-count="5">
+          <button type="button" onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button>
+        </sc-for>
+      </div>
+      <div style="display:flex;gap:6px;padding:0 4px 16px">
+        <button type="button" onClick="{{ toggleGold }}" style="{{ goldChipStyle }}">1등만 보기</button>
+        <button type="button" onClick="{{ toggleOrder }}" style="flex:none;min-height:44px;padding:0 16px;border:0;border-radius:12px;background:#F2F4F7;color:#5B5F68;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="background:#E9ECF1">{{ orderLabel }}</button>
+      </div>
+
+      <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:36px 12px;text-align:center;font-size:14.5px;color:#8A8F99">조건에 맞는 기록이 없습니다.</div>
+      </sc-if>
+
+      <div style="display:flex;flex-direction:column;gap:22px">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="4">
+          <div>
+            <div style="position:sticky;top:0;z-index:2;background:#fff;padding:6px 4px 10px;display:flex;align-items:baseline;gap:8px">
+              <b style="font-size:17px;font-weight:800;letter-spacing:-0.02em">{{ g.year }}년</b>
+              <span style="font-size:13px;color:#9BA0AA">{{ g.meta }}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ g.comps }}" as="c" hint-placeholder-count="3">
+                <div style="background:#FAFBFC;border-radius:16px;padding:14px 14px 12px;display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;flex-direction:column;gap:3px">
+                    <b style="font-size:15px;font-weight:700;letter-spacing:-0.01em;line-height:1.4">{{ c.short }}</b>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:1px">
+                    <sc-for list="{{ c.results }}" as="r" hint-placeholder-count="2">
+                      <div style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-top:1px solid #F0F2F5">
+                        <span style="font-size:14.5px;font-weight:600;color:#3A3D45;width:62px;flex:none;font-variant-numeric:tabular-nums">{{ r.dist }}</span>
+                        <span style="font-size:12.5px;color:#A9AEB8">{{ r.note }}</span>
+                        <span style="{{ r.badgeStyle }}">{{ r.rankLabel }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:22px 20px">
+      <h2 style="margin:0 0 14px;font-size:18px;font-weight:800;letter-spacing:-0.02em">용어 안내</h2>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">A그룹</span>
+          <p style="margin:0;font-size:14px;color:#5B5F68">상위 선수들이 겨루는 결승입니다. 같은 등수라도 A그룹이 더 높은 순위입니다.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">B그룹</span>
+          <p style="margin:0;font-size:14px;color:#5B5F68">A그룹에 들지 못한 선수들의 결승입니다.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">종합</span>
+          <p style="margin:0;font-size:14px;color:#5B5F68">전국동계체육대회처럼 그룹을 나누지 않고 매긴 순위입니다.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="flex:none;min-width:46px;text-align:center;font-size:12px;font-weight:700;color:#5B5F68;background:#F2F4F7;border-radius:8px;padding:4px 8px">준결승</span>
+          <p style="margin:0;font-size:14px;color:#5B5F68">결승 전 단계입니다. 조 안에서 매긴 등수라 전체 순위와 다릅니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer style="padding:8px 6px 0;font-size:13px;color:#9BA0AA">
+      공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템
+    </footer>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const BIRTH = 1998;
+const RAW = [[2026,[["2026/27시즌 쇼트트랙 국가대표 1차 선발대회",[[500,1,"A"],[1000,1,"A"],[1500,3,"A"]]],["KB금융그룹 제41회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회 겸 2026/27시즌 쇼트트랙 국가대표 2차 선발대회",[[500,1,"A"],[1000,1,"A"],[1500,1,"A"]]],["제107회 전국동계체육대회",[[500,1,"종합"]]]]],[2024,[["2024/25시즌 쇼트트랙 국가대표 1차 선발대회",[[500,3,"A"],[1000,1,"A"],[1500,5,"A"]]],["KB금융그룹 제39회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회 겸 2024/25시즌 쇼트트랙 국가대표 2차 선발대회",[[500,1,"A"],[1000,1,"A"],[1500,5,"A"]]],["제105회 전국동계체육대회",[[500,1,"종합"],[1500,1,"종합"]]]]],[2023,[["제2회 국무총리배 전국남녀 쇼트트랙스피드스케이팅 대회",[[1500,3,"A"]]],["제39회 회장배 전국남녀 쇼트트랙스피드스케이팅 대회",[[500,1,"A"],[1500,2,"A"]]]]],[2022,[["2023 제31회 레이크플래시드 동계세계대학경기대회 파견선수 선발대회",[[500,1,"A"],[1000,1,"A"],[1500,1,"A"]]]]],[2021,[["2021 루체른 동계유니버시아드 파견선수 선발대회",[[500,1,"A"],[1500,1,"A"],[1500,2,"A",1]]],["2021/22시즌 1차 쇼트트랙 국가대표 선발대회",[[500,3,"A"],[1000,2,"A"],[1500,2,"A"],[1500,1,"A",1]]],["KB금융그룹 제36회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회 겸 2021/22 2차 쇼트트랙 국가대표  선발대회",[[500,1,"B"],[1000,5,"A"],[1500,2,"A"],[1500,1,"A",1]]],["제35회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",[[500,1,"A"],[1000,1,"A"],[1500,5,"A"],[3000,2,"A",1]]],["제36회 회장배 전국남녀 쇼트트랙스피드스케이팅대회",[[1000,3,"A"]]]]],[2020,[["제101회 전국동계체육대회",[[500,8,"종합"]]],["제37회 전국남녀 쇼트트랙스피드스케이팅대회",[[1500,1,"A"],[3000,1,"A"]]]]],[2019,[["제100회 전국동계체육대회",[[1500,1,"종합"]]]]],[2017,[["2017/2018시즌 쇼트트랙 국가대표 1차 선발대회",[[500,1,"A"],[1000,1,"A"],[1500,1,"A"],[1500,1,"A",1]]],["KB금융그룹 제32회 전국남녀 종합 쇼트트랙 스피드스케이팅 선수권대회 겸",[[500,1,"A"],[1000,1,"A"],[1500,1,"A"],[1500,1,"A",1]]]]],[2014,[["2013 전국남녀 주니어 쇼트트랙 스피드 스케이팅 선수권대회 겸 2014 세계주니어선수권대회 파견선수 선발전",[[500,1,"A"],[1000,1,"A"],[1500,1,"A"],[1500,1,"A",1]]],["제29회 전국남녀 종합 쇼트트랙 스피드스케이팅 선수권대회 겸 2014/2015 쇼트트랙 국가대표선발 2차 대회",[[500,1,"A"],[1000,3,"A"],[1500,2,"A"],[3000,2,"A",1]]],["제95회 전국동계체육대회",[[500,1,"종합"],[3000,1,"종합"]]]]],[2013,[["제29회 회장배 전국남녀 쇼트트랙 스피드스케이팅대회",[[500,1,"A"],[1500,2,"A"]]],["제30회 전국남녀 쇼트트랙 스피드스케이팅대회",[[500,1,"A"],[3000,1,"A"]]],["제94회 전국동계체육대회",[[500,1,"종합"],[1500,1,"종합"]]]]],[2012,[["제26회 전국남녀 학생종별종합 쇼트트랙 선수권대회",[[1000,3,"A"],[3000,2,"A",1]]],["제28회 회장배 전국남녀 쇼트트랙스피드스케이팅대회",[[500,1,"A"],[1000,1,"A"]]],["제29회 전국남녀 쇼트트랙 스피드스케이팅대회",[[1000,1,"A"],[1500,1,"A"]]],["제93회 전국동계체전",[[1500,2,"종합"],[3000,1,"종합"]]]]],[2011,[["제 92회 전국동계체육대회",[[1500,2,"종합"],[2000,2,"종합"]]]]],[2010,[["제91회 전국 동계체육대회",[[1000,13,"종합"],[1500,8,"종합"]]]]],[2009,[["제90회동계체전",[[1500,5,"종합"],[2000,3,"종합"]]]]],[2007,[["제88회 전국동계체육대회",[[500,9,"종합"],[1000,22,"종합"]]]]]];
+const SEASON_SPAN = "20년";
+const YEAR_RANGE = "2007~2026년";
+const MISSING_NOTE = "9살(2007년) 이전 기록은 시스템에 남아 있지 않습니다. 대회에 나가지 않았다는 뜻은 아닙니다.";
+
+function badge(rank, semi){
+  const base = "margin-left:auto;flex:none;min-width:46px;text-align:center;font-size:14px;font-weight:700;border-radius:10px;padding:5px 10px;font-variant-numeric:tabular-nums;";
+  if (semi) return base + "background:#F2F4F7;color:#9BA0AA";
+  if (rank === 1) return base + "background:#2E63F6;color:#fff";
+  if (rank <= 3) return base + "background:#E9F0FF;color:#2E63F6";
+  return base + "background:#F2F4F7;color:#5B5F68";
+}
+
+class Component extends DCLogic {
+  state = { dist: 0, goldOnly: false, newestFirst: true };
+
+  renderVals(){
+    const { dist, goldOnly, newestFirst } = this.state;
+
+    let total = 0, gold = 0;
+    for (const [, comps] of RAW) for (const [, rs] of comps) for (const r of rs){ total++; if (r[1] === 1 && !r[3]) gold++; }
+
+    const yearBest = RAW.map(([year, comps]) => {
+      let best = 99;
+      for (const [, rs] of comps) for (const r of rs) if (!r[3] && r[1] < best) best = r[1];
+      if (best === 99) return null;
+      const w = Math.max((11 - Math.min(best, 10)) / 10 * 100, 6);
+      const isGold = best === 1;
+      const ageText = BIRTH === null ? "-" : (year - BIRTH) + "살";
+      return {
+        yearShort: year,
+        age: ageText,
+        label: best + "등",
+        color: isGold ? "#2E63F6" : "#5B5F68",
+        barStyle: "position:absolute;left:0;top:0;height:20px;border-radius:6px;width:" + w + "%;background:" + (isGold ? "#2E63F6" : best <= 3 ? "#A9C3FA" : "#D3D8E0")
+      };
+    }).filter(Boolean);
+
+    const years = newestFirst ? RAW : RAW.slice().reverse();
+    const groups = [];
+    for (const [year, comps] of years){
+      const outComps = [];
+      let count = 0, golds = 0;
+      for (const [name, rs] of comps){
+        const kept = rs.filter(r => (dist === 0 || r[0] === dist) && (!goldOnly || (r[1] === 1 && !r[3])));
+        if (!kept.length) continue;
+        count += kept.length;
+        golds += kept.filter(r => r[1] === 1 && !r[3]).length;
+        outComps.push({
+          short: name,
+          results: kept.map(r => ({
+            dist: r[0] + "m",
+            note: r[3] ? "준결승" : (r[2] === "종합" ? "종합 순위" : r[2] + "그룹 결승"),
+            rankLabel: r[1] + "등",
+            badgeStyle: badge(r[1], r[3])
+          }))
+        });
+      }
+      if (outComps.length) groups.push({
+        year,
+        meta: (BIRTH === null ? "" : (year - BIRTH) + "살 · ") + count + "경기" + (golds ? " · 1등 " + golds : ""),
+        comps: outComps
+      });
+    }
+
+    const chip = (on) => "flex:none;min-height:44px;padding:0 16px;border:0;border-radius:12px;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;"
+      + (on ? "background:#17181C;color:#fff" : "background:#F2F4F7;color:#5B5F68");
+
+    const distChips = [0,500,1000,1500,3000].map(d => ({
+      label: d === 0 ? "전체 종목" : d + "m",
+      style: chip(dist === d),
+      onClick: () => this.setState({dist: d})
+    }));
+
+    return {
+      totalRaces: total + "회",
+      goldCount: gold + "회",
+      seasonSpan: SEASON_SPAN,
+      yearRangeLabel: YEAR_RANGE,
+      missingNote: MISSING_NOTE,
+      yearBest, groups,
+      isEmpty: groups.length === 0,
+      distChips,
+      goldChipStyle: chip(goldOnly),
+      toggleGold: () => this.setState(s => ({goldOnly: !s.goldOnly})),
+      orderLabel: newestFirst ? "최신순" : "오래된순",
+      toggleOrder: () => this.setState(s => ({newestFirst: !s.newestFirst}))
+    };
+  }
+}
+</script>
+</body>
+</html>
