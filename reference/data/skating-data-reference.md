@@ -42,6 +42,10 @@
 | `INF702.do` | 팀 검색                          | **미탐색**                            |
 | `INF703.do` | 선수 검색                        | idNo가 `<tr onclick>` 에, 10건/페이지 |
 | `INF503.do` | 선수 대회참가이력                | **페이지네이션 없음**, 전체 반환      |
+| `INF201.do` | 일정/결과 목록                   | `<tr onclick="fnEventInfo(classCd,toCd)">` |
+| `INF202.do` | 대회 상세/세부종목 목록          | `fnEventSchedule(kindCd,detailClassCd)`로 이동 |
+| `INF301.do` | 세부종목 일정/결과 허브          | `fnEventResult(...)` 호출점              |
+| `INF310.do` | 경기결과                         | 선수명 링크 `fnViewHistory(idNo)`에서 idNo 추출 가능 |
 | `INF501.do` | 팀 기록 (`fnTeamRecord(teamCd)`) | **미탐색 — 확장의 핵심**              |
 
 ### HTML에서 발견됐으나 미탐색
@@ -49,8 +53,6 @@
 | 화면        | 추정 용도                                             |
 | ----------- | ----------------------------------------------------- |
 | `INF101.do` | 참가신청                                              |
-| `INF201.do` | 일정/결과 목록                                        |
-| `INF202.do` | 대회 상세 (`fnEventInfo(classCd, toCd, searchAppYn)`) |
 | `INF308.do` | 경기영상 (`movSeq` 파라미터와 연관 추정)              |
 | `INF601.do` | 모바일 검색                                           |
 | `INF100.do` | 개인정보처리방침                                      |
@@ -449,13 +451,17 @@ INF503 검증: pageIndex 1/2/3 응답이 바이트 단위로 동일(311,604 byte
 
 **A. 대회 결과에서 역으로 수집 (가장 유망)**
 
-`INF201` (일정/결과) → `INF202` (대회 상세) → 참가자 전원.
-모든 대회를 순회하면 그 대회에 출전한 모든 선수가 나온다.
+`INF201` (일정/결과) → `INF202` (대회 상세) → `INF301` (세부종목 일정/결과) → `INF310` (경기결과) 경로에서
+선수 링크 `fnViewHistory(idNo)`를 모으면 참가자 idNo를 역수집할 수 있다.
+모든 대회를 순회하면 그 대회에 출전한 선수 집합을 누적할 수 있다.
 경기 기록이 있는 선수는 반드시 어떤 대회에든 나타나므로
 이론상 전수 수집이 가능하다.
 
-→ `INF202` 의 `classCd`, `toCd` 파라미터 구조를 먼저 까야 한다.
-`fnEventInfo(classCd, toCd, searchAppYn)` 시그니처는 이미 확보.
+실측 기준 `INF201` 목록 행의 시그니처는 `fnEventInfo(classCd, toCd)` 2인자였다.
+`searchAppYn`은 hidden input으로 폼에 존재하지만, 목록 행 onclick에는 직접 실리지 않았다.
+또한 `INF302` 참가선수명단은 완료 대회에서 비어 있는 케이스가 있어, 완료 대회 기준으로는 `INF310` 경로가 더 안정적이었다.
+
+검증 예시: `classCd=2`, `toCd=202514413` 대회 1건에서 고유 `idNo` 238개 추출.
 
 **B. 팀 → 소속 선수**
 
@@ -489,7 +495,7 @@ INF503 검증: pageIndex 1/2/3 응답이 바이트 단위로 동일(311,604 byte
 
 ## 10. 미해결 질문
 
-- `classCd`, `toCd` 의 값 체계 (대회 식별)
+- `classCd`, `toCd` 의 숫자 체계 의미(값은 추출 가능하나 코드 체계 의미는 미해석)
 - `movSeq` 와 경기영상(`INF308`)의 구조
 - `INF501` (팀 기록) 응답 구조
 - `INF702` (팀 검색) 응답 구조
