@@ -6,3 +6,21 @@
 배포 URL: https://es-kimo.github.io/splits/
 실행 방법: `pip install -r requirements.txt && python scrape.py history && python analyze.py && python build_site.py`
 reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/splits/splits/reference/`를 참고하세요.
+
+## 검색엔진 색인 파일
+- `python build_site.py` 실행 시 루트에 `sitemap.xml`, `robots.txt`가 함께 생성됩니다.
+- sitemap 포함 URL:
+  - `https://es-kimo.github.io/splits/`
+  - `https://es-kimo.github.io/splits/athlete/`
+  - `https://es-kimo.github.io/splits/athlete/{idNo}/`
+
+## 검색엔진 등록 절차
+1. Google Search Console
+   - 속성: `https://es-kimo.github.io/splits/`
+   - 사이트맵 제출: `https://es-kimo.github.io/splits/sitemap.xml`
+2. 네이버 서치어드바이저
+   - 사이트 등록: `https://es-kimo.github.io/splits/`
+   - 사이트맵 제출: `https://es-kimo.github.io/splits/sitemap.xml`
+3. 완료 체크
+   - 두 콘솔에서 사이트맵 제출 상태가 성공인지 확인
+   - 주요 URL에 대해 색인 요청(또는 수집 요청) 실행

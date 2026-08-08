@@ -7,6 +7,9 @@ import pandas as pd
 DATA_DIR = Path("data")
 SITE_HTML = Path("index.html")
 ATHLETE_DIR = Path("athlete")
+SITEMAP_XML = Path("sitemap.xml")
+ROBOTS_TXT = Path("robots.txt")
+SITE_BASE_URL = "https://es-kimo.github.io/splits/"
 INPUT_FILES = [
     "placements.csv",
     "youth_summary.csv",
@@ -29,6 +32,10 @@ def as_id(value):
 
 def as_bool(value):
     return str(value or "").strip().lower() in {"true", "1", "y", "yes", "t"}
+
+
+def site_url(path=""):
+    return f"{SITE_BASE_URL.rstrip('/')}/{str(path or '').lstrip('/')}"
 
 
 def read_csv(name):
@@ -1069,6 +1076,42 @@ def write_athlete_pages(payload):
     return count
 
 
+def sitemap_urls(payload):
+    urls = [site_url(""), site_url("athlete/")]
+    seen = set(urls)
+    for athlete in payload.get("athletes", []):
+        id_no = as_id(athlete.get("idNo"))
+        if not id_no:
+            continue
+        url = site_url(f"athlete/{id_no}/")
+        if url in seen:
+            continue
+        urls.append(url)
+        seen.add(url)
+    return urls
+
+
+def write_sitemap(payload):
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for url in sitemap_urls(payload):
+        lines.append(f"  <url><loc>{html.escape(url, quote=True)}</loc></url>")
+    lines.append("</urlset>")
+    SITEMAP_XML.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return SITEMAP_XML
+
+
+def write_robots():
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "",
+        f"Sitemap: {site_url('sitemap.xml')}",
+        "",
+    ]
+    ROBOTS_TXT.write_text("\n".join(lines), encoding="utf-8")
+    return ROBOTS_TXT
+
+
 def main():
     try:
         payload = build_payload()
@@ -1080,9 +1123,13 @@ def main():
     SITE_HTML.write_text(build_html(payload), encoding="utf-8")
     athlete_index_path = write_athlete_index(payload)
     athlete_page_count = write_athlete_pages(payload)
+    sitemap_path = write_sitemap(payload)
+    robots_path = write_robots()
     print(f"[ok] 생성 완료: {SITE_HTML}")
     print(f"[ok] 생성 완료: {athlete_index_path}")
     print(f"[ok] 생성 완료: {ATHLETE_DIR}/{{idNo}}/index.html ({athlete_page_count}개)")
+    print(f"[ok] 생성 완료: {sitemap_path}")
+    print(f"[ok] 생성 완료: {robots_path}")
 
 
 if __name__ == "__main__":
