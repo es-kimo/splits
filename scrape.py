@@ -15,6 +15,7 @@ CANDIDATES_CSV = pathlib.Path("data/candidates.csv")
 RESOLVED_CSV = pathlib.Path("data/resolved.csv")
 RECORDS_CSV = pathlib.Path("data/records.csv")
 ATHLETE_INFO_CSV = pathlib.Path("data/athlete_info.csv")
+ATHLETE_INDEX_CSV = pathlib.Path("data/athlete_index.csv")
 SESSION = requests.Session()
 HEADERS = {"Content-Type": "application/x-www-form-urlencoded"}
 IDNO_RE = re.compile(r'fnPlayerHistory\(\s*["\']?(\d{6,})')
@@ -25,6 +26,13 @@ DOTTED_DATE_RE = re.compile(r"^((?:19|20)\d{2})\.(0[1-9]|1[0-2])\.([0-2]\d|3[01]
 BIRTH_YEAR_RE = re.compile(r"((?:19|20)\d{2})")
 TEAM_CODE_RE = re.compile(r"^(.*?)\s*\(([^()]*)\)\s*$")
 AFFILIATION_ALIAS_MAP = {"한국체대": "한국체육대학교", "단국대": "단국대학교", "경희대": "경희대학교", "고려대": "고려대학교", "용인대": "용인대학교", "경희사이버대": "경희사이버대학교"}
+SURNAME_KEYWORDS = [
+    "김", "이", "박", "최", "정", "강", "조", "윤", "장", "임", "한", "오", "서", "신", "권", "황", "안", "송", "류", "홍",
+    "전", "고", "문", "양", "손", "배", "백", "허", "남", "심", "노", "하", "곽", "성", "차", "주", "우", "구", "민", "유",
+    "나", "진", "지", "엄", "채", "원", "천", "방", "공", "현", "함", "변", "염", "여", "추", "도", "소", "석", "선", "설",
+    "마", "길", "위", "표", "명", "기", "반", "왕", "금", "옥", "육", "인", "맹", "제", "모", "장곡", "탁", "국", "어", "은",
+    "편", "용", "예", "경", "부", "황보", "남궁", "제갈", "사공", "선우", "독고", "동방", "서문", "어금", "망절", "탄", "풍", "빙", "교", "후",
+]
 def _payload(name="", page=1, id_no=""):
     return {"classCd": "", "toCd": "", "pclassCd": "SK", "eventCd": "", "movSeq": "", "teamCd": "", "idNo": id_no, "pageIndex": str(page), "searchKeyword": name}
 def _search_cache_path(name, page):
@@ -213,6 +221,120 @@ def group_by_idno(rows):
     for value in grouped.values():
         result.append({"이름": value["이름"], "idNo": value["idNo"], "id체계": "date" if value["idNo"][:2] in ("19", "20") else "other", "행수": value["행수"], "소속목록": sorted(value["소속목록"]), "종별목록": sorted(value["종별목록"]), "성별목록": sorted(value["성별목록"])})
     return sorted(result, key=lambda x: (-x["행수"], x["idNo"]))
+def _probe_empty_keyword(refresh=False):
+    rows = parse_rows(fetch_search_page("", 1, refresh=refresh))
+    print(f"[A] 빈 검색어 page1: {len(rows)}행 / 고유id {len({r['idNo'] for r in rows if r['idNo']})}개")
+    return rows
+def _probe_partial_match(refresh=False):
+    counts = {}
+    for kw in ["남", "남윤", "남윤창"]:
+        rows = parse_rows(fetch_search_page(kw, 1, refresh=refresh))
+        counts[kw] = len({r["idNo"] for r in rows if r["idNo"]})
+        print(f"[B] {kw}: page1 고유id {counts[kw]}개")
+    return counts
+def _aggregate_index_rows(rows, route):
+    by_id = {}
+    seen = set()
+    for row in rows:
+        id_no = str(row.get("idNo", "")).strip()
+        if not id_no:
+            continue
+        aff = str(row.get("소속", "")).strip()
+        cat = str(row.get("종별", "")).strip()
+        key = (id_no, aff, cat)
+        if key in seen:
+            continue
+        seen.add(key)
+        if id_no not in by_id:
+            by_id[id_no] = {"idNo": id_no, "이름": str(row.get("이름", "")).strip(), "성별": set(), "소속목록": set(), "종별목록": set(), "행수": 0, "수집경로": route}
+        item = by_id[id_no]
+        name = str(row.get("이름", "")).strip()
+        if not item["이름"] and name:
+            item["이름"] = name
+        gender = str(row.get("성별", "")).strip()
+        if gender:
+            item["성별"].add(gender)
+        if aff:
+            item["소속목록"].add(aff)
+        if cat:
+            item["종별목록"].add(cat)
+        item["행수"] += 1
+    out = []
+    for item in by_id.values():
+        out.append({"idNo": item["idNo"], "이름": item["이름"], "성별": " | ".join(sorted(item["성별"])), "소속목록": " | ".join(sorted(item["소속목록"])), "종별목록": " | ".join(sorted(item["종별목록"])), "행수": item["행수"], "수집경로": item["수집경로"]})
+    return sorted(out, key=lambda r: r["idNo"])
+def _write_athlete_index(rows):
+    ATHLETE_INDEX_CSV.parent.mkdir(parents=True, exist_ok=True)
+    with ATHLETE_INDEX_CSV.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=["idNo", "이름", "성별", "소속목록", "종별목록", "행수", "수집경로"])
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"저장 완료: {ATHLETE_INDEX_CSV} ({len(rows)}명)")
+def _resolved_targets():
+    if not RESOLVED_CSV.exists():
+        print(f"[warn] {RESOLVED_CSV} 없음: 국가대표 14명 대조를 건너뜁니다.")
+        return None
+    out = {}
+    with RESOLVED_CSV.open("r", newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            id_no = str(row.get("idNo", "")).strip()
+            if id_no:
+                out[id_no] = str(row.get("이름", "")).strip()
+    return out
+def enumerate_athletes(refresh=False, max_pages=2000, surname_limit=100, target_ids=2000):
+    route = None
+    collected_rows = []
+    resolved_targets = _resolved_targets()
+    resolved_required = set(resolved_targets.keys()) if resolved_targets is not None else None
+    empty_rows = _probe_empty_keyword(refresh=refresh)
+    if len(empty_rows) == 10:
+        route = "A"
+        print("[route] A 사용: 빈 검색어 페이지네이션 수집")
+        collected_rows = search_all_pages("", max_pages=max_pages, refresh=refresh)
+    else:
+        print("[route] A 실패: B 판정 진행")
+        counts = _probe_partial_match(refresh=refresh)
+        if counts["남"] > counts["남윤창"]:
+            route = "C"
+            print("[route] C 사용: 성씨 완전 탐색(부분 일치)")
+            queue = SURNAME_KEYWORDS[: max(1, surname_limit)]
+            processed = []
+            while queue:
+                kw = queue.pop(0)
+                processed.append(kw)
+                rows = search_all_pages(kw, max_pages=max_pages, refresh=refresh)
+                collected_rows.extend(rows)
+                current_id_set = {r["idNo"] for r in collected_rows if r.get("idNo")}
+                missing_required = sorted(id_no for id_no in (resolved_required or set()) if id_no not in current_id_set)
+                print(f"[C] {len(processed)}개 키워드 처리 ({kw}): 누적 고유id {len(current_id_set)}개 / required-missing {len(missing_required)}개")
+                if len(current_id_set) >= target_ids and not missing_required:
+                    print(f"[C] target_ids={target_ids} 및 required id 커버 달성, 성씨 탐색 조기 종료")
+                    break
+                if not queue and missing_required and resolved_targets is not None:
+                    extra = []
+                    for id_no in missing_required:
+                        name = resolved_targets.get(id_no, "")
+                        if not name:
+                            continue
+                        surname = name[0]
+                        if surname and surname not in processed and surname not in queue and surname not in extra:
+                            extra.append(surname)
+                    if extra:
+                        print(f"[C] required 미포함 보완 성씨 추가: {', '.join(extra)}")
+                        queue.extend(extra)
+        else:
+            raise RuntimeError("B 결과가 부분 일치로 판정되지 않아 D/E 경로가 필요합니다. 현재 구현은 C 경로까지만 자동화되어 있습니다.")
+    index_rows = _aggregate_index_rows(collected_rows, route)
+    _write_athlete_index(index_rows)
+    unique_ids = len(index_rows)
+    print(f"고유 idNo: {unique_ids}개")
+    if unique_ids < target_ids:
+        print(f"[warn] 목표 미달: {unique_ids} < {target_ids}")
+    if resolved_required is not None:
+        missing = sorted(id_no for id_no in resolved_required if id_no not in {r['idNo'] for r in index_rows})
+        print(f"국가대표 resolved 대조: {len(resolved_required) - len(missing)}/{len(resolved_required)} 포함")
+        if missing:
+            print(f"[warn] 미포함 idNo: {', '.join(missing)}")
 def _expand_affiliation_aliases(raw_aliases):
     expanded = []
     for alias in raw_aliases:
@@ -384,6 +506,11 @@ def _print_usage():
     print("       python scrape.py resolve [--refresh]")
     print("       python scrape.py probe <이름> [--refresh]")
     print("       python scrape.py history [--refresh]")
+    print("       python scrape.py enumerate [--refresh] [--max-pages=N] [--surname-limit=N] [--target-ids=N]")
+def _read_int_option(option, prefix, default):
+    if option.startswith(prefix):
+        return int(option.split("=", 1)[1])
+    return default
 def main():
     raw_args = sys.argv[1:]
     refresh = "--refresh" in raw_args
@@ -402,6 +529,23 @@ def main():
         return
     if args[0] == "history":
         collect_all(refresh=refresh)
+        return
+    if args[0] == "enumerate":
+        max_pages, surname_limit, target_ids = 2000, 100, 2000
+        for opt in args[1:]:
+            if opt.startswith("--max-pages="):
+                max_pages = _read_int_option(opt, "--max-pages=", max_pages)
+                continue
+            if opt.startswith("--surname-limit="):
+                surname_limit = _read_int_option(opt, "--surname-limit=", surname_limit)
+                continue
+            if opt.startswith("--target-ids="):
+                target_ids = _read_int_option(opt, "--target-ids=", target_ids)
+                continue
+            print(f"[error] 알 수 없는 옵션: {opt}")
+            _print_usage()
+            return
+        enumerate_athletes(refresh=refresh, max_pages=max_pages, surname_limit=surname_limit, target_ids=target_ids)
         return
     _print_usage()
 if __name__ == "__main__":
