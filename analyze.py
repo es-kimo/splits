@@ -9,6 +9,8 @@ import pandas as pd
 DATA_DIR = pathlib.Path("data")
 RECORDS_CSV = DATA_DIR / "records.csv"
 ATHLETE_INFO_CSV = DATA_DIR / "athlete_info.csv"
+RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
+ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
 ATHLETE_INDEX_CSV = DATA_DIR / "athlete_index.csv"
 ATHLETE_INDEX_ENV = "SPLITS_ATHLETE_INDEX_CSV"
 CLEAN_RECORDS_CSV = DATA_DIR / "clean_records.csv"
@@ -908,6 +910,22 @@ def build_athlete_profiles(athlete_df):
     return profile
 
 
+def select_stats_source(records_merged_df, athlete_merged_df, id_merge_map):
+    stats_records = records_merged_df
+    stats_athlete = athlete_merged_df
+    source_label = f"{RECORDS_CSV.name}, {ATHLETE_INFO_CSV.name}"
+    if RECORDS_FULL_CSV.exists() and ATHLETE_INFO_FULL_CSV.exists():
+        full_records_df = pd.read_csv(RECORDS_FULL_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+        full_athlete_df = pd.read_csv(ATHLETE_INFO_FULL_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+        stats_records = apply_id_remap(full_records_df, id_merge_map, id_col="idNo")
+        stats_athlete = apply_id_remap(full_athlete_df, id_merge_map, id_col="idNo")
+        source_label = f"{RECORDS_FULL_CSV.name}, {ATHLETE_INFO_FULL_CSV.name}"
+    stats_clean = build_clean_records(stats_records, stats_athlete)
+    stats_placements = best_placement(stats_clean)
+    stats_summary = summarize_youth(stats_placements, stats_clean, stats_athlete)
+    return stats_clean, stats_placements, stats_summary, stats_athlete, source_label
+
+
 def _to_group_key_frame(df, id_col="idNo"):
     key_df = df.copy()
     key_df[id_col] = key_df[id_col].astype(str).str.strip()
@@ -1136,8 +1154,11 @@ def main():
     coverage_df = build_coverage(clean_df)
     age_matrix_df = build_age_matrix(placements_df, athlete_merged_df)
     best_heat_df = build_best_heat_times(clean_df)
-    stats_distribution_df = build_stats_distribution(clean_df, placements_df, athlete_merged_df)
-    stats_participation_df = build_stats_participation(summary_df, athlete_merged_df)
+    stats_clean_df, stats_placements_df, stats_summary_df, stats_athlete_df, stats_source_label = select_stats_source(
+        records_merged_df, athlete_merged_df, id_merge_map
+    )
+    stats_distribution_df = build_stats_distribution(stats_clean_df, stats_placements_df, stats_athlete_df)
+    stats_participation_df = build_stats_participation(stats_summary_df, stats_athlete_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     dup_check = placements_df.groupby(["이름", "대회명", "거리", "SF여부"], dropna=False).size().reset_index(name="행수")
     dup_bad = dup_check[dup_check["행수"] >= 2]
@@ -1188,5 +1209,6 @@ def main():
     print(f"id 병합 review 건수: {review_count}건")
     print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
     print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
+    print(f"익명 통계 입력 소스: {stats_source_label}")
 if __name__ == "__main__":
     main()
