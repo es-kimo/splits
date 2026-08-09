@@ -178,7 +178,7 @@ const detailRows = athletes.map((athlete) => ({
               <b class="detail-name">{athlete.name}</b>
               <span class="detail-meta">{athlete.team} · 첫 대회 {athlete.first ? `${athlete.first}살` : "-"}</span>
               <span class="detail-actions">
-                <a class="detail-link" href={athlete.url} onclick="event.stopPropagation()">개별 페이지</a>
+                <a class="detail-link" href={athlete.url} onclick="event.stopPropagation()" style="text-decoration:none">개별 페이지</a>
                 <span class="detail-state">펼치기</span>
               </span>
             </div>
@@ -286,7 +286,7 @@ const detailRows = athletes.map((athlete) => ({
             <b class="detail-name">${esc(athlete.name)}</b>
             <span class="detail-meta">${esc(athlete.team)} · 첫 대회 ${firstLabel}</span>
             <span class="detail-actions">
-              <a class="detail-link" href="${esc(athlete.url)}" onclick="event.stopPropagation()">개별 페이지</a>
+              <a class="detail-link" href="${esc(athlete.url)}" onclick="event.stopPropagation()" style="text-decoration:none">개별 페이지</a>
               <span class="detail-state">${isOpen ? "접기" : "펼치기"}</span>
             </span>
           </div>
@@ -607,7 +607,12 @@ const detailRows = athletes.map((athlete) => ({
       text-decoration: none;
     }
     :global(.detail-link:hover) {
-      text-decoration: underline;
+      text-decoration: none;
+    }
+    :global(.detail-link:focus),
+    :global(.detail-link:active),
+    :global(.detail-link:visited) {
+      text-decoration: none;
     }
     :global(.detail-state) {
       font-size: 13px;
