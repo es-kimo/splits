@@ -27,42 +27,54 @@ const RANK_POINTS = [
 ] as const;
 
 export default function DistributionTool(props: Props) {
-  const firstRow = props.rows[0];
-  const [birthYear, setBirthYear] = useState<number | null>(firstRow?.birthYear ?? null);
-  const [gender, setGender] = useState(firstRow?.gender ?? "");
-  const [schoolLevel, setSchoolLevel] = useState(firstRow?.schoolLevel ?? "");
-  const [distance, setDistance] = useState<number | null>(firstRow?.distance ?? null);
+  const defaultRow = props.rows.find((row) => !row.insufficient) ?? props.rows[0];
+  const [birthYear, setBirthYear] = useState<number | null>(defaultRow?.birthYear ?? null);
+  const [gender, setGender] = useState(defaultRow?.gender ?? "");
+  const [schoolLevel, setSchoolLevel] = useState(defaultRow?.schoolLevel ?? "");
+  const [distance, setDistance] = useState<number | null>(defaultRow?.distance ?? null);
   const [mode, setMode] = useState<InputMode>("record");
   const [inputValue, setInputValue] = useState("");
+  const [includeInsufficient, setIncludeInsufficient] = useState(false);
 
-  const availableBirthYears = props.filters.birthYears;
+  const preferredRows = useMemo(() => {
+    const sufficientRows = props.rows.filter((row) => !row.insufficient);
+    if (includeInsufficient || !sufficientRows.length) return props.rows;
+    return sufficientRows;
+  }, [includeInsufficient, props.rows]);
+
+  const availableBirthYears = useMemo(
+    () => props.filters.birthYears.filter((item) => preferredRows.some((row) => row.birthYear === item)),
+    [preferredRows, props.filters.birthYears],
+  );
   const availableGenders = useMemo(
     () =>
       props.filters.genders.filter((item) =>
-        props.rows.some((row) => row.birthYear === birthYear && row.gender === item),
+        preferredRows.some((row) => row.birthYear === birthYear && row.gender === item),
       ),
-    [birthYear, props.filters.genders, props.rows],
+    [birthYear, props.filters.genders, preferredRows],
   );
   const availableSchoolLevels = useMemo(
     () =>
       props.filters.schoolLevels.filter((item) =>
-        props.rows.some((row) => row.birthYear === birthYear && row.gender === gender && row.schoolLevel === item),
+        preferredRows.some((row) => row.birthYear === birthYear && row.gender === gender && row.schoolLevel === item),
       ),
-    [birthYear, gender, props.filters.schoolLevels, props.rows],
+    [birthYear, gender, props.filters.schoolLevels, preferredRows],
   );
   const availableDistances = useMemo(
     () =>
       props.filters.distances.filter((item) =>
-        props.rows.some(
+        preferredRows.some(
           (row) =>
             row.birthYear === birthYear && row.gender === gender && row.schoolLevel === schoolLevel && row.distance === item,
         ),
       ),
-    [birthYear, gender, schoolLevel, props.filters.distances, props.rows],
+    [birthYear, gender, schoolLevel, props.filters.distances, preferredRows],
   );
 
   useEffect(() => {
-    if (birthYear === null && availableBirthYears.length) setBirthYear(availableBirthYears[0]);
+    if (availableBirthYears.length && (birthYear === null || !availableBirthYears.includes(birthYear))) {
+      setBirthYear(availableBirthYears[0]);
+    }
   }, [availableBirthYears, birthYear]);
   useEffect(() => {
     if (availableGenders.length && !availableGenders.includes(gender)) setGender(availableGenders[0]);
@@ -75,6 +87,18 @@ export default function DistributionTool(props: Props) {
       setDistance(availableDistances[0]);
     }
   }, [availableDistances, distance]);
+  useEffect(() => {
+    const currentExists = preferredRows.some(
+      (row) =>
+        row.birthYear === birthYear && row.gender === gender && row.schoolLevel === schoolLevel && row.distance === distance,
+    );
+    if (currentExists || !preferredRows.length) return;
+    const next = preferredRows[0];
+    setBirthYear(next.birthYear);
+    setGender(next.gender);
+    setSchoolLevel(next.schoolLevel);
+    setDistance(next.distance);
+  }, [birthYear, distance, gender, preferredRows, schoolLevel]);
 
   const selectedRow = useMemo(() => {
     if (birthYear === null || distance === null || !gender || !schoolLevel) return undefined;
@@ -83,13 +107,18 @@ export default function DistributionTool(props: Props) {
         row.birthYear === birthYear && row.gender === gender && row.schoolLevel === schoolLevel && row.distance === distance,
     );
   }, [birthYear, distance, gender, schoolLevel, props.rows]);
+  const alternativeHint = useMemo(() => {
+    if (!selectedRow || !selectedRow.insufficient) return "";
+    return buildAlternativeHint(selectedRow, props.rows);
+  }, [selectedRow, props.rows]);
+  const sufficientCount = useMemo(() => props.rows.filter((row) => !row.insufficient).length, [props.rows]);
 
   const calcResult = useMemo<CalcResult>(() => {
     if (!selectedRow) {
       return { status: "missing", message: "선택한 조건의 분포가 없습니다." };
     }
     if (selectedRow.insufficient) {
-      return { status: "insufficient", message: props.insufficientText };
+      return { status: "insufficient", message: props.insufficientText + " (해당 조건은 집계 인원이 부족합니다.)" };
     }
     const normalizedInput = inputValue.trim();
     if (!normalizedInput) {
@@ -124,6 +153,12 @@ export default function DistributionTool(props: Props) {
       <p style={helperTextStyle}>
         입력값은 브라우저 안에서만 계산해요. 서버로 전송하거나 저장하지 않습니다.
       </p>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+        <p style={helperTextStyle}>조회 가능 조합 {sufficientCount}개 / 전체 {props.rows.length}개</p>
+        <button type="button" onClick={() => setIncludeInsufficient((prev) => !prev)} style={chipStyle(includeInsufficient)}>
+          데이터 부족 구간 보기 {includeInsufficient ? "켜짐" : "꺼짐"}
+        </button>
+      </div>
       <div style={gridStyle}>
         <SelectBox label="출생연도" value={String(birthYear ?? "")} onChange={(v) => setBirthYear(Number(v) || null)}>
           {availableBirthYears.map((item) => (
@@ -189,6 +224,7 @@ export default function DistributionTool(props: Props) {
           </p>
         )}
       </article>
+      {calcResult.status === "insufficient" && alternativeHint && <p style={helperTextStyle}>{alternativeHint}</p>}
       {selectedRow && !selectedRow.insufficient && (
         <p style={helperTextStyle}>
           {mode === "record"
@@ -270,6 +306,29 @@ function formatRank(value: number | null): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function buildAlternativeHint(target: PeerDistributionRow, rows: PeerDistributionRow[]): string {
+  const sameCoreRows = rows.filter(
+    (row) =>
+      !row.insufficient && row.birthYear === target.birthYear && row.gender === target.gender && row.distance === target.distance,
+  );
+  if (sameCoreRows.length) {
+    const levels = uniqueValues(sameCoreRows.map((row) => row.schoolLevel)).slice(0, 4);
+    return `같은 출생연도·성별·거리에서 조회 가능한 학령구간: ${levels.join(", ")}`;
+  }
+  const sameYearGender = rows.filter(
+    (row) => !row.insufficient && row.birthYear === target.birthYear && row.gender === target.gender,
+  );
+  if (sameYearGender.length) {
+    const combos = uniqueValues(sameYearGender.map((row) => `${row.schoolLevel} ${row.distance}m`)).slice(0, 4);
+    return `같은 출생연도·성별에서 조회 가능한 조합: ${combos.join(" / ")}`;
+  }
+  return "같은 조건에서 조회 가능한 집계가 없어 다른 출생연도 또는 학령구간으로 바꿔 보세요.";
+}
+
+function uniqueValues(values: string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 function SelectBox(props: {
