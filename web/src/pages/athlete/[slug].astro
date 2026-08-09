@@ -1,4 +1,5 @@
 ---
+import Trajectory from "../../components/Trajectory.astro";
 import Base from "../../layouts/Base.astro";
 import { withBase } from "../../lib/base";
 import { loadAthletesDoc, loadMetaDoc } from "../../lib/data";
@@ -13,6 +14,7 @@ export function getStaticPaths() {
 }
 
 const { athlete } = Astro.props as { athlete: Athlete };
+const { ages } = loadAthletesDoc();
 const meta = loadMetaDoc();
 
 const totalRaces = athlete.history.length;
@@ -23,6 +25,13 @@ const maxYear = years.length > 0 ? Math.max(...years) : null;
 const seasonSpan = minYear !== null && maxYear !== null ? `${maxYear - minYear + 1}년` : "-";
 const yearRange = minYear !== null && maxYear !== null ? `${minYear}~${maxYear}년` : "기간 정보 없음";
 const subtitle = `${athlete.birth ?? "출생년도 미상"}${athlete.birth ? "년생" : ""} · ${athlete.team}${athlete.gender ? ` · ${athlete.gender}` : ""}`;
+const ageMin = ages[0] ?? 7;
+const ageMid = ages[Math.floor(ages.length / 2)] ?? 12;
+const ageMax = ages[ages.length - 1] ?? 18;
+const birthText = athlete.birth !== null ? `${athlete.birth}년생` : "출생연도 미상";
+const pageTitle = `${athlete.name} 경기 기록 — splits`;
+const pageDescription = `${athlete.name}(${birthText}, ${athlete.team}) 쇼트트랙 경기 기록`;
+const canonicalUrl = `https://es-kimo.github.io/splits/athlete/${athlete.slug}/`;
 
 const missingNote =
   athlete.birth !== null && minYear !== null
@@ -88,8 +97,9 @@ const yearCards = [...groupedYears.values()]
 ---
 
 <Base
-  title={`${athlete.name} 선수 기록`}
-  description={`${athlete.name} 선수의 출생년도, 소속, 나이별 성적, 전체 대회 이력을 정리한 페이지입니다.`}
+  title={pageTitle}
+  description={pageDescription}
+  canonical={canonicalUrl}
   generatedAt={meta.generatedAt}
   contentWidth="narrow"
   contentLineHeight="compact"
@@ -108,6 +118,18 @@ const yearCards = [...groupedYears.values()]
       <div><div class="metric-main">{seasonSpan}</div><div class="metric-sub">{yearRange}</div></div>
     </div>
   </header>
+
+  <section class="card">
+    <h2>나이별 성적 궤적</h2>
+    <p class="section-note">메인 페이지에서 쓰는 같은 그래프로, 나이별 최고 성적 흐름을 보여줘요.</p>
+    <div class="trajectory-wrap">
+      <Trajectory ages={ages} ageRanks={athlete.ages} />
+    </div>
+    <div class="age-axis">
+      <span>{ageMin}살</span><span>{ageMid}살</span><span>{ageMax}살</span>
+    </div>
+    <p class="hint">비어 있는 구간은 해당 나이의 기록이 시스템에 없다는 뜻이에요.</p>
+  </section>
 
   <section class="card">
     <h2>해마다 가장 잘한 등수</h2>
@@ -256,6 +278,19 @@ const yearCards = [...groupedYears.values()]
       margin: 0 0 14px;
       font-size: 14px;
       color: #6b6f78;
+    }
+    .trajectory-wrap {
+      background: #fafbfc;
+      border-radius: 14px;
+      padding: 10px 10px 8px;
+    }
+    .age-axis {
+      margin-top: 6px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: #a0a5af;
+      padding: 0 4px;
     }
     .year-best {
       display: flex;

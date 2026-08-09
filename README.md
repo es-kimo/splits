@@ -20,8 +20,12 @@ reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/sp
 - sitemap 포함 URL:
   - `https://es-kimo.github.io/splits/`
   - `https://es-kimo.github.io/splits/athlete/`
+  - `https://es-kimo.github.io/splits/distribution/`
+  - `https://es-kimo.github.io/splits/meet/`
+  - `https://es-kimo.github.io/splits/meet/{slug}/`
   - `https://es-kimo.github.io/splits/athlete/{slug}/`
   - `https://es-kimo.github.io/splits/privacy/`
+- `athlete/{slug}/`는 `data/public_figures.csv`에서 `상태=active`인 명단만 포함합니다.
 
 ## 검색엔진 등록 절차
 1. Google Search Console
