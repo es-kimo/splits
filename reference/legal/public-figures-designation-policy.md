@@ -37,7 +37,7 @@
 본인 요청이 확인되면 지정 근거와 무관하게 요청을 우선합니다.
 
 1. `data/public_figures.csv`에서 대상 선수 `상태=removed` 처리
-2. `python build_site.py` 재생성으로 공개 페이지/목록/사이트맵 제외
+2. `python build_data.py && python build_site.py` 재생성으로 공개 페이지/목록/사이트맵 제외
 3. 검색엔진 색인 삭제 요청 진행
 
 ## 5. 운영 메모

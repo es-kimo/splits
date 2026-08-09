@@ -1,0 +1,19 @@
+{
+  "athleteCount": 14,
+  "placementCount": 1642,
+  "yearStart": 2007,
+  "yearEnd": 2026,
+  "yearSpan": 19,
+  "ageMin": 7,
+  "ageMax": 25,
+  "elemTop2Count": 13,
+  "elemWorstBand": "30등대",
+  "firstAgeMin": 7,
+  "firstAgeMax": 16,
+  "missingElemNames": [
+    "노아름"
+  ],
+  "generatedAt": "2026-08-09",
+  "publicFigureCount": 14,
+  "activeFigureCount": 14
+}

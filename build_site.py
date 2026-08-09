@@ -1,12 +1,9 @@
 import json
 import html
-import re
 import shutil
 from pathlib import Path
 
-import pandas as pd
-
-DATA_DIR = Path("data")
+SITE_DATA_DIR = Path("site/data")
 SITE_HTML = Path("index.html")
 ATHLETE_DIR = Path("athlete")
 PRIVACY_DIR = Path("privacy")
@@ -15,285 +12,73 @@ ROBOTS_TXT = Path("robots.txt")
 SITE_BASE_URL = "https://es-kimo.github.io/splits/"
 PRIVACY_CONTACT_NAME = "운영자 예시 (es-kimo)"
 PRIVACY_CONTACT_EMAIL = "privacy@example.com"
-INPUT_FILES = [
-    "placements.csv",
-    "youth_summary.csv",
-    "age_matrix.csv",
-    "athlete_info.csv",
-    "coverage.csv",
-    "public_figures.csv",
+ATHLETES_JSON = SITE_DATA_DIR / "athletes.json"
+MEETS_JSON = SITE_DATA_DIR / "meets.json"
+DISTRIBUTION_JSON = SITE_DATA_DIR / "distribution.json"
+META_JSON = SITE_DATA_DIR / "meta.json"
+REQUIRED_META_KEYS = [
+    "athleteCount",
+    "placementCount",
+    "yearStart",
+    "yearEnd",
+    "yearSpan",
+    "ageMin",
+    "ageMax",
+    "elemTop2Count",
+    "elemWorstBand",
+    "firstAgeMin",
+    "firstAgeMax",
+    "missingElemNames",
 ]
-AGES = [str(age) for age in range(7, 19)]
-PUBLIC_FIGURES_REQUIRED_COLUMNS = ["idNo", "이름", "슬러그", "출생연도", "지정근거", "언론보도URL", "지정일자", "상태"]
-PUBLIC_FIGURES_ALLOWED_STATUS = {"active", "removed"}
-SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-
-
-def as_int(value):
-    text = str(value or "").strip()
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return int(digits) if digits else None
 
 
 def as_id(value):
     return str(value or "").strip()
 
 
-def as_bool(value):
-    return str(value or "").strip().lower() in {"true", "1", "y", "yes", "t"}
-
-
 def site_url(path=""):
     return f"{SITE_BASE_URL.rstrip('/')}/{str(path or '').lstrip('/')}"
 
 
-def read_csv(name):
-    path = DATA_DIR / name
+def read_json(path):
     if not path.exists():
         raise FileNotFoundError(f"[error] 파일이 없습니다: {path}")
-    return pd.read_csv(path, dtype=str, encoding="utf-8-sig").fillna("")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"[error] JSON 파싱 실패: {path} ({exc.msg})") from exc
 
 
-def rank_band_text(rank):
-    if rank is None:
-        return "-"
-    if rank < 10:
-        return "한 자리수"
-    return f"{(rank // 10) * 10}등대"
+def require_keys(mapping, keys, label):
+    missing = [key for key in keys if key not in mapping]
+    if missing:
+        raise ValueError(f"[error] {label} 필수 키가 없습니다: {', '.join(missing)}")
 
 
-def parse_public_figures(frame):
-    missing_columns = [column for column in PUBLIC_FIGURES_REQUIRED_COLUMNS if column not in frame.columns]
-    if missing_columns:
-        missing_text = ", ".join(missing_columns)
-        raise ValueError(f"[error] data/public_figures.csv 필수 컬럼이 없습니다: {missing_text}")
+def build_payload_from_contract():
+    athletes_doc = read_json(ATHLETES_JSON)
+    meets_doc = read_json(MEETS_JSON)
+    distribution_doc = read_json(DISTRIBUTION_JSON)
+    meta = read_json(META_JSON)
+    if not isinstance(athletes_doc, dict):
+        raise ValueError(f"[error] JSON 타입이 올바르지 않습니다: {ATHLETES_JSON} (object 필요)")
+    if not isinstance(meta, dict):
+        raise ValueError(f"[error] JSON 타입이 올바르지 않습니다: {META_JSON} (object 필요)")
+    if not isinstance(meets_doc, dict):
+        raise ValueError(f"[error] JSON 타입이 올바르지 않습니다: {MEETS_JSON} (object 필요)")
+    if not isinstance(distribution_doc, dict):
+        raise ValueError(f"[error] JSON 타입이 올바르지 않습니다: {DISTRIBUTION_JSON} (object 필요)")
 
-    rows = []
-    seen_ids = set()
-    seen_slugs = set()
-    for idx, row in frame.iterrows():
-        row_no = idx + 2
-        id_no = as_id(row.get("idNo", ""))
-        name = str(row.get("이름", "")).strip()
-        slug = str(row.get("슬러그", "")).strip().lower()
-        birth = as_int(row.get("출생연도", ""))
-        reason = str(row.get("지정근거", "")).strip()
-        media_url = str(row.get("언론보도URL", "")).strip()
-        designated_at = str(row.get("지정일자", "")).strip()
-        status = str(row.get("상태", "")).strip().lower()
+    require_keys(athletes_doc, ["ages", "athletes"], "site/data/athletes.json")
+    require_keys(meta, REQUIRED_META_KEYS, "site/data/meta.json")
 
-        if not id_no:
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 idNo 값이 비어 있습니다.")
-        if not name:
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 이름 값이 비어 있습니다.")
-        if not slug:
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 슬러그 값이 비어 있습니다.")
-        if not SLUG_RE.fullmatch(slug):
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 슬러그 형식이 올바르지 않습니다: {slug}")
-        if birth is None:
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 출생연도 값이 올바르지 않습니다.")
-        if not reason:
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 지정근거 값이 비어 있습니다.")
-        if not media_url or not media_url.startswith(("http://", "https://")):
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 언론보도URL 값이 올바르지 않습니다.")
-        if not designated_at:
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 지정일자 값이 비어 있습니다.")
-        if status not in PUBLIC_FIGURES_ALLOWED_STATUS:
-            raise ValueError(f"[error] data/public_figures.csv {row_no}행 상태 값이 올바르지 않습니다: {status}")
-        if id_no in seen_ids:
-            raise ValueError(f"[error] data/public_figures.csv idNo 중복이 있습니다: {id_no}")
-        if slug in seen_slugs:
-            raise ValueError(f"[error] data/public_figures.csv 슬러그 중복이 있습니다: {slug}")
-
-        seen_ids.add(id_no)
-        seen_slugs.add(slug)
-        rows.append(
-            {
-                "idNo": id_no,
-                "name": name,
-                "slug": slug,
-                "birth": birth,
-                "designationReason": reason,
-                "mediaReportUrl": media_url,
-                "designatedAt": designated_at,
-                "status": status,
-            }
-        )
-
-    if not rows:
-        raise ValueError("[error] data/public_figures.csv에 명단 행이 없습니다.")
-    return rows
-
-
-def build_payload():
-    frames = {name: read_csv(name) for name in INPUT_FILES}
-    placements = frames["placements.csv"]
-    summary = frames["youth_summary.csv"]
-    matrix = frames["age_matrix.csv"]
-    athlete_info = frames["athlete_info.csv"]
-    coverage = frames["coverage.csv"]
-    public_figures = parse_public_figures(frames["public_figures.csv"])
-    active_figures = [item for item in public_figures if item["status"] == "active"]
-    if not active_figures:
-        raise ValueError("[error] data/public_figures.csv에 active 상태 선수가 없습니다.")
-    active_ids = [item["idNo"] for item in active_figures]
-    active_id_set = set(active_ids)
-    public_by_id = {item["idNo"]: item for item in public_figures}
-
-    required_id_frames = {
-        "placements.csv": placements,
-        "youth_summary.csv": summary,
-        "age_matrix.csv": matrix,
-        "athlete_info.csv": athlete_info,
-    }
-    for frame_name, frame in required_id_frames.items():
-        if "idNo" not in frame.columns:
-            raise ValueError(f"[error] idNo 컬럼이 없습니다: data/{frame_name}")
-        frame["idNo"] = frame["idNo"].map(as_id)
-
-    placements["순위_num"] = placements["순위"].map(as_int)
-    placements["대회연도_num"] = placements["대회연도"].map(as_int)
-    placements["나이_추정_num"] = placements["나이_추정"].map(as_int)
-    placements_target = placements[placements["idNo"].isin(active_id_set)].copy()
-
-    elem = placements_target[(placements_target["학령구간"] == "초등") & placements_target["순위_num"].notna()].copy()
-    elem_median = elem.groupby("idNo")["순위_num"].median().to_dict()
-
-    info_by_id = {}
-    for id_no, group in athlete_info.groupby("idNo", sort=False):
-        if not id_no:
-            continue
-        names = [v.strip() for v in group.get("이름", pd.Series(dtype=str)).tolist() if str(v).strip()]
-        teams = [v.strip() for v in group.get("소속팀", pd.Series(dtype=str)).tolist() if str(v).strip()]
-        genders = [v.strip() for v in group.get("성별", pd.Series(dtype=str)).tolist() if str(v).strip()]
-        births = [as_int(v) for v in group.get("출생년도", pd.Series(dtype=str)).tolist() if as_int(v) is not None]
-        info_by_id[id_no] = {
-            "name": names[0] if names else id_no,
-            "birth": births[0] if births else None,
-            "team": teams[0] if teams else "-",
-            "gender": genders[0] if genders else None,
-        }
-
-    summary_by_id = {}
-    for _, row in summary.iterrows():
-        id_no = as_id(row.get("idNo", ""))
-        name = str(row.get("이름", "")).strip()
-        if not id_no:
-            continue
-        summary_by_id[id_no] = {
-            "name": name,
-            "first": as_int(row.get("최초_출전나이")),
-            "elemBest": as_int(row.get("초등부_최고순위")),
-            "elemWorst": as_int(row.get("초등부_최저순위")),
-            "elemCount": as_int(row.get("초등부_출전수")) or 0,
-        }
-
-    matrix_by_id = {}
-    for _, row in matrix.iterrows():
-        id_no = as_id(row.get("idNo", ""))
-        name = str(row.get("이름", "")).strip()
-        if not id_no:
-            continue
-        matrix_by_id[id_no] = {"name": name, "ages": {age: as_int(row.get(age, "")) for age in AGES}}
-
-    history_by_id = {}
-    for _, row in placements_target.iterrows():
-        id_no = as_id(row.get("idNo", ""))
-        rank = as_int(row.get("순위"))
-        if not id_no or rank is None:
-            continue
-        history_by_id.setdefault(id_no, []).append(
-            {
-                "year": as_int(row.get("대회연도")),
-                "age": as_int(row.get("나이_추정")),
-                "meet": str(row.get("대회명", "")).strip() or "-",
-                "distance": as_int(row.get("거리")),
-                "sf": as_bool(row.get("SF여부", "")),
-                "rank": rank,
-                "round": str(row.get("결승구분", "")).strip() or str(row.get("라운드종류", "")).strip() or "-",
-            }
-        )
-
-    athletes = []
-    for id_no in active_ids:
-        public = public_by_id[id_no]
-        s = summary_by_id.get(id_no, {})
-        info = info_by_id.get(id_no, {"name": id_no, "birth": None, "team": "-", "gender": None})
-        m = matrix_by_id.get(id_no, {})
-        has_profile = id_no in info_by_id or id_no in summary_by_id or id_no in matrix_by_id
-        history = history_by_id.get(id_no, [])
-        if not has_profile and not history:
-            raise ValueError(f"[error] data/public_figures.csv의 idNo가 분석 데이터에 없습니다: {id_no}")
-
-        name = public["name"] or info.get("name") or s.get("name") or m.get("name") or id_no
-        birth = public["birth"] if public.get("birth") is not None else info.get("birth")
-        median = elem_median.get(id_no)
-        median_value = float(median) if median is not None else None
-        history = sorted(history, key=lambda x: (x.get("year") is None, -(x.get("year") or 0), x.get("meet", ""), x.get("distance") or 0, x.get("rank") or 9999))
-        athletes.append(
-            {
-                "idNo": id_no,
-                "slug": public["slug"],
-                "url": f"athlete/{public['slug']}/",
-                "name": name,
-                "birth": birth,
-                "team": info["team"],
-                "gender": info["gender"],
-                "designationReason": public["designationReason"],
-                "mediaReportUrl": public["mediaReportUrl"],
-                "designatedAt": public["designatedAt"],
-                "status": public["status"],
-                "first": s.get("first"),
-                "ages": m.get("ages", {age: None for age in AGES}),
-                "elem": {
-                    "best": s.get("elemBest"),
-                    "median": median_value,
-                    "worst": s.get("elemWorst"),
-                    "count": s.get("elemCount", 0),
-                },
-                "history": history,
-            }
-        )
-
-    years = [y for y in placements_target["대회연도_num"].tolist() if y is not None]
-    if not years:
-        years = [as_int(v) for v in coverage.get("대회연도", pd.Series(dtype=str)).tolist()]
-        years = [y for y in years if y is not None]
-    year_start, year_end = (min(years), max(years)) if years else (None, None)
-
-    all_ages = [a for a in placements_target["나이_추정_num"].tolist() if isinstance(a, int)]
-    ages_for_span = [a for a in all_ages if a <= 25] or all_ages
-    age_min = min(ages_for_span) if ages_for_span else None
-    age_max = max(ages_for_span) if ages_for_span else None
-
-    elem_with_data = [a for a in athletes if (a["elem"].get("count") or 0) > 0]
-    elem_top2_count = sum(1 for a in elem_with_data if (a["elem"].get("best") or 9999) <= 2)
-    elem_worst_max = max((a["elem"].get("worst") or 0) for a in elem_with_data) if elem_with_data else None
-
-    first_ages = [a.get("first") for a in athletes if a.get("first") is not None]
-    first_age_min = min(first_ages) if first_ages else None
-    first_age_max = max(first_ages) if first_ages else None
-
-    missing_elem_names = [a["name"] for a in athletes if (a["elem"].get("count") or 0) == 0]
-
-    return {
-        "meta": {
-            "athleteCount": len(athletes),
-            "placementCount": int(len(placements_target)),
-            "yearStart": year_start,
-            "yearEnd": year_end,
-            "yearSpan": (year_end - year_start) if year_start is not None and year_end is not None else None,
-            "ageMin": age_min,
-            "ageMax": age_max,
-            "elemTop2Count": elem_top2_count,
-            "elemWorstBand": rank_band_text(elem_worst_max),
-            "firstAgeMin": first_age_min,
-            "firstAgeMax": first_age_max,
-            "missingElemNames": missing_elem_names,
-        },
-        "ages": [int(age) for age in AGES],
-        "athletes": athletes,
-    }
+    ages = athletes_doc.get("ages")
+    athletes = athletes_doc.get("athletes")
+    if not isinstance(ages, list):
+        raise ValueError("[error] site/data/athletes.json의 ages는 배열이어야 합니다.")
+    if not isinstance(athletes, list):
+        raise ValueError("[error] site/data/athletes.json의 athletes는 배열이어야 합니다.")
+    return {"meta": meta, "ages": ages, "athletes": athletes}
 
 
 def build_html(payload):
@@ -1349,7 +1134,7 @@ def write_robots():
 
 def main():
     try:
-        payload = build_payload()
+        payload = build_payload_from_contract()
     except (FileNotFoundError, ValueError) as exc:
         print(str(exc))
         return
