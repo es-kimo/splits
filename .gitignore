@@ -1,4 +1,7 @@
-/data/
+/data/*
+!/data/athlete_index.csv
+!/data/school_aliases.csv
+!/data/id_merges.csv
 __pycache__/
 .venv/
 .DS_Store
