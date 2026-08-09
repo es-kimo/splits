@@ -1,5 +1,7 @@
 import json
 import html
+import re
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -19,8 +21,12 @@ INPUT_FILES = [
     "age_matrix.csv",
     "athlete_info.csv",
     "coverage.csv",
+    "public_figures.csv",
 ]
 AGES = [str(age) for age in range(7, 19)]
+PUBLIC_FIGURES_REQUIRED_COLUMNS = ["idNo", "이름", "슬러그", "출생연도", "지정근거", "언론보도URL", "지정일자", "상태"]
+PUBLIC_FIGURES_ALLOWED_STATUS = {"active", "removed"}
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def as_int(value):
@@ -56,6 +62,69 @@ def rank_band_text(rank):
     return f"{(rank // 10) * 10}등대"
 
 
+def parse_public_figures(frame):
+    missing_columns = [column for column in PUBLIC_FIGURES_REQUIRED_COLUMNS if column not in frame.columns]
+    if missing_columns:
+        missing_text = ", ".join(missing_columns)
+        raise ValueError(f"[error] data/public_figures.csv 필수 컬럼이 없습니다: {missing_text}")
+
+    rows = []
+    seen_ids = set()
+    seen_slugs = set()
+    for idx, row in frame.iterrows():
+        row_no = idx + 2
+        id_no = as_id(row.get("idNo", ""))
+        name = str(row.get("이름", "")).strip()
+        slug = str(row.get("슬러그", "")).strip().lower()
+        birth = as_int(row.get("출생연도", ""))
+        reason = str(row.get("지정근거", "")).strip()
+        media_url = str(row.get("언론보도URL", "")).strip()
+        designated_at = str(row.get("지정일자", "")).strip()
+        status = str(row.get("상태", "")).strip().lower()
+
+        if not id_no:
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 idNo 값이 비어 있습니다.")
+        if not name:
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 이름 값이 비어 있습니다.")
+        if not slug:
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 슬러그 값이 비어 있습니다.")
+        if not SLUG_RE.fullmatch(slug):
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 슬러그 형식이 올바르지 않습니다: {slug}")
+        if birth is None:
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 출생연도 값이 올바르지 않습니다.")
+        if not reason:
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 지정근거 값이 비어 있습니다.")
+        if not media_url or not media_url.startswith(("http://", "https://")):
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 언론보도URL 값이 올바르지 않습니다.")
+        if not designated_at:
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 지정일자 값이 비어 있습니다.")
+        if status not in PUBLIC_FIGURES_ALLOWED_STATUS:
+            raise ValueError(f"[error] data/public_figures.csv {row_no}행 상태 값이 올바르지 않습니다: {status}")
+        if id_no in seen_ids:
+            raise ValueError(f"[error] data/public_figures.csv idNo 중복이 있습니다: {id_no}")
+        if slug in seen_slugs:
+            raise ValueError(f"[error] data/public_figures.csv 슬러그 중복이 있습니다: {slug}")
+
+        seen_ids.add(id_no)
+        seen_slugs.add(slug)
+        rows.append(
+            {
+                "idNo": id_no,
+                "name": name,
+                "slug": slug,
+                "birth": birth,
+                "designationReason": reason,
+                "mediaReportUrl": media_url,
+                "designatedAt": designated_at,
+                "status": status,
+            }
+        )
+
+    if not rows:
+        raise ValueError("[error] data/public_figures.csv에 명단 행이 없습니다.")
+    return rows
+
+
 def build_payload():
     frames = {name: read_csv(name) for name in INPUT_FILES}
     placements = frames["placements.csv"]
@@ -63,6 +132,13 @@ def build_payload():
     matrix = frames["age_matrix.csv"]
     athlete_info = frames["athlete_info.csv"]
     coverage = frames["coverage.csv"]
+    public_figures = parse_public_figures(frames["public_figures.csv"])
+    active_figures = [item for item in public_figures if item["status"] == "active"]
+    if not active_figures:
+        raise ValueError("[error] data/public_figures.csv에 active 상태 선수가 없습니다.")
+    active_ids = [item["idNo"] for item in active_figures]
+    active_id_set = set(active_ids)
+    public_by_id = {item["idNo"]: item for item in public_figures}
 
     required_id_frames = {
         "placements.csv": placements,
@@ -78,8 +154,9 @@ def build_payload():
     placements["순위_num"] = placements["순위"].map(as_int)
     placements["대회연도_num"] = placements["대회연도"].map(as_int)
     placements["나이_추정_num"] = placements["나이_추정"].map(as_int)
+    placements_target = placements[placements["idNo"].isin(active_id_set)].copy()
 
-    elem = placements[(placements["학령구간"] == "초등") & placements["순위_num"].notna()].copy()
+    elem = placements_target[(placements_target["학령구간"] == "초등") & placements_target["순위_num"].notna()].copy()
     elem_median = elem.groupby("idNo")["순위_num"].median().to_dict()
 
     info_by_id = {}
@@ -119,24 +196,8 @@ def build_payload():
             continue
         matrix_by_id[id_no] = {"name": name, "ages": {age: as_int(row.get(age, "")) for age in AGES}}
 
-    primary_ids = [v for v in athlete_info["idNo"].astype(str).map(as_id).tolist() if v]
-    ids = []
-    for candidate in primary_ids:
-        if candidate not in ids:
-            ids.append(candidate)
-    if not ids:
-        for candidate in summary["idNo"].astype(str).map(as_id).tolist():
-            if candidate and candidate not in ids:
-                ids.append(candidate)
-        for candidate in matrix["idNo"].astype(str).map(as_id).tolist():
-            if candidate and candidate not in ids:
-                ids.append(candidate)
-        for candidate in placements["idNo"].astype(str).map(as_id).tolist():
-            if candidate and candidate not in ids:
-                ids.append(candidate)
-
     history_by_id = {}
-    for _, row in placements.iterrows():
+    for _, row in placements_target.iterrows():
         id_no = as_id(row.get("idNo", ""))
         rank = as_int(row.get("순위"))
         if not id_no or rank is None:
@@ -154,23 +215,34 @@ def build_payload():
         )
 
     athletes = []
-    for id_no in ids:
+    for id_no in active_ids:
+        public = public_by_id[id_no]
         s = summary_by_id.get(id_no, {})
         info = info_by_id.get(id_no, {"name": id_no, "birth": None, "team": "-", "gender": None})
         m = matrix_by_id.get(id_no, {})
-        name = info.get("name") or s.get("name") or m.get("name") or id_no
+        has_profile = id_no in info_by_id or id_no in summary_by_id or id_no in matrix_by_id
+        history = history_by_id.get(id_no, [])
+        if not has_profile and not history:
+            raise ValueError(f"[error] data/public_figures.csv의 idNo가 분석 데이터에 없습니다: {id_no}")
+
+        name = public["name"] or info.get("name") or s.get("name") or m.get("name") or id_no
+        birth = public["birth"] if public.get("birth") is not None else info.get("birth")
         median = elem_median.get(id_no)
         median_value = float(median) if median is not None else None
-        history = history_by_id.get(id_no, [])
         history = sorted(history, key=lambda x: (x.get("year") is None, -(x.get("year") or 0), x.get("meet", ""), x.get("distance") or 0, x.get("rank") or 9999))
         athletes.append(
             {
                 "idNo": id_no,
-                "url": f"athlete/{id_no}/",
+                "slug": public["slug"],
+                "url": f"athlete/{public['slug']}/",
                 "name": name,
-                "birth": info["birth"],
+                "birth": birth,
                 "team": info["team"],
                 "gender": info["gender"],
+                "designationReason": public["designationReason"],
+                "mediaReportUrl": public["mediaReportUrl"],
+                "designatedAt": public["designatedAt"],
+                "status": public["status"],
                 "first": s.get("first"),
                 "ages": m.get("ages", {age: None for age in AGES}),
                 "elem": {
@@ -183,13 +255,13 @@ def build_payload():
             }
         )
 
-    years = [as_int(v) for v in coverage.get("대회연도", pd.Series(dtype=str)).tolist()]
-    years = [y for y in years if y is not None]
+    years = [y for y in placements_target["대회연도_num"].tolist() if y is not None]
     if not years:
-        years = [y for y in placements["대회연도_num"].tolist() if y is not None]
+        years = [as_int(v) for v in coverage.get("대회연도", pd.Series(dtype=str)).tolist()]
+        years = [y for y in years if y is not None]
     year_start, year_end = (min(years), max(years)) if years else (None, None)
 
-    all_ages = [a for a in placements["나이_추정_num"].tolist() if isinstance(a, int)]
+    all_ages = [a for a in placements_target["나이_추정_num"].tolist() if isinstance(a, int)]
     ages_for_span = [a for a in all_ages if a <= 25] or all_ages
     age_min = min(ages_for_span) if ages_for_span else None
     age_max = max(ages_for_span) if ages_for_span else None
@@ -207,7 +279,7 @@ def build_payload():
     return {
         "meta": {
             "athleteCount": len(athletes),
-            "placementCount": int(len(placements)),
+            "placementCount": int(len(placements_target)),
             "yearStart": year_start,
             "yearEnd": year_end,
             "yearSpan": (year_end - year_start) if year_start is not None and year_end is not None else None,
@@ -758,7 +830,7 @@ def build_athlete_html(athlete):
   <div style="max-width:560px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:12px">
 
     <div style="padding:16px 2px 4px">
-      <a href="../" onclick="if(window.history.length>1){window.history.back();return false;}" style="font-size:14px;font-weight:600;color:#6B6F78">← 전체 선수 목록</a>
+      <a href="../" onclick="if(window.history.length>1){window.history.back();return false;}" style="font-size:14px;font-weight:600;color:#6B6F78">← 공개 선수 목록</a>
     </div>
 
     <header style="background:#fff;border-radius:20px;padding:22px 20px 20px;display:flex;flex-direction:column;gap:18px">
@@ -1004,9 +1076,10 @@ def build_athlete_list_html(payload):
     athletes = payload.get("athletes", [])
     cards = []
     for athlete in athletes:
-        id_no = as_id(athlete.get("idNo"))
-        if not id_no:
+        slug = as_id(athlete.get("slug"))
+        if not slug:
             continue
+        id_no = as_id(athlete.get("idNo"))
         name = str(athlete.get("name", "") or id_no).strip()
         birth = athlete.get("birth")
         team = str(athlete.get("team", "") or "-").strip()
@@ -1019,7 +1092,7 @@ def build_athlete_list_html(payload):
             meta_parts.append(gender)
         meta_text = " · ".join(meta_parts)
         cards.append(
-            "<a href=\"./{id_no}/\" style=\"display:block;text-decoration:none;color:inherit;background:#FAFBFC;border-radius:16px;padding:14px 14px 12px\">"
+            "<a href=\"./{slug}/\" style=\"display:block;text-decoration:none;color:inherit;background:#FAFBFC;border-radius:16px;padding:14px 14px 12px\">"
             "<div style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\">"
             "<b style=\"font-size:16px;font-weight:800;letter-spacing:-0.01em\">{name}</b>"
             "<span style=\"font-size:12.5px;font-weight:700;color:#2E63F6\">자세히 보기</span>"
@@ -1030,7 +1103,7 @@ def build_athlete_list_html(payload):
             "<span style=\"font-size:12.5px;color:#5B7BD4;background:#E9F0FF;border-radius:999px;padding:4px 9px\">1등 {golds}회</span>"
             "</div>"
             "</a>".format(
-                id_no=esc_html(id_no),
+                slug=esc_html(slug),
                 name=esc_html(name),
                 meta=esc_html(meta_text),
                 races=race_count,
@@ -1044,8 +1117,8 @@ def build_athlete_list_html(payload):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>쇼트트랙 선수 목록</title>
-<meta name="description" content="선수 개별 기록 페이지로 이동할 수 있는 쇼트트랙 선수 목록입니다.">
+<title>쇼트트랙 공개 선수 목록</title>
+<meta name="description" content="공개 대상 선수의 개별 기록 페이지로 이동할 수 있는 쇼트트랙 선수 목록입니다.">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 body{margin:0;background:#F3F5F8;-webkit-font-smoothing:antialiased;text-wrap:pretty}
@@ -1060,7 +1133,7 @@ a:hover{color:#1B47C4}
       <a href="../" style="font-size:14px;font-weight:600;color:#6B6F78">← 메인으로</a>
     </div>
     <header style="background:#fff;border-radius:20px;padding:22px 20px 20px;display:flex;flex-direction:column;gap:8px">
-      <h1 style="margin:0;font-size:29px;font-weight:800;letter-spacing:-0.03em">전체 선수 목록</h1>
+      <h1 style="margin:0;font-size:29px;font-weight:800;letter-spacing:-0.03em">공개 선수 목록</h1>
       <p style="margin:0;font-size:14px;color:#6B6F78">선수를 선택하면 개별 기록 페이지로 이동할 수 있어요.</p>
     </header>
     <section style="background:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:8px">
@@ -1208,13 +1281,23 @@ def write_athlete_index(payload):
     return path
 
 
+def prune_athlete_directories(payload):
+    expected_slugs = {as_id(athlete.get("slug")) for athlete in payload.get("athletes", []) if as_id(athlete.get("slug"))}
+    ATHLETE_DIR.mkdir(parents=True, exist_ok=True)
+    for child in ATHLETE_DIR.iterdir():
+        if not child.is_dir():
+            continue
+        if child.name not in expected_slugs:
+            shutil.rmtree(child)
+
+
 def write_athlete_pages(payload):
     count = 0
     for athlete in payload.get("athletes", []):
-        id_no = as_id(athlete.get("idNo"))
-        if not id_no:
+        slug = as_id(athlete.get("slug"))
+        if not slug:
             continue
-        path = ATHLETE_DIR / id_no / "index.html"
+        path = ATHLETE_DIR / slug / "index.html"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(build_athlete_html(athlete), encoding="utf-8")
         count += 1
@@ -1232,10 +1315,10 @@ def sitemap_urls(payload):
     urls = [site_url(""), site_url("athlete/"), site_url("privacy/")]
     seen = set(urls)
     for athlete in payload.get("athletes", []):
-        id_no = as_id(athlete.get("idNo"))
-        if not id_no:
+        athlete_path = str(athlete.get("url", "")).strip()
+        if not athlete_path:
             continue
-        url = site_url(f"athlete/{id_no}/")
+        url = site_url(athlete_path)
         if url in seen:
             continue
         urls.append(url)
@@ -1274,13 +1357,14 @@ def main():
     SITE_HTML.parent.mkdir(parents=True, exist_ok=True)
     SITE_HTML.write_text(build_html(payload), encoding="utf-8")
     athlete_index_path = write_athlete_index(payload)
+    prune_athlete_directories(payload)
     athlete_page_count = write_athlete_pages(payload)
     privacy_page_path = write_privacy_page()
     sitemap_path = write_sitemap(payload)
     robots_path = write_robots()
     print(f"[ok] 생성 완료: {SITE_HTML}")
     print(f"[ok] 생성 완료: {athlete_index_path}")
-    print(f"[ok] 생성 완료: {ATHLETE_DIR}/{{idNo}}/index.html ({athlete_page_count}개)")
+    print(f"[ok] 생성 완료: {ATHLETE_DIR}/{{slug}}/index.html ({athlete_page_count}개)")
     print(f"[ok] 생성 완료: {privacy_page_path}")
     print(f"[ok] 생성 완료: {sitemap_path}")
     print(f"[ok] 생성 완료: {robots_path}")
