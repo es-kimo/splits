@@ -52,32 +52,35 @@ export interface MeetsDoc {
   items: MeetItem[];
 }
 
-export interface DistributionRowBase {
-  athleteCount: number;
-  sampleSize: number;
-  rankMin: number;
-  rankMedian: number;
-  rankMax: number;
-  top3Rate: number;
+export interface PeerDistributionFilters {
+  birthYears: number[];
+  genders: string[];
+  schoolLevels: string[];
+  distances: number[];
 }
 
-export interface DistributionAgeRow extends DistributionRowBase {
-  age: number;
-}
-
-export interface DistributionDistanceRow extends DistributionRowBase {
+export interface PeerDistributionRow {
+  birthYear: number;
+  gender: string;
+  schoolLevel: string;
   distance: number;
-}
-
-export interface DistributionYearRow extends DistributionRowBase {
-  year: number;
+  athleteCount: number | null;
+  insufficient: boolean;
+  timeP10: number | null;
+  timeP25: number | null;
+  timeP50: number | null;
+  timeP75: number | null;
+  timeP90: number | null;
+  rankP25: number | null;
+  rankP50: number | null;
+  rankP75: number | null;
 }
 
 export interface DistributionDoc {
   kAnonymityMin: number;
-  byAge: DistributionAgeRow[];
-  byDistance: DistributionDistanceRow[];
-  byYear: DistributionYearRow[];
+  insufficientText: string;
+  filters: PeerDistributionFilters;
+  rows: PeerDistributionRow[];
 }
 
 export interface MetaDoc {

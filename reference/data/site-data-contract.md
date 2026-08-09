@@ -69,28 +69,58 @@
 
 ## 3) distribution.json
 
-익명 통계(`k >= 10`)만 공개합니다.
+`data/stats_distribution.csv`를 JSON으로 변환한 익명 통계(`k >= 10`)입니다.
 
 ```json
 {
   "kAnonymityMin": 10,
-  "byAge": [
+  "insufficientText": "데이터 부족",
+  "filters": {
+    "birthYears": [2008, 2009],
+    "genders": ["남", "여"],
+    "schoolLevels": ["초등", "중등", "고등", "대학", "일반", "오픈"],
+    "distances": [500, 1000, 1500, 3000]
+  },
+  "rows": [
     {
-      "age": 12,
-      "athleteCount": 12,
-      "sampleSize": 66,
-      "rankMin": 1,
-      "rankMedian": 4.0,
-      "rankMax": 29,
-      "top3Rate": 0.4091
+      "birthYear": 2009,
+      "gender": "남",
+      "schoolLevel": "중등",
+      "distance": 1000,
+      "athleteCount": 24,
+      "insufficient": false,
+      "timeP10": 87.123,
+      "timeP25": 88.014,
+      "timeP50": 89.432,
+      "timeP75": 91.205,
+      "timeP90": 93.114,
+      "rankP25": 2.0,
+      "rankP50": 4.0,
+      "rankP75": 7.0
+    },
+    {
+      "birthYear": 1980,
+      "gender": "여",
+      "schoolLevel": "일반",
+      "distance": 3000,
+      "athleteCount": null,
+      "insufficient": true,
+      "timeP10": null,
+      "timeP25": null,
+      "timeP50": null,
+      "timeP75": null,
+      "timeP90": null,
+      "rankP25": null,
+      "rankP50": null,
+      "rankP75": null
     }
-  ],
-  "byDistance": [],
-  "byYear": []
+  ]
 }
 ```
 
-`byAge`, `byDistance`, `byYear`의 각 항목은 모두 동일하게 `athleteCount >= 10`인 그룹만 포함합니다.
+- `rows`는 `출생연도+성별+학령구간+거리` 단위이며, 원본 CSV의 행 순서를 정규화해 제공합니다.
+- `insufficient=true`인 행은 `k` 기준 미달 구간이며, `athleteCount`와 지표 값은 모두 `null`입니다.
+- `filters`는 클라이언트 UI 선택지 생성을 위한 사전 인덱스입니다.
 
 ## 4) meta.json
 
