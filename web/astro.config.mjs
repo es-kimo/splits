@@ -6,5 +6,8 @@ export default defineConfig({
   base: "/splits",
   output: "static",
   trailingSlash: "always",
+  build: {
+    inlineStylesheets: "always",
+  },
   integrations: [react()],
 });
