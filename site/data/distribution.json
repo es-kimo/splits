@@ -1,0 +1,306 @@
+{
+  "kAnonymityMin": 10,
+  "byAge": [
+    {
+      "age": 10,
+      "athleteCount": 10,
+      "sampleSize": 76,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 30,
+      "top3Rate": 0.6974
+    },
+    {
+      "age": 11,
+      "athleteCount": 12,
+      "sampleSize": 69,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 37,
+      "top3Rate": 0.5797
+    },
+    {
+      "age": 12,
+      "athleteCount": 12,
+      "sampleSize": 93,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 33,
+      "top3Rate": 0.6882
+    },
+    {
+      "age": 13,
+      "athleteCount": 13,
+      "sampleSize": 49,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 10,
+      "top3Rate": 0.7143
+    },
+    {
+      "age": 14,
+      "athleteCount": 12,
+      "sampleSize": 70,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 24,
+      "top3Rate": 0.7571
+    },
+    {
+      "age": 15,
+      "athleteCount": 13,
+      "sampleSize": 85,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 25,
+      "top3Rate": 0.6824
+    },
+    {
+      "age": 16,
+      "athleteCount": 13,
+      "sampleSize": 71,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 14,
+      "top3Rate": 0.7324
+    },
+    {
+      "age": 17,
+      "athleteCount": 12,
+      "sampleSize": 103,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 17,
+      "top3Rate": 0.7573
+    },
+    {
+      "age": 18,
+      "athleteCount": 13,
+      "sampleSize": 108,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 22,
+      "top3Rate": 0.713
+    },
+    {
+      "age": 19,
+      "athleteCount": 13,
+      "sampleSize": 101,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 14,
+      "top3Rate": 0.6931
+    },
+    {
+      "age": 20,
+      "athleteCount": 11,
+      "sampleSize": 92,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 14,
+      "top3Rate": 0.5761
+    },
+    {
+      "age": 21,
+      "athleteCount": 12,
+      "sampleSize": 91,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 13,
+      "top3Rate": 0.5824
+    },
+    {
+      "age": 22,
+      "athleteCount": 11,
+      "sampleSize": 89,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 13,
+      "top3Rate": 0.6966
+    }
+  ],
+  "byDistance": [
+    {
+      "distance": 500,
+      "athleteCount": 14,
+      "sampleSize": 373,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 16,
+      "top3Rate": 0.7614
+    },
+    {
+      "distance": 1000,
+      "athleteCount": 14,
+      "sampleSize": 405,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 22,
+      "top3Rate": 0.7259
+    },
+    {
+      "distance": 1500,
+      "athleteCount": 14,
+      "sampleSize": 560,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 37,
+      "top3Rate": 0.6339
+    },
+    {
+      "distance": 2000,
+      "athleteCount": 12,
+      "sampleSize": 52,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 31,
+      "top3Rate": 0.5577
+    },
+    {
+      "distance": 3000,
+      "athleteCount": 13,
+      "sampleSize": 171,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 23,
+      "top3Rate": 0.5731
+    }
+  ],
+  "byYear": [
+    {
+      "year": 2012,
+      "athleteCount": 11,
+      "sampleSize": 66,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 13,
+      "top3Rate": 0.7424
+    },
+    {
+      "year": 2013,
+      "athleteCount": 11,
+      "sampleSize": 59,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 37,
+      "top3Rate": 0.5932
+    },
+    {
+      "year": 2014,
+      "athleteCount": 11,
+      "sampleSize": 105,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 20,
+      "top3Rate": 0.781
+    },
+    {
+      "year": 2015,
+      "athleteCount": 12,
+      "sampleSize": 86,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 37,
+      "top3Rate": 0.686
+    },
+    {
+      "year": 2016,
+      "athleteCount": 13,
+      "sampleSize": 118,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 31,
+      "top3Rate": 0.6695
+    },
+    {
+      "year": 2017,
+      "athleteCount": 13,
+      "sampleSize": 100,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 22,
+      "top3Rate": 0.69
+    },
+    {
+      "year": 2018,
+      "athleteCount": 13,
+      "sampleSize": 120,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 24,
+      "top3Rate": 0.65
+    },
+    {
+      "year": 2019,
+      "athleteCount": 14,
+      "sampleSize": 125,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 21,
+      "top3Rate": 0.688
+    },
+    {
+      "year": 2020,
+      "athleteCount": 14,
+      "sampleSize": 48,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 16,
+      "top3Rate": 0.6875
+    },
+    {
+      "year": 2021,
+      "athleteCount": 13,
+      "sampleSize": 114,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 7,
+      "top3Rate": 0.7544
+    },
+    {
+      "year": 2022,
+      "athleteCount": 14,
+      "sampleSize": 142,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 16,
+      "top3Rate": 0.7183
+    },
+    {
+      "year": 2023,
+      "athleteCount": 14,
+      "sampleSize": 121,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 16,
+      "top3Rate": 0.6364
+    },
+    {
+      "year": 2024,
+      "athleteCount": 14,
+      "sampleSize": 133,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 22,
+      "top3Rate": 0.6165
+    },
+    {
+      "year": 2025,
+      "athleteCount": 13,
+      "sampleSize": 89,
+      "rankMin": 1,
+      "rankMedian": 3.0,
+      "rankMax": 7,
+      "top3Rate": 0.6629
+    },
+    {
+      "year": 2026,
+      "athleteCount": 13,
+      "sampleSize": 89,
+      "rankMin": 1,
+      "rankMedian": 2.0,
+      "rankMax": 13,
+      "top3Rate": 0.6629
+    }
+  ]
+}

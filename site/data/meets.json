@@ -1,0 +1,1844 @@
+{
+  "items": [
+    {
+      "year": 2026,
+      "meet": "2026/27시즌 쇼트트랙 국가대표 1차 선발대회",
+      "raceCount": 27,
+      "athleteCount": 12,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2026,
+      "meet": "KB금융그룹 제41회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회 겸 2026/27시즌 쇼트트랙 국가대표 2차 선발대회",
+      "raceCount": 30,
+      "athleteCount": 12,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2026,
+      "meet": "제107회 전국동계체육대회",
+      "raceCount": 23,
+      "athleteCount": 12,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2026,
+      "meet": "제40회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 16,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2025,
+      "meet": "2025/26시즌 쇼트트랙 국가대표 1차 선발대회",
+      "raceCount": 22,
+      "athleteCount": 12,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2025,
+      "meet": "KB금융그룹 제40회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회 겸 2025/26시즌 쇼트트랙 국가대표 2차 선발대회",
+      "raceCount": 23,
+      "athleteCount": 11,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2025,
+      "meet": "제39회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 25,
+      "athleteCount": 11,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2025,
+      "meet": "제41회 회장배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 13,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2025,
+      "meet": "제4회 국무총리배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 11,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "2024 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회 겸 2025 세계 주니어 쇼트트랙스피드스케이팅 선수권대회 파견선수 1차 및 2024/25시즌 ISU 쇼트트랙 주니어 월드컵 파견선수 1차 선발대회",
+      "raceCount": 4,
+      "athleteCount": 2,
+      "distanceSet": [
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "2024/25시즌 쇼트트랙 국가대표 1차 선발대회",
+      "raceCount": 19,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "2025 세계 주니어 쇼트트랙스피드스케이팅 선수권대회 파견선수 2차 및 2024/25시즌 ISU 쇼트트랙 주니어 월드컵 파견선수 2차 선발대회",
+      "raceCount": 4,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "2025 제32회 토리노 동계세계대학경기대회 파견선수 선발대회",
+      "raceCount": 20,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "KB금융그룹 제39회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회 겸 2024/25시즌 쇼트트랙 국가대표 2차 선발대회",
+      "raceCount": 16,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "제105회 전국동계체육대회",
+      "raceCount": 28,
+      "athleteCount": 14,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "제38회 전국남녀 종별종합 쇼트트랙 스피드스케이팅 선수권대회",
+      "raceCount": 19,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "제3회 국무총리배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 15,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2024,
+      "meet": "제40회 회장배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 17,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "2023 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회 겸 2023 세계 주니어 쇼트트랙스피드스케이팅 선수권대회 선발대회",
+      "raceCount": 13,
+      "athleteCount": 5,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "2023 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회 겸 2024 세계 주니어 쇼트트랙스피드스케이팅 파견선수 선발대회 및 2023/24시즌 ISU 쇼트트랙 주니어 월드컵 파견선수 선발대회",
+      "raceCount": 7,
+      "athleteCount": 3,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "2023/24시즌 쇼트트랙 국가대표 1차 선발대회",
+      "raceCount": 9,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "2023/24시즌 쇼트트랙 국가대표 2차 선발대회",
+      "raceCount": 13,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "2024 강원동계 청소년 올림픽 파견선수 선발대회",
+      "raceCount": 2,
+      "athleteCount": 1,
+      "distanceSet": [
+        500,
+        1000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "제104회 전국동계체육대회",
+      "raceCount": 24,
+      "athleteCount": 12,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "제2회 국무총리배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 16,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "제37회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 24,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2023,
+      "meet": "제39회 회장배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 21,
+      "athleteCount": 11,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2022,
+      "meet": "2021 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회 겸 2022 세계 주니어 쇼트트랙스피드스케이팅 선수권대회 선발대회",
+      "raceCount": 8,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2022,
+      "meet": "2022/23시즌 쇼트트랙 국가대표 1차 선발대회",
+      "raceCount": 22,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2022,
+      "meet": "2023 제31회 레이크플래시드 동계세계대학경기대회 파견선수 선발대회",
+      "raceCount": 13,
+      "athleteCount": 5,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2022,
+      "meet": "KB금융그룹 제37회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회 겸 2022/23 쇼트트랙 국가대표 2차 선발대회",
+      "raceCount": 19,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2022,
+      "meet": "제103회 전국동계체육대회",
+      "raceCount": 22,
+      "athleteCount": 11,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2022,
+      "meet": "제1회 국무총리배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 14,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2022,
+      "meet": "제36회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 32,
+      "athleteCount": 11,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2022,
+      "meet": "제38회 전국남녀 쇼트트랙스피드스케이팅 대회(초등부/대학부/일반부)",
+      "raceCount": 10,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2022,
+      "meet": "제38회 회장배 전국남녀 쇼트트랙스피드스케이팅대회",
+      "raceCount": 11,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2021,
+      "meet": "2020 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 6,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2021,
+      "meet": "2021 루체른 동계유니버시아드 파견선수 선발대회",
+      "raceCount": 12,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2021,
+      "meet": "2021/22시즌 1차 쇼트트랙 국가대표 선발대회",
+      "raceCount": 16,
+      "athleteCount": 5,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2021,
+      "meet": "KB금융그룹 제36회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회 겸 2021/22 2차 쇼트트랙 국가대표  선발대회",
+      "raceCount": 11,
+      "athleteCount": 5,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2021,
+      "meet": "제35회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 37,
+      "athleteCount": 11,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2021,
+      "meet": "제36회 회장배 전국남녀 쇼트트랙스피드스케이팅대회",
+      "raceCount": 18,
+      "athleteCount": 11,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2021,
+      "meet": "제37회 회장배 전국남녀 쇼트트랙스피드스케이팅대회",
+      "raceCount": 16,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2021,
+      "meet": "제38회 전국남녀 쇼트트랙스피드스케이팅대회(중고등부)",
+      "raceCount": 6,
+      "athleteCount": 4,
+      "distanceSet": [
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2020,
+      "meet": "제101회 전국동계체육대회",
+      "raceCount": 27,
+      "athleteCount": 14,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2020,
+      "meet": "제37회 전국남녀 쇼트트랙스피드스케이팅대회",
+      "raceCount": 22,
+      "athleteCount": 13,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2019,
+      "meet": "2019 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회 겸 2020 세계 주니어선수권대회 선발대회",
+      "raceCount": 19,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2019,
+      "meet": "2019/2020시즌 쇼트트랙 국가대표 선발대회(1차)",
+      "raceCount": 13,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2019,
+      "meet": "KB금융그룹 제34회 전국남녀 종합쇼트트랙 선수권대회 및 2차 쇼트트랙 국가대표 선발대회",
+      "raceCount": 10,
+      "athleteCount": 3,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2019,
+      "meet": "제100회 전국동계체육대회",
+      "raceCount": 25,
+      "athleteCount": 13,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2019,
+      "meet": "제33회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 25,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2019,
+      "meet": "제35회 회장배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 14,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2019,
+      "meet": "제36회 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 20,
+      "athleteCount": 11,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2019,
+      "meet": "제3회 동계 유스 올림픽 파견 선수 선발대회",
+      "raceCount": 6,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2018,
+      "meet": "2018 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회 겸 2019 세계 주니어선수권대회 선발대회",
+      "raceCount": 7,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2018,
+      "meet": "2018/2019시즌 쇼트트랙 국가대표 선발대회(1차)",
+      "raceCount": 13,
+      "athleteCount": 5,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2018,
+      "meet": "2018/2019시즌 쇼트트랙 국가대표 선발대회(2차)",
+      "raceCount": 13,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2018,
+      "meet": "2019 제1회 사할린아시아동계유소년경기대회 선발대회",
+      "raceCount": 6,
+      "athleteCount": 3,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2018,
+      "meet": "제21회 전국남녀 쇼트트랙스피드스케이팅 꿈나무 선수권대회",
+      "raceCount": 6,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2018,
+      "meet": "제32회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 29,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2018,
+      "meet": "제34회 회장배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 11,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2018,
+      "meet": "제35회 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 13,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2018,
+      "meet": "제99회 전국동계체육대회",
+      "raceCount": 24,
+      "athleteCount": 12,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2017,
+      "meet": "2017 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회 겸",
+      "raceCount": 3,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2017,
+      "meet": "2017/2018시즌 쇼트트랙 국가대표 1차 선발대회",
+      "raceCount": 12,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2017,
+      "meet": "KB금융그룹 제32회 전국남녀 종합 쇼트트랙 스피드스케이팅 선수권대회 겸",
+      "raceCount": 11,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2017,
+      "meet": "스포츠토토 제20회 전국남녀 쇼트트랙 꿈나무 선수권대회",
+      "raceCount": 6,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2017,
+      "meet": "제 98회 전국동계체육대회",
+      "raceCount": 24,
+      "athleteCount": 12,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2017,
+      "meet": "제31회 전국남녀 종별종합 쇼트트랙스피드스케이팅 선수권대회",
+      "raceCount": 25,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2017,
+      "meet": "제33회 회장배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 15,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2017,
+      "meet": "제34회 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 11,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2016,
+      "meet": "2016 전국남녀 주니어 쇼트트랙스피드스케이팅 선수권대회 겸 2017 세계 주니어선수권대회 선발대회",
+      "raceCount": 3,
+      "athleteCount": 1,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2016,
+      "meet": "2016/17 시즌 쇼트트랙 국가대표 3차 선발대회",
+      "raceCount": 11,
+      "athleteCount": 3,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2016,
+      "meet": "2016/2017시즌 쇼트트랙 국가대표 1차 선발대회",
+      "raceCount": 9,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2016,
+      "meet": "2017 알마티 동계유니버시아드 파견선수 선발대회",
+      "raceCount": 3,
+      "athleteCount": 1,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2016,
+      "meet": "제19회 전국남녀 쇼트트랙스피드스케이팅 꿈나무 선수권대회",
+      "raceCount": 11,
+      "athleteCount": 3,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2016,
+      "meet": "제30회 전국남녀 종별 종합 쇼트트랙 스피드스케이팅 선수권대회",
+      "raceCount": 29,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2016,
+      "meet": "제31회 전국남녀 종합 쇼트트랙 스피드 스케이팅 선수권대회 겸 2016/2017 쇼트트랙 국가대표 2차 선발대회",
+      "raceCount": 9,
+      "athleteCount": 3,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2016,
+      "meet": "제32회 회장배 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 17,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2016,
+      "meet": "제33회 전국남녀 쇼트트랙스피드스케이팅 대회",
+      "raceCount": 14,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2016,
+      "meet": "제97회 전국동계체육대회",
+      "raceCount": 20,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2015,
+      "meet": "2015/16 전국남녀 주니어 쇼트트랙 스피드 스케이팅 선수권대회 겸 2016 세계주니어선수권대회 파견선수 선발전 공고",
+      "raceCount": 4,
+      "athleteCount": 1,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2015,
+      "meet": "2015/2016 쇼트트랙 국가대표 선발 1차 자격대회",
+      "raceCount": 5,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2015,
+      "meet": "2016 유스올림픽 파견선수 선발전",
+      "raceCount": 2,
+      "athleteCount": 1,
+      "distanceSet": [
+        500,
+        1000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2015,
+      "meet": "KB금융 제30회 전국남녀 종합 쇼트트랙 선수권대회 겸 2015/16 국가대표 선발 2차대회",
+      "raceCount": 8,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2015,
+      "meet": "제18회 전국남녀 쇼트트랙 스피드스케이팅 꿈나무대회",
+      "raceCount": 8,
+      "athleteCount": 3,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A",
+        "B"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2015,
+      "meet": "제29회 전국남녀 종별 종합 쇼트트랙 스피드스케이팅 선수권대회 공고",
+      "raceCount": 21,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2015,
+      "meet": "제31회 회장배 전국남녀 쇼트트랙 스피드스케이팅대회",
+      "raceCount": 11,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2015,
+      "meet": "제32회 전국남녀 쇼트트랙 스피드스케이팅대회",
+      "raceCount": 11,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2015,
+      "meet": "제96회 전국동계체육대회",
+      "raceCount": 18,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2014,
+      "meet": "2013 전국남녀 주니어 쇼트트랙 스피드 스케이팅 선수권대회 겸 2014 세계주니어선수권대회 파견선수 선발전",
+      "raceCount": 4,
+      "athleteCount": 1,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2014,
+      "meet": "2014 동계유니버시아드 대회 파견선수 선발전",
+      "raceCount": 7,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2014,
+      "meet": "제17회 에이스침대배 전국남녀 쇼트트랙 스피드스케이팅 꿈나무대회",
+      "raceCount": 19,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2014,
+      "meet": "제28회 전국남녀 종별 종합 쇼트트랙 스피드스케이팅 선수권대회 공고",
+      "raceCount": 22,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2014,
+      "meet": "제29회 전국남녀 종합 쇼트트랙 스피드스케이팅 선수권대회 겸 2014/2015 쇼트트랙 국가대표선발 2차 대회",
+      "raceCount": 6,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2014,
+      "meet": "제30회 회장배 전국남녀 쇼트트랙 스피드스케이팅대회",
+      "raceCount": 18,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2014,
+      "meet": "제31회 전국남녀 쇼트트랙 스피드스케이팅대회",
+      "raceCount": 17,
+      "athleteCount": 9,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2014,
+      "meet": "제95회 전국동계체육대회",
+      "raceCount": 16,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2013,
+      "meet": "2013 동계유니버시아드 대회 파견선수 선발전",
+      "raceCount": 6,
+      "athleteCount": 2,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2013,
+      "meet": "스포츠토토와 함께하는 국민체육진흥공단 이사장배 제6회 전국초등학교 쇼트트랙 꿈나무 빙상대회",
+      "raceCount": 2,
+      "athleteCount": 1,
+      "distanceSet": [
+        500,
+        1000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2013,
+      "meet": "제16회 에이스침대배 전국남녀 쇼트트랙 스피드스케이팅 꿈나무 대회",
+      "raceCount": 4,
+      "athleteCount": 1,
+      "distanceSet": [
+        500,
+        1000,
+        1500
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2013,
+      "meet": "제29회 회장배 전국남녀 쇼트트랙 스피드스케이팅대회",
+      "raceCount": 17,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2013,
+      "meet": "제30회 전국남녀 쇼트트랙 스피드스케이팅대회",
+      "raceCount": 18,
+      "athleteCount": 10,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2013,
+      "meet": "제94회 전국동계체육대회",
+      "raceCount": 14,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2012,
+      "meet": "스포츠토토와 함께하는 국민체육진흥공단이사장배 제 5회 전국남녀 초등학교 쇼트트랙 꿈나무 대회",
+      "raceCount": 6,
+      "athleteCount": 3,
+      "distanceSet": [
+        500,
+        1000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2012,
+      "meet": "제26회 전국남녀 학생종별종합 쇼트트랙 선수권대회",
+      "raceCount": 23,
+      "athleteCount": 7,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": true
+    },
+    {
+      "year": 2012,
+      "meet": "제28회 회장배 전국남녀 쇼트트랙스피드스케이팅대회",
+      "raceCount": 12,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2012,
+      "meet": "제29회 전국남녀 쇼트트랙 스피드스케이팅대회",
+      "raceCount": 15,
+      "athleteCount": 8,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2012,
+      "meet": "제93회 전국동계체전",
+      "raceCount": 12,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2011,
+      "meet": "제 92회 전국동계체육대회",
+      "raceCount": 12,
+      "athleteCount": 6,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "A",
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2010,
+      "meet": "제91회 전국 동계체육대회",
+      "raceCount": 10,
+      "athleteCount": 5,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2009,
+      "meet": "제90회동계체전",
+      "raceCount": 10,
+      "athleteCount": 5,
+      "distanceSet": [
+        500,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2008,
+      "meet": "제89회 전국동계체전(쇼트트랙)",
+      "raceCount": 6,
+      "athleteCount": 3,
+      "distanceSet": [
+        1000,
+        1500,
+        2000,
+        3000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    },
+    {
+      "year": 2007,
+      "meet": "제88회 전국동계체육대회",
+      "raceCount": 8,
+      "athleteCount": 4,
+      "distanceSet": [
+        500,
+        1000,
+        1500,
+        2000
+      ],
+      "roundTypes": [
+        "종합"
+      ],
+      "hasSemifinal": false
+    }
+  ]
+}
