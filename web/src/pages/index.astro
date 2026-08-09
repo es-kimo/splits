@@ -200,6 +200,25 @@ const detailRows = athletes.map((athlete) => ({
     </div>
   </section>
 
+  <section class="section">
+    <h2>다른 페이지 보기</h2>
+    <p class="section-note">전체 선수 목록과 분포 통계를 이어서 확인할 수 있어요.</p>
+    <div class="link-grid">
+      <a class="link-card" href={withBase("athlete/")}>
+        <b>전체 선수 목록</b>
+        <span>선수별 상세 기록 페이지로 이동해요.</span>
+      </a>
+      <a class="link-card" href={withBase("distribution/")}>
+        <b>분포 통계</b>
+        <span>k-익명 기준 순위 분포를 확인해요.</span>
+      </a>
+      <a class="link-card" href={withBase("meet/")}>
+        <b>대회 목록</b>
+        <span>대회별 경기 수·참여 선수 수를 볼 수 있어요.</span>
+      </a>
+    </div>
+  </section>
+
   <script define:vars={{ detailRows, ages }} is:inline>
     let openName = null;
 
@@ -641,6 +660,32 @@ const detailRows = athletes.map((athlete) => ({
     .note-a {
       font-size: 14.5px;
       color: #5b5f68;
+    }
+    .link-grid {
+      display: grid;
+      gap: 10px;
+    }
+    .link-card {
+      background: #fafbfc;
+      border-radius: 16px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      color: inherit;
+      text-decoration: none;
+    }
+    .link-card b {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .link-card span {
+      color: #6b6f78;
+      font-size: 13.5px;
+    }
+    .link-card:hover {
+      background: #f5f7fa;
     }
     @media (max-width: 640px) {
       h1 {
