@@ -69,7 +69,9 @@ const pageStyle = `--page-bottom:${pageBottomPadding};`;
         -webkit-font-smoothing: antialiased;
         text-wrap: pretty;
       }
-      * {
+      :global(*),
+      :global(*::before),
+      :global(*::after) {
         box-sizing: border-box;
       }
       :global(a) {
