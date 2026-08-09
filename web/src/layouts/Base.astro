@@ -1,0 +1,136 @@
+---
+import { withBase } from "../lib/base";
+
+interface Props {
+  title: string;
+  description: string;
+  generatedAt?: string;
+  contentWidth?: "default" | "narrow";
+  contentLineHeight?: "default" | "compact";
+  pageBottomPadding?: string;
+  footerVariant?: "legal" | "none";
+}
+
+const {
+  title,
+  description,
+  generatedAt,
+  contentWidth = "default",
+  contentLineHeight = "default",
+  pageBottomPadding = "72px",
+  footerVariant = "legal",
+} = Astro.props;
+const pageClass = [
+  "page",
+  contentWidth === "narrow" ? "page-narrow" : "",
+  contentLineHeight === "compact" ? "page-compact" : "",
+]
+  .filter(Boolean)
+  .join(" ");
+const pageStyle = `--page-bottom:${pageBottomPadding};`;
+---
+
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+    />
+    <style>
+      :root {
+        --bg: #f3f5f8;
+        --surface: #ffffff;
+        --sub-surface: #fafbfc;
+        --notice-surface: #f5f7fa;
+        --text-main: #17181c;
+        --text-sub: #5b5f68;
+        --text-soft: #8a8f99;
+        --line: #f0f2f5;
+        --primary: #2e63f6;
+        --primary-hover: #1b47c4;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text-main);
+        font-family:
+          "Pretendard Variable",
+          Pretendard,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Apple SD Gothic Neo",
+          sans-serif;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        text-wrap: pretty;
+      }
+      :global(*),
+      :global(*::before),
+      :global(*::after) {
+        box-sizing: border-box;
+      }
+      :global(a) {
+        color: var(--primary);
+        text-decoration: none;
+      }
+      :global(a:hover) {
+        color: var(--primary-hover);
+      }
+      .page {
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 0 18px var(--page-bottom);
+      }
+      .page.page-narrow {
+        max-width: 560px;
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+      .page.page-compact {
+        line-height: 1.55;
+      }
+      .legal-footer {
+        margin-top: 16px;
+        padding: 16px;
+        border-radius: 16px;
+        background: var(--notice-surface);
+        color: var(--text-soft);
+        font-size: 13px;
+      }
+      .legal-footer a {
+        font-weight: 700;
+      }
+      @media (max-width: 640px) {
+        .page {
+          padding: 0 14px 72px;
+        }
+        .page.page-narrow {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class={pageClass} style={pageStyle}>
+      <slot />
+      {
+        footerVariant === "legal" && (
+          <footer class="legal-footer">
+            공개된 경기 기록을 개인이 정리한 페이지입니다. 대한빙상경기연맹 및 대한체육회와 무관합니다.<br />
+            출처: 대한체육회 경기결과 시스템(result.sports.or.kr)<br />
+            <a href={withBase("privacy/")}>개인정보 처리방침</a>
+            ·
+            <a href={withBase("privacy/#request")}>삭제/처리정지 요청</a><br />
+            마지막 갱신일: {generatedAt ?? "-"}
+          </footer>
+        )
+      }
+    </main>
+  </body>
+</html>

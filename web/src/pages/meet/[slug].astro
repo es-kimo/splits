@@ -1,0 +1,102 @@
+---
+import Base from "../../layouts/Base.astro";
+import { withBase } from "../../lib/base";
+import { loadMeetsDoc, loadMetaDoc } from "../../lib/data";
+import { meetSlug } from "../../lib/meet";
+import type { MeetItem } from "../../lib/types";
+
+export function getStaticPaths() {
+  const { items } = loadMeetsDoc();
+  return items.map((item) => ({
+    params: { slug: meetSlug(item) },
+    props: { item },
+  }));
+}
+
+const { item } = Astro.props as { item: MeetItem };
+const meta = loadMetaDoc();
+---
+
+<Base title={`${item.meet} (${item.year})`} description={`${item.year}년 ${item.meet} 대회 익명 통계`} generatedAt={meta.generatedAt}>
+  <div class="top-link"><a href={withBase("meet/")}>← 대회 목록</a></div>
+  <header class="card">
+    <h1>{item.meet}</h1>
+    <p>{item.year}년 대회 익명 집계입니다.</p>
+  </header>
+  <section class="card">
+    <h2>요약 지표</h2>
+    <div class="metrics">
+      <div><b>{item.raceCount}건</b><span>집계 경기</span></div>
+      <div><b>{item.athleteCount}명</b><span>참여 선수</span></div>
+      <div><b>{item.hasSemifinal ? "있음" : "없음"}</b><span>준결승 기록</span></div>
+    </div>
+  </section>
+  <section class="card">
+    <h2>대회 구성</h2>
+    <p><b>종목:</b> {item.distanceSet.map((distance) => `${distance}m`).join(", ")}</p>
+    <p><b>라운드 유형:</b> {item.roundTypes.join(", ") || "-"}</p>
+  </section>
+  <style>
+    .top-link {
+      padding: 16px 2px 4px;
+    }
+    .top-link a {
+      font-size: 14px;
+      font-weight: 600;
+      color: #6b6f78;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 22px 20px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 25px;
+      line-height: 1.4;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    p {
+      margin: 0 0 8px;
+      color: #5b5f68;
+      font-size: 14px;
+    }
+    p:last-child {
+      margin-bottom: 0;
+    }
+    .metrics {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .metrics > div {
+      background: #f5f7fa;
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .metrics b {
+      font-size: 20px;
+      color: #17181c;
+    }
+    .metrics span {
+      color: #8a8f99;
+      font-size: 12px;
+    }
+    @media (max-width: 640px) {
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</Base>

@@ -1,6 +1,6 @@
 # site/data JSON 계약 스키마
 
-`build_data.py`가 생성하고 `build_site.py`가 소비하는 데이터 계약입니다.  
+`build_data.py`가 생성하고 Astro 렌더러(`web/`)가 소비하는 데이터 계약입니다.  
 렌더링 계층은 아래 JSON만 입력으로 사용하며, CSV를 직접 읽지 않습니다.
 
 ## 출력 파일

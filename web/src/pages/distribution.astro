@@ -1,0 +1,68 @@
+---
+import DistributionTool from "../components/DistributionTool";
+import Base from "../layouts/Base.astro";
+import { withBase } from "../lib/base";
+import { loadDistributionDoc, loadMetaDoc } from "../lib/data";
+
+const distribution = loadDistributionDoc();
+const meta = loadMetaDoc();
+---
+
+<Base
+  title="분포 통계"
+  description="공개 선수 경기 결과에서 k-익명 기준으로 집계한 순위 분포 통계입니다."
+  generatedAt={meta.generatedAt}
+>
+  <div class="top-link"><a href={withBase()}>← 메인으로</a></div>
+  <header class="card">
+    <h1>분포 통계</h1>
+    <p>선수 개인 식별이 불가능한 집계 기준(k-익명)을 만족한 데이터만 공개합니다.</p>
+  </header>
+  <section class="card">
+    <h2>집계 탐색</h2>
+    <p class="section-note">나이·종목·연도 축으로 순위 분포를 비교해 보세요.</p>
+    <DistributionTool
+      client:visible
+      kAnonymityMin={distribution.kAnonymityMin}
+      byAge={distribution.byAge}
+      byDistance={distribution.byDistance}
+      byYear={distribution.byYear}
+    />
+  </section>
+  <style>
+    .top-link {
+      padding: 16px 2px 4px;
+    }
+    .top-link a {
+      font-size: 14px;
+      font-weight: 600;
+      color: #6b6f78;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 22px 20px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 29px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    h2 {
+      margin: 0 0 6px;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    p {
+      margin: 4px 0 0;
+      font-size: 14px;
+      color: #6b6f78;
+    }
+    .section-note {
+      margin: 0 0 14px;
+    }
+  </style>
+</Base>
