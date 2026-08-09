@@ -1,0 +1,82 @@
+---
+interface Props {
+  ages: number[];
+  ageRanks: Record<string, number | null>;
+}
+
+const { ages, ageRanks } = Astro.props;
+
+const CAP = 40;
+const WIDTH = 300;
+const TOP = 10;
+const BOTTOM = 64;
+
+function yPos(rank: number): number {
+  const clamped = Math.min(rank, CAP);
+  return TOP + Math.sqrt((clamped - 1) / (CAP - 1)) * (BOTTOM - TOP);
+}
+
+function xPos(age: number): number {
+  const idx = ages.indexOf(age);
+  if (idx < 0) return 0;
+  if (ages.length === 1) return WIDTH / 2;
+  return 12 + (idx / (ages.length - 1)) * (WIDTH - 26);
+}
+
+const runs: string[] = [];
+const missing: number[] = [];
+const dots: { x: number; y: number; rank: number }[] = [];
+const labels: { x: number; y: number; rank: number }[] = [];
+
+let currentRun: string[] = [];
+for (const age of ages) {
+  const rank = ageRanks[String(age)];
+  if (rank === null || rank === undefined) {
+    missing.push(xPos(age));
+    if (currentRun.length > 1) runs.push(currentRun.join(" "));
+    currentRun = [];
+    continue;
+  }
+  const x = xPos(age);
+  const y = yPos(rank);
+  currentRun.push(`${x},${y}`);
+  dots.push({ x, y, rank });
+  if (rank > 2) labels.push({ x: x + 6, y: y + 4, rank });
+}
+if (currentRun.length > 1) runs.push(currentRun.join(" "));
+---
+
+<svg viewBox="0 0 300 92" preserveAspectRatio="none" style="width:100%;height:92px;display:block;overflow:visible">
+  <line x1="0" y1="10" x2="300" y2="10" stroke="#E3E7ED" stroke-width="1"></line>
+  <text x="0" y="7" font-size="9" fill="#B4B9C2">1등</text>
+  {
+    missing.map((x) => (
+      <line x1={x} y1="70" x2={x} y2="76" stroke="#DFE3E9" stroke-width="2" stroke-linecap="round"></line>
+    ))
+  }
+  {
+    runs.map((points) => (
+      <polyline
+        points={points}
+        fill="none"
+        stroke="#B9CCFB"
+        stroke-width="2"
+        stroke-linejoin="round"
+        stroke-linecap="round"
+        vector-effect="non-scaling-stroke"
+      />
+    ))
+  }
+  {
+    dots.map((dot) => (
+      <circle cx={dot.x} cy={dot.y} r={dot.rank === 1 ? 4.5 : 3.6} fill={dot.rank <= 2 ? "#2E63F6" : "#C6CBD4"} />
+    ))
+  }
+  {
+    labels.map((label) => (
+      <text x={label.x} y={label.y} font-size="10" font-weight="600" fill="#8A8F99">
+        {label.rank}
+      </text>
+    ))
+  }
+</svg>

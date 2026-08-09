@@ -6,3 +6,6 @@
 __pycache__/
 .venv/
 .DS_Store
+web/node_modules/
+web/dist/
+web/.astro/

@@ -1,0 +1,120 @@
+---
+import Base from "../../layouts/Base.astro";
+import { withBase } from "../../lib/base";
+import { loadAthletesDoc, loadMetaDoc } from "../../lib/data";
+
+const { athletes } = loadAthletesDoc();
+const meta = loadMetaDoc();
+---
+
+<Base
+  title="쇼트트랙 공개 선수 목록"
+  description="공개 대상 선수의 개별 기록 페이지로 이동할 수 있는 쇼트트랙 선수 목록입니다."
+  generatedAt={meta.generatedAt}
+>
+  <div class="top-link"><a href={withBase()}>← 메인으로</a></div>
+  <header class="card">
+    <h1>공개 선수 목록</h1>
+    <p>선수를 선택하면 개별 기록 페이지로 이동할 수 있어요.</p>
+  </header>
+  <section class="card list">
+    {
+      athletes.map((athlete) => {
+        const raceCount = athlete.history.length;
+        const goldCount = athlete.history.filter((item) => item.rank === 1 && !item.sf).length;
+        const metaText = `${athlete.birth ?? "출생년도 미상"}${athlete.birth ? "년생" : ""} · ${athlete.team}${athlete.gender ? ` · ${athlete.gender}` : ""}`;
+        return (
+          <a class="row" href={withBase(athlete.url)}>
+            <div class="row-head">
+              <b>{athlete.name}</b>
+              <span>자세히 보기</span>
+            </div>
+            <div class="row-meta">{metaText}</div>
+            <div class="row-stats">
+              <span>전체 {raceCount}경기</span>
+              <span class="highlight">1등 {goldCount}회</span>
+            </div>
+          </a>
+        );
+      })
+    }
+  </section>
+  <style>
+    .top-link {
+      padding: 16px 2px 4px;
+    }
+    .top-link a {
+      font-size: 14px;
+      font-weight: 600;
+      color: #6b6f78;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 22px 20px 20px;
+      margin-bottom: 12px;
+    }
+    .list {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 29px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    p {
+      margin: 4px 0 0;
+      font-size: 14px;
+      color: #6b6f78;
+    }
+    .row {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      background: #fafbfc;
+      border-radius: 16px;
+      padding: 14px 14px 12px;
+    }
+    .row-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .row-head b {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .row-head span {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #2e63f6;
+    }
+    .row-meta {
+      margin-top: 5px;
+      font-size: 13.5px;
+      color: #6b6f78;
+    }
+    .row-stats {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+    }
+    .row-stats span {
+      font-size: 12.5px;
+      color: #8a8f99;
+      background: #f2f4f7;
+      border-radius: 999px;
+      padding: 4px 9px;
+    }
+    .row-stats .highlight {
+      color: #5b7bd4;
+      background: #e9f0ff;
+    }
+  </style>
+</Base>

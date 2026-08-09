@@ -1,0 +1,125 @@
+---
+import Base from "../layouts/Base.astro";
+import { withBase } from "../lib/base";
+import { loadMetaDoc } from "../lib/data";
+
+const meta = loadMetaDoc();
+---
+
+<Base
+  title="개인정보 처리방침 및 삭제/처리정지 요청"
+  description="쇼트트랙 공개 경기 기록 정리 사이트의 개인정보 처리방침과 열람·정정·삭제·처리정지 요청 안내입니다."
+  generatedAt={meta.generatedAt}
+>
+  <div class="top-link"><a href={withBase()}>← 메인으로</a></div>
+
+  <header class="card">
+    <h1>개인정보 처리방침</h1>
+    <p>본 페이지는 공개된 아마추어 경기 기록 정리 사이트의 개인정보 처리기준과 권리 행사 방법을 안내해요.</p>
+    <p class="sub">법률 전문가의 최종 검토 문서는 아니며, 서비스 확장 시 내용을 재검토합니다.</p>
+  </header>
+
+  <section class="card">
+    <h2>1. 운영 주체</h2>
+    <p>본 사이트는 개인이 비영리로 운영합니다. 대한빙상경기연맹 및 대한체육회와 무관합니다.</p>
+  </section>
+
+  <section class="card">
+    <h2>2. 처리하는 개인정보 항목</h2>
+    <p>본 사이트는 공개 기록 정리를 위해 다음 항목을 처리합니다.</p>
+    <p>성명, 출생연도, 소속, 시도, 종별, 경기 기록(대회명·연도·종목·순위)</p>
+  </section>
+
+  <section class="card">
+    <h2>3. 수집하지 않는 항목</h2>
+    <p>주민등록번호, 연락처, 주소, 사진은 수집하거나 저장하지 않습니다.</p>
+  </section>
+
+  <section class="card">
+    <h2>4. 수집 출처 및 처리 목적</h2>
+    <p>
+      데이터 출처는 대한체육회 경기결과 정보제공 시스템(
+      <a href="https://result.sports.or.kr/" target="_blank" rel="noopener">result.sports.or.kr</a>)입니다.
+    </p>
+    <p>정보주체로부터 직접 수집하지 않으며, 공개된 아마추어 경기 기록을 정리하고 통계를 제공하는 목적으로 처리합니다.</p>
+  </section>
+
+  <section class="card">
+    <h2>5. 보유 및 이용 기간</h2>
+    <p>관련 정보는 삭제 요청이 접수될 때까지 보유·이용하며, 요청이 확인되면 지체 없이 처리합니다.</p>
+  </section>
+
+  <section class="card">
+    <h2>6. 제3자 제공 및 처리 위탁</h2>
+    <p>개인정보를 제3자에게 제공하지 않습니다.</p>
+    <p>별도 처리 위탁은 하지 않습니다. 단, 사이트는 GitHub Pages 인프라를 통해 호스팅됩니다.</p>
+  </section>
+
+  <section class="card">
+    <h2>7. 정보주체의 권리 및 행사 방법</h2>
+    <p>정보주체는 열람·정정·삭제·처리정지를 요청할 수 있습니다.</p>
+    <p>요청은 아래 이메일로 접수하며, 본인 또는 법정대리인 확인 절차 후 처리 결과를 회신합니다.</p>
+  </section>
+
+  <section class="card" id="request">
+    <h2>8. 삭제·처리정지 요청 창구</h2>
+    <div class="notice">
+      <p><b>접수 이메일(예시):</b> privacy@example.com</p>
+      <p class="sub">현재는 예시 주소입니다. 실제 운영 주소 확정 시 즉시 갱신합니다.</p>
+    </div>
+    <p>요청 메일에는 다음 내용을 포함해 주세요.</p>
+    <p>1) 요청자 이름 2) 본인/법정대리인 여부 3) 대상 선수명 또는 URL 4) 요청 유형(열람·정정·삭제·처리정지) 5) 연락 가능한 회신 주소</p>
+  </section>
+
+  <section class="card">
+    <h2>9. 개인정보 보호책임자</h2>
+    <p>이름/닉네임(예시): 운영자 예시 (es-kimo)<br />이메일(예시): privacy@example.com</p>
+  </section>
+
+  <style>
+    .top-link {
+      padding: 16px 2px 4px;
+    }
+    .top-link a {
+      font-size: 14px;
+      font-weight: 600;
+      color: #6b6f78;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 22px 20px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 29px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    p {
+      margin: 0 0 8px;
+      font-size: 14.5px;
+      color: #5b5f68;
+    }
+    p:last-child {
+      margin-bottom: 0;
+    }
+    .notice {
+      background: #f5f7fa;
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .sub {
+      font-size: 13px;
+      color: #8a8f99;
+    }
+  </style>
+</Base>

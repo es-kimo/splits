@@ -1,7 +1,7 @@
 # splits
 대한체육회 경기결과 데이터에서 쇼트트랙 선수 이력을 수집·정제해 공개하는 프로젝트입니다.
 선수 식별(idNo) 확정, 대회 기록 수집, 분석 산출물 생성 과정을 단일 파이프라인으로 운영합니다.
-현재 공인 선수 지정 명단 기준 선수별 성적/이력 페이지를 정적 사이트로 제공합니다. 선수 목록은 `athlete/`, 선수 개별 URL은 `athlete/{slug}/` 패턴으로 생성됩니다.
+Python 파이프라인은 데이터 생성에 집중하고, 사이트 렌더링은 Astro(`web/`)가 담당합니다. 공개 사이트 URL 패턴은 `athlete/`, `athlete/{slug}/`, `meet/`, `meet/{slug}/`, `distribution/`, `privacy/`입니다.
 
 공개 대상 명단은 `data/public_figures.csv`를 수동으로 관리합니다.
 
@@ -11,11 +11,12 @@
 
 배포 URL: https://es-kimo.github.io/splits/
 실행 방법: `pip install -r requirements.txt && python scrape.py history && python analyze.py && python build_data.py && python build_site.py`
-`python build_data.py` 실행 시 `site/data/*.json` 계약 파일을 생성하고, `python build_site.py`는 해당 JSON만 읽어 HTML을 생성합니다.
+`python build_data.py` 실행 시 `site/data/*.json` 계약 파일을 생성하고, `python build_site.py`는 Astro 빌드를 실행해 루트 정적 파일을 동기화합니다.
+Astro 의존성은 최초 1회 `cd web && npm install`로 설치합니다.
 reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/splits/splits/reference/`를 참고하세요.
 
 ## 검색엔진 색인 파일
-- `python build_site.py` 실행 시 루트에 `sitemap.xml`, `robots.txt`가 함께 생성됩니다.
+- `python build_site.py` 실행 시 Astro 출력물과 함께 루트에 `sitemap.xml`, `robots.txt`가 생성됩니다.
 - sitemap 포함 URL:
   - `https://es-kimo.github.io/splits/`
   - `https://es-kimo.github.io/splits/athlete/`

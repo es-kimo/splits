@@ -1,0 +1,95 @@
+---
+import Base from "../../layouts/Base.astro";
+import { withBase } from "../../lib/base";
+import { loadMeetsDoc, loadMetaDoc } from "../../lib/data";
+import { meetSlug } from "../../lib/meet";
+
+const meta = loadMetaDoc();
+const { items } = loadMeetsDoc();
+---
+
+<Base
+  title="대회 목록"
+  description="공개 선수 경기 데이터에서 집계한 대회 단위 익명 통계 목록입니다."
+  generatedAt={meta.generatedAt}
+>
+  <div class="top-link"><a href={withBase()}>← 메인으로</a></div>
+  <header class="card">
+    <h1>대회 목록</h1>
+    <p>대회별 경기 수와 참여 선수 수를 확인할 수 있어요.</p>
+  </header>
+  <section class="card list">
+    {
+      items.map((item) => (
+        <a class="row" href={withBase(`meet/${meetSlug(item)}/`)}>
+          <div class="row-head">
+            <b>{item.meet}</b>
+            <span>{item.year}년</span>
+          </div>
+          <div class="row-meta">
+            경기 {item.raceCount}건 · 선수 {item.athleteCount}명 · 종목 {item.distanceSet.map((distance) => `${distance}m`).join(", ")}
+          </div>
+        </a>
+      ))
+    }
+  </section>
+  <style>
+    .top-link {
+      padding: 16px 2px 4px;
+    }
+    .top-link a {
+      font-size: 14px;
+      font-weight: 600;
+      color: #6b6f78;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 22px 20px 20px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 29px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    p {
+      margin: 4px 0 0;
+      font-size: 14px;
+      color: #6b6f78;
+    }
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 16px;
+    }
+    .row {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      background: #fafbfc;
+      border-radius: 14px;
+      padding: 12px 12px 11px;
+    }
+    .row-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .row-head b {
+      font-size: 14.5px;
+    }
+    .row-head span {
+      font-size: 12.5px;
+      color: #8a8f99;
+    }
+    .row-meta {
+      margin-top: 6px;
+      color: #5b5f68;
+      font-size: 13px;
+    }
+  </style>
+</Base>

@@ -1,0 +1,594 @@
+---
+import Trajectory from "../components/Trajectory.astro";
+import Base from "../layouts/Base.astro";
+import { withBase } from "../lib/base";
+import { loadAthletesDoc, loadMetaDoc } from "../lib/data";
+
+const athletesDoc = loadAthletesDoc();
+const meta = loadMetaDoc();
+
+const ages = athletesDoc.ages;
+const athletes = athletesDoc.athletes;
+
+const athleteCount = `${meta.athleteCount || 0}명`;
+const placementCount = `${(meta.placementCount || 0).toLocaleString("ko-KR")}개`;
+const ageSpan = meta.ageMin !== null && meta.ageMax !== null ? `${meta.ageMin}~${meta.ageMax}살` : "-";
+const yearSpanHead = meta.yearSpan !== null ? `${meta.yearSpan}년치` : "-";
+const yearSpanTail = meta.yearStart !== null && meta.yearEnd !== null ? `${meta.yearStart}년 ~ ${meta.yearEnd}년` : "기간 정보 없음";
+const firstAgeText = meta.firstAgeMin !== null && meta.firstAgeMax !== null ? `${meta.firstAgeMin}살부터 ${meta.firstAgeMax}살까지` : "-";
+
+const line1 = `초등부 기록이 남아 있는 ${meta.elemTop2Count || 0}명 모두 초등학생 때 이미 최소 한 번은 1~2등을 했습니다.`;
+const line2 = `그렇다고 늘 앞자리였던 건 아닙니다. 같은 선수들의 초등부 성적 중에는 ${meta.elemWorstBand || "-"}도 섞여 있습니다.`;
+const line3 = `처음 대회에 나온 나이는 ${firstAgeText} 제각각이었습니다.`;
+
+const byName = new Map(athletes.map((athlete) => [athlete.name, athlete]));
+const missingNames = meta.missingElemNames.map((name) => {
+  const athlete = byName.get(name);
+  if (!athlete || athlete.birth === null) return name;
+  return `${name}(${athlete.birth}년생)`;
+});
+const missingElemNote =
+  missingNames.length === 0
+    ? "초등부 기록이 남아 있지 않은 선수는 없습니다."
+    : `${missingNames.join(", ")}은 초등부 기록이 남아 있지 않아 빠졌습니다.`;
+const missingLimitNote =
+  missingNames.length === 0
+    ? "초등부 누락 데이터가 확인된 선수는 없습니다."
+    : `${missingNames.join(", ")}: 초등부 기록 누락 확인`;
+
+const ageMin = ages[0] ?? 7;
+const ageMid = ages[Math.floor(ages.length / 2)] ?? 12;
+const ageMax = ages[ages.length - 1] ?? 18;
+
+const elemRows = athletes
+  .filter((athlete) => (athlete.elem.count || 0) > 0)
+  .slice()
+  .sort((left, right) => {
+    const leftMedian = Number.isFinite(left.elem.median) ? left.elem.median ?? 9999 : 9999;
+    const rightMedian = Number.isFinite(right.elem.median) ? right.elem.median ?? 9999 : 9999;
+    return leftMedian - rightMedian || left.name.localeCompare(right.name, "ko");
+  });
+
+function presentAges(athlete: (typeof athletes)[number]): number[] {
+  return ages
+    .filter((age) => athlete.ages[String(age)] !== null && athlete.ages[String(age)] !== undefined)
+    .map(Number)
+    .sort((a, b) => a - b);
+}
+---
+
+<Base
+  title="국가대표 14명의 유년기 기록"
+  description="쇼트트랙 국가대표 선수 14명의 유년기 순위 데이터를 정리한 페이지입니다. 선수별 상세 페이지로 이동해 나이별 성적과 전체 대회 이력을 볼 수 있습니다."
+  generatedAt={meta.generatedAt}
+>
+  <header class="hero">
+    <span class="badge">공개 경기 기록 정리</span>
+    <h1>쇼트트랙 국가대표 14명은<br />어릴 때 몇 등이었을까요?</h1>
+    <p class="intro">
+      2026/27시즌 쇼트트랙 국가대표 14명이 <b>7살 때부터</b> 국내 대회에서 받은 성적을 정리했어요.
+    </p>
+  </header>
+
+  <div class="metrics">
+    <div class="metric"><div class="metric-main">{athleteCount}</div><div class="metric-sub">국가대표 선수</div></div>
+    <div class="metric"><div class="metric-main">{placementCount}</div><div class="metric-sub">모은 경기 성적</div></div>
+    <div class="metric"><div class="metric-main">{ageSpan}</div><div class="metric-sub">기록에 담긴 나이</div></div>
+    <div class="metric"><div class="metric-main">{yearSpanHead}</div><div class="metric-sub">{yearSpanTail}</div></div>
+  </div>
+
+  <section class="section">
+    <h2>먼저, 세 줄 요약</h2>
+    <div class="summary-list">
+      <div class="summary-item"><span class="summary-index">1</span><p class="summary-text">{line1}</p></div>
+      <div class="summary-item"><span class="summary-index">2</span><p class="summary-text">{line2}</p></div>
+      <div class="summary-item"><span class="summary-index">3</span><p class="summary-text">{line3}</p></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>나이별로 가장 잘했던 등수</h2>
+    <p class="section-note">
+      각 선수가 나이별로 <b>가장 잘했던 등수</b>를 기록했어요. 그래프에서 왼쪽이 {ageMin}살, 오른쪽이 {ageMax}살이에요.
+    </p>
+    <div class="read-box">
+      <div class="read-title">이렇게 보세요</div>
+      <div class="read-row"><span class="dot-blue"></span>파란 점이 위에 붙을수록 1등에 가깝습니다</div>
+      <div class="read-row"><span class="dot-gray"></span>회색 점은 등수가 뒤로 밀린 해예요 (옆에 등수 표시)</div>
+      <div class="read-row"><span class="line-gray"></span>아래쪽 짧은 선은 그 나이의 기록이 아예 없다는 뜻입니다</div>
+    </div>
+    <div class="age-cards">
+      {
+        athletes.map((athlete) => {
+          const present = presentAges(athlete);
+          const winCount = present.filter((age) => athlete.ages[String(age)] === 1).length;
+          const summary = winCount > 0 ? `1등 ${winCount}번 · ${present.length}개 나이 기록` : `${present.length}개 나이 기록`;
+          return (
+            <article class="age-card">
+              <div class="age-head">
+                <b class="age-name"><a class="athlete-link" href={withBase(athlete.url)}>{athlete.name}</a></b>
+                <span class="age-birth">{athlete.birth !== null ? `${athlete.birth}년생` : "출생년도 미상"}</span>
+              </div>
+              <div class="age-summary">{summary}</div>
+              <Trajectory ages={ages} ageRanks={athlete.ages} />
+              <div class="age-axis">
+                <span>{ageMin}살</span><span>{ageMid}살</span><span>{ageMax}살</span>
+              </div>
+            </article>
+          );
+        })
+      }
+    </div>
+    <p class="section-footnote">비어 있는 구간은 해당 나이의 기록이 시스템에 없다는 뜻이에요. 2012년 이전 대회는 일부만 전산화돼 있어요.</p>
+  </section>
+
+  <section class="section">
+    <h2>초등부 때 성적의 폭</h2>
+    <p class="section-note">막대의 왼쪽 끝이 가장 좋았던 등수, 오른쪽 끝이 가장 나빴던 등수입니다. 하얀 선은 보통 받던 등수(중앙값)예요.</p>
+    <div class="elem-rows">
+      {
+        elemRows.map((athlete, index) => {
+          const best = athlete.elem.best ?? 1;
+          const worst = athlete.elem.worst ?? best;
+          const median = Number.isFinite(athlete.elem.median) ? athlete.elem.median ?? best : best;
+          const left = ((best - 1) / 40) * 100;
+          const width = Math.max(((worst - best) / 40) * 100, 2);
+          const mid = Math.min(((median - 1) / 40) * 100, 98);
+          const thin = (athlete.elem.count ?? 0) < 10;
+          return (
+            <div class="elem-row">
+              <div class="elem-row-head">
+                <span class="elem-rank">{index + 1}</span>
+                <b class="elem-name"><a class="athlete-link" href={withBase(athlete.url)}>{athlete.name}</a></b>
+                <span class="elem-count">{athlete.elem.count ?? 0}번 출전</span>
+                <span class="elem-summary">최고 {best}등 · 보통 {(athlete.elem.median ?? 0).toFixed(1)}등 · 최저 {worst}등</span>
+              </div>
+              <div class="elem-bar-wrap">
+                <span class="elem-bar" style={`left:${left}%;width:${width}%;background:${thin ? "#C6CBD4" : "#2E63F6"}`}></span>
+                <span class="elem-mid" style={`left:${mid}%`}></span>
+              </div>
+            </div>
+          );
+        })
+      }
+    </div>
+    <div class="sample-note">
+      출전 횟수가 10번이 안 되는 선수는 회색으로 표시했어요. 몇 경기 안 되는 성적이라 '보통 등수'를 그대로 믿기는 어려워요. {missingElemNote}
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>선수별로 자세히 보기</h2>
+    <p class="section-note">이름을 누르면 연도별 최고 성적을 볼 수 있어요.</p>
+    <div class="detail-list">
+      {
+        athletes.map((athlete) => {
+          const present = presentAges(athlete);
+          const spanLabel =
+            present.length > 0 && athlete.birth !== null
+              ? `기록이 남아 있는 기간 ${athlete.birth + present[0]}년 ~ ${athlete.birth + present[present.length - 1]}년`
+              : "기록이 남아 있는 기간 정보 없음";
+          return (
+            <details class="detail-item">
+              <summary>
+                <span><b>{athlete.name}</b> · {athlete.team}</span>
+                <a href={withBase(athlete.url)}>개별 페이지</a>
+              </summary>
+              <div class="detail-body">
+                <div class="detail-span">{spanLabel}</div>
+                {present.map((age) => {
+                  const rank = athlete.ages[String(age)];
+                  const yearText = athlete.birth !== null ? `${athlete.birth + age}년` : "연도 미상";
+                  return (
+                    <div class="detail-year">
+                      <span class="detail-year-text">{yearText}</span>
+                      <span class="detail-age-text">{age}살</span>
+                      <span class="detail-rank-text" style={`color:${(rank ?? 99) <= 2 ? "#2E63F6" : "#3A3D45"}`}>{rank}등</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          );
+        })
+      }
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>이 자료를 볼 때 알아두실 점</h2>
+    <p class="section-note">숫자를 오해하지 않으시도록, 데이터의 한계를 알려드려요.</p>
+    <div class="note-list">
+      <div class="note-card"><div class="note-q">나이는 어떻게 계산했나요?</div><div class="note-a">대회가 열린 연도에서 태어난 해를 뺐습니다. 생일이 지나지 않았다면 만 나이보다 한 살 많습니다. 겨울 대회가 1~2월에 몰려 있어 대체로 한 살 높게 잡혀 있다고 보시면 됩니다.</div></div>
+      <div class="note-card"><div class="note-q">왜 옛날 선수는 어릴 때 기록이 없나요?</div><div class="note-a">2012년 이전 대회는 일부만 전산화돼 있습니다. 1990년대 중반 이전에 태어난 선수는 유년기 기록이 통째로 비어 있습니다. {missingLimitNote}</div></div>
+      <div class="note-card"><div class="note-q">어떤 경기의 등수인가요?</div><div class="note-a">결승과 채점종합 기준입니다. 예선이나 준결승에서 조 안에 매긴 등수는 전체 성적이 아니라 뺐습니다.</div></div>
+      <div class="note-card"><div class="note-q">기록(시간)은 왜 없나요?</div><div class="note-a">쇼트트랙은 순위 경기입니다. 결승에서 일부러 천천히 타다 마지막에 붙는 경우가 많아, 예선보다 30초 넘게 느린데 1등인 기록도 있습니다. 시간은 실력을 그대로 보여주지 않아 싣지 않았습니다.</div></div>
+      <div class="note-card"><div class="note-q">잘못된 기록은 없나요?</div><div class="note-a">계측 오류로 보이는 기록 35건을 확인했지만, 임의로 고치지 않고 원본 그대로 두었습니다.</div></div>
+      <div class="note-card"><div class="note-q">이 자료로 무엇을 알 수 있나요?</div><div class="note-a">14명이 어릴 때 어떤 성적을 남겼는지 재미로 봐주세요. 특별한 분석을 제공하고 있지 않습니다.</div></div>
+    </div>
+  </section>
+
+  <section class="link-grid">
+    <a class="link-card" href={withBase("athlete/")}>
+      <b>선수 목록 보기</b>
+      <span>개별 기록 페이지로 이동할 수 있어요.</span>
+    </a>
+    <a class="link-card" href={withBase("meet/")}>
+      <b>대회 목록 보기</b>
+      <span>대회 단위 익명 집계를 확인할 수 있어요.</span>
+    </a>
+    <a class="link-card" href={withBase("distribution/")}>
+      <b>분포 통계 보기</b>
+      <span>k-익명 기준 통계를 살펴볼 수 있어요.</span>
+    </a>
+  </section>
+
+  <style>
+    .hero {
+      padding: 44px 4px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .badge {
+      align-self: flex-start;
+      background: #e4ebff;
+      color: #2e63f6;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 7px 13px;
+      border-radius: 999px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.32;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .intro {
+      margin: 0;
+      font-size: 16px;
+      color: #5b5f68;
+    }
+    .intro b,
+    .section-note b,
+    .summary-text b {
+      color: #17181c;
+      font-weight: 700;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .metric {
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 18px 18px 16px;
+    }
+    .metric-main {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .metric-sub {
+      font-size: 13px;
+      color: #8a8f99;
+      margin-top: 2px;
+    }
+    .section {
+      background: #ffffff;
+      border-radius: 22px;
+      padding: 24px 20px;
+      margin-bottom: 14px;
+    }
+    h2 {
+      margin: 0 0 6px;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .section-note {
+      margin: 0 0 16px;
+      font-size: 14.5px;
+      color: #6b6f78;
+    }
+    .summary-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .summary-item {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .summary-index {
+      flex: none;
+      width: 26px;
+      height: 26px;
+      border-radius: 9px;
+      background: #e4ebff;
+      color: #2e63f6;
+      font-size: 13px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .summary-text {
+      margin: 0;
+      font-size: 15.5px;
+      color: #3a3d45;
+    }
+    .read-box {
+      background: #f5f7fa;
+      border-radius: 16px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .read-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #3a3d45;
+    }
+    .read-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13.5px;
+      color: #6b6f78;
+    }
+    .dot-blue,
+    .dot-gray {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      flex: none;
+    }
+    .dot-blue {
+      background: #2e63f6;
+    }
+    .dot-gray {
+      background: #c6cbd4;
+    }
+    .line-gray {
+      width: 11px;
+      height: 3px;
+      border-radius: 2px;
+      background: #dfe3e9;
+      flex: none;
+    }
+    .age-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 10px;
+    }
+    .age-card {
+      background: #fafbfc;
+      border-radius: 16px;
+      padding: 14px 14px 10px;
+    }
+    .age-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .age-name {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin: 0;
+    }
+    .athlete-link {
+      color: inherit;
+      text-decoration: none;
+    }
+    .athlete-link:hover {
+      text-decoration: underline;
+    }
+    .age-birth {
+      font-size: 12.5px;
+      color: #9ba0aa;
+    }
+    .age-summary {
+      font-size: 12.5px;
+      color: #2e63f6;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .age-axis {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: #a9aeb8;
+      padding: 0 2px;
+    }
+    .section-footnote {
+      margin: 16px 0 0;
+      font-size: 13.5px;
+      color: #8a8f99;
+    }
+    .elem-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .elem-row {
+      padding: 14px 2px;
+      border-top: 1px solid #f0f2f5;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .elem-row-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .elem-rank {
+      font-size: 12px;
+      color: #b4b9c2;
+      font-weight: 700;
+      width: 18px;
+    }
+    .elem-name {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+    .elem-count {
+      font-size: 12px;
+      color: #8a8f99;
+      background: #f2f4f7;
+      border-radius: 999px;
+      padding: 3px 9px;
+    }
+    .elem-summary {
+      margin-left: auto;
+      font-size: 13.5px;
+      color: #6b6f78;
+    }
+    .elem-bar-wrap {
+      position: relative;
+      height: 12px;
+      border-radius: 999px;
+      background: #f0f2f5;
+      margin-left: 26px;
+    }
+    .elem-bar {
+      position: absolute;
+      top: 0;
+      height: 12px;
+      border-radius: 999px;
+    }
+    .elem-mid {
+      position: absolute;
+      top: 2px;
+      height: 8px;
+      width: 2px;
+      border-radius: 2px;
+      background: #ffffff;
+    }
+    .sample-note {
+      margin-top: 18px;
+      background: #f5f7fa;
+      border-radius: 16px;
+      padding: 14px 16px;
+      font-size: 13.5px;
+      color: #6b6f78;
+    }
+    .detail-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .detail-item {
+      border: 1px solid #f0f2f5;
+      border-radius: 14px;
+      background: #fafbfc;
+      padding: 8px 12px;
+    }
+    .detail-item summary {
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #3a3d45;
+      padding: 4px 0;
+    }
+    .detail-item summary::-webkit-details-marker {
+      display: none;
+    }
+    .detail-body {
+      padding: 8px 0 2px;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .detail-span {
+      font-size: 13px;
+      color: #8a8f99;
+      padding: 0 2px 8px;
+    }
+    .detail-year {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: 12px;
+      background: #ffffff;
+      border: 1px solid #f0f2f5;
+    }
+    .detail-year-text {
+      font-size: 14px;
+      color: #3a3d45;
+      width: 64px;
+    }
+    .detail-age-text {
+      font-size: 13px;
+      color: #9ba0aa;
+    }
+    .detail-rank-text {
+      margin-left: auto;
+      font-size: 14.5px;
+      font-weight: 700;
+    }
+    .note-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .note-card {
+      background: #fafbfc;
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .note-q {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+    .note-a {
+      font-size: 14.5px;
+      color: #5b5f68;
+    }
+    .link-grid {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+      grid-template-columns: 1fr;
+    }
+    .link-card {
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .link-card b {
+      font-size: 15px;
+    }
+    .link-card span {
+      color: #6b6f78;
+      font-size: 13.5px;
+    }
+    @media (max-width: 640px) {
+      h1 {
+        font-size: 31px;
+      }
+    }
+  </style>
+</Base>

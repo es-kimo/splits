@@ -1,6 +1,6 @@
 # 국가대표 유년기 페이지 디자인 시스템 레퍼런스
 
-기준 소스: [build_site.py](../../build_site.py)
+기준 소스: [web/src/pages/index.astro](../../web/src/pages/index.astro)
 
 이 문서는 현재 정적 페이지 스타일을 재사용/확장할 때 필요한 디자인 토큰과 컴포넌트 규칙을 정리한 문서다.
 값은 코드에 있는 실제 CSS/JS를 기준으로 작성했다.
