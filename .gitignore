@@ -3,6 +3,8 @@
 !/data/school_aliases.csv
 !/data/id_merges.csv
 !/data/public_figures.csv
+!/data/stats_distribution.csv
+!/data/stats_participation.csv
 # full-history collection artifacts (PII/raw cache)
 /data/collect_progress.json
 /data/collect_failures.csv
