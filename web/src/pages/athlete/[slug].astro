@@ -91,6 +91,7 @@ const yearCards = [...groupedYears.values()]
   title={`${athlete.name} 선수 기록`}
   description={`${athlete.name} 선수의 출생년도, 소속, 나이별 성적, 전체 대회 이력을 정리한 페이지입니다.`}
   generatedAt={meta.generatedAt}
+  contentWidth="narrow"
 >
   <div class="top-link"><a href={withBase("athlete/")} onclick="if(window.history.length>1){window.history.back();return false;}">← 공개 선수 목록</a></div>
   <header class="card">

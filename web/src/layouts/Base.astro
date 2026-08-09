@@ -5,9 +5,11 @@ interface Props {
   title: string;
   description: string;
   generatedAt?: string;
+  contentWidth?: "default" | "narrow";
 }
 
-const { title, description, generatedAt } = Astro.props;
+const { title, description, generatedAt, contentWidth = "default" } = Astro.props;
+const pageClass = contentWidth === "narrow" ? "page page-narrow" : "page";
 ---
 
 <!doctype html>
@@ -52,17 +54,22 @@ const { title, description, generatedAt } = Astro.props;
       * {
         box-sizing: border-box;
       }
-      a {
+      :global(a) {
         color: var(--primary);
         text-decoration: none;
       }
-      a:hover {
+      :global(a:hover) {
         color: var(--primary-hover);
       }
       .page {
         max-width: 700px;
         margin: 0 auto;
         padding: 0 18px 72px;
+      }
+      .page.page-narrow {
+        max-width: 560px;
+        padding-left: 16px;
+        padding-right: 16px;
       }
       .legal-footer {
         margin-top: 16px;
@@ -79,11 +86,15 @@ const { title, description, generatedAt } = Astro.props;
         .page {
           padding: 0 14px 72px;
         }
+        .page.page-narrow {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
       }
     </style>
   </head>
   <body>
-    <main class="page">
+    <main class={pageClass}>
       <slot />
       <footer class="legal-footer">
         공개된 경기 기록을 개인이 정리한 페이지입니다. 대한빙상경기연맹 및 대한체육회와 무관합니다.<br />
