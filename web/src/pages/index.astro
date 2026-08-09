@@ -55,6 +55,15 @@ function presentAges(athlete: (typeof athletes)[number]): number[] {
     .map(Number)
     .sort((a, b) => a - b);
 }
+
+const detailRows = athletes.map((athlete) => ({
+  name: athlete.name,
+  team: athlete.team,
+  birth: athlete.birth,
+  first: athlete.first,
+  url: withBase(athlete.url),
+  ages: athlete.ages,
+}));
 ---
 
 <Base
@@ -160,37 +169,20 @@ function presentAges(athlete: (typeof athletes)[number]): number[] {
   <section class="section">
     <h2>선수별로 자세히 보기</h2>
     <p class="section-note">이름을 누르면 연도별 최고 성적을 볼 수 있어요.</p>
-    <div class="detail-list">
+    <div id="detail-list" class="detail-list">
       {
-        athletes.map((athlete) => {
-          const present = presentAges(athlete);
-          const spanLabel =
-            present.length > 0 && athlete.birth !== null
-              ? `기록이 남아 있는 기간 ${athlete.birth + present[0]}년 ~ ${athlete.birth + present[present.length - 1]}년`
-              : "기록이 남아 있는 기간 정보 없음";
-          return (
-            <details class="detail-item">
-              <summary>
-                <span><b>{athlete.name}</b> · {athlete.team}</span>
-                <a href={withBase(athlete.url)}>개별 페이지</a>
-              </summary>
-              <div class="detail-body">
-                <div class="detail-span">{spanLabel}</div>
-                {present.map((age) => {
-                  const rank = athlete.ages[String(age)];
-                  const yearText = athlete.birth !== null ? `${athlete.birth + age}년` : "연도 미상";
-                  return (
-                    <div class="detail-year">
-                      <span class="detail-year-text">{yearText}</span>
-                      <span class="detail-age-text">{age}살</span>
-                      <span class="detail-rank-text" style={`color:${(rank ?? 99) <= 2 ? "#2E63F6" : "#3A3D45"}`}>{rank}등</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-          );
-        })
+        detailRows.map((athlete) => (
+          <div class="detail-row">
+            <div class="detail-toggle" data-name={athlete.name}>
+              <b class="detail-name">{athlete.name}</b>
+              <span class="detail-meta">{athlete.team} · 첫 대회 {athlete.first ? `${athlete.first}살` : "-"}</span>
+              <span class="detail-actions">
+                <a class="detail-link" href={athlete.url} onclick="event.stopPropagation()">개별 페이지</a>
+                <span class="detail-state">펼치기</span>
+              </span>
+            </div>
+          </div>
+        ))
       }
     </div>
   </section>
@@ -208,20 +200,87 @@ function presentAges(athlete: (typeof athletes)[number]): number[] {
     </div>
   </section>
 
-  <section class="link-grid">
-    <a class="link-card" href={withBase("athlete/")}>
-      <b>선수 목록 보기</b>
-      <span>개별 기록 페이지로 이동할 수 있어요.</span>
-    </a>
-    <a class="link-card" href={withBase("meet/")}>
-      <b>대회 목록 보기</b>
-      <span>대회 단위 익명 집계를 확인할 수 있어요.</span>
-    </a>
-    <a class="link-card" href={withBase("distribution/")}>
-      <b>분포 통계 보기</b>
-      <span>k-익명 기준 통계를 살펴볼 수 있어요.</span>
-    </a>
-  </section>
+  <script define:vars={{ detailRows, ages }} is:inline>
+    let openName = null;
+
+    function esc(v) {
+      return String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    function presentAges(athlete) {
+      return ages
+        .filter((age) => athlete.ages[String(age)] !== null && athlete.ages[String(age)] !== undefined)
+        .map(Number)
+        .sort((a, b) => a - b);
+    }
+
+    function renderDetailList() {
+      const root = document.getElementById("detail-list");
+      if (!root) return;
+      root.textContent = "";
+
+      for (const athlete of detailRows) {
+        const present = presentAges(athlete);
+        const isOpen = openName === athlete.name;
+        const firstLabel = athlete.first ? `${athlete.first}살` : "-";
+
+        const row = document.createElement("div");
+        row.className = "detail-row";
+
+        let bodyHtml = "";
+        if (isOpen) {
+          const spanLabel = present.length
+            ? athlete.birth
+              ? `기록이 남아 있는 기간 ${athlete.birth + present[0]}년 ~ ${athlete.birth + present[present.length - 1]}년`
+              : "기록이 남아 있는 기간 정보 없음"
+            : "기록 없음";
+          const yearRows = present
+            .map((age) => {
+              const rank = athlete.ages[String(age)];
+              const color = rank <= 2 ? "#2E63F6" : "#3A3D45";
+              const yearText = athlete.birth ? `${athlete.birth + age}년` : "연도 미상";
+              return `
+                <div class="detail-year">
+                  <span class="detail-year-text">${yearText}</span>
+                  <span class="detail-age-text">${age}살</span>
+                  <span class="detail-rank-text" style="color:${color}">${rank}등</span>
+                </div>
+              `;
+            })
+            .join("");
+          bodyHtml = `
+            <div class="detail-body">
+              <div class="detail-span">${esc(spanLabel)}</div>
+              ${yearRows}
+            </div>
+          `;
+        }
+
+        row.innerHTML = `
+          <div class="detail-toggle" data-name="${esc(athlete.name)}">
+            <b class="detail-name">${esc(athlete.name)}</b>
+            <span class="detail-meta">${esc(athlete.team)} · 첫 대회 ${firstLabel}</span>
+            <span class="detail-actions">
+              <a class="detail-link" href="${esc(athlete.url)}" onclick="event.stopPropagation()">개별 페이지</a>
+              <span class="detail-state">${isOpen ? "접기" : "펼치기"}</span>
+            </span>
+          </div>
+          ${bodyHtml}
+        `;
+        root.appendChild(row);
+      }
+
+      root.querySelectorAll(".detail-toggle").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const name = btn.getAttribute("data-name") || "";
+          openName = openName === name ? null : name;
+          renderDetailList();
+        });
+      });
+    }
+
+    renderDetailList();
+  </script>
 
   <style>
     .hero {
@@ -489,30 +548,50 @@ function presentAges(athlete: (typeof athletes)[number]): number[] {
     .detail-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
     }
-    .detail-item {
-      border: 1px solid #f0f2f5;
-      border-radius: 14px;
-      background: #fafbfc;
-      padding: 8px 12px;
+    .detail-row {
+      border-top: 1px solid #f0f2f5;
     }
-    .detail-item summary {
-      list-style: none;
+    .detail-toggle {
+      cursor: pointer;
+      padding: 15px 2px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
       gap: 10px;
-      cursor: pointer;
-      font-size: 14px;
-      color: #3a3d45;
-      padding: 4px 0;
     }
-    .detail-item summary::-webkit-details-marker {
-      display: none;
+    .detail-toggle:hover {
+      background: #fafbfc;
+    }
+    .detail-name {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .detail-meta {
+      font-size: 13px;
+      color: #8a8f99;
+    }
+    .detail-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .detail-link {
+      font-size: 13px;
+      color: #2e63f6;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .detail-link:hover {
+      text-decoration: underline;
+    }
+    .detail-state {
+      font-size: 13px;
+      color: #2e63f6;
+      font-weight: 600;
     }
     .detail-body {
-      padding: 8px 0 2px;
+      padding: 2px 0 18px;
       display: flex;
       flex-direction: column;
       gap: 1px;
@@ -528,8 +607,7 @@ function presentAges(athlete: (typeof athletes)[number]): number[] {
       gap: 10px;
       padding: 9px 12px;
       border-radius: 12px;
-      background: #ffffff;
-      border: 1px solid #f0f2f5;
+      background: #fafbfc;
     }
     .detail-year-text {
       font-size: 14px;
@@ -563,27 +641,6 @@ function presentAges(athlete: (typeof athletes)[number]): number[] {
     .note-a {
       font-size: 14.5px;
       color: #5b5f68;
-    }
-    .link-grid {
-      display: grid;
-      gap: 10px;
-      margin-bottom: 14px;
-      grid-template-columns: 1fr;
-    }
-    .link-card {
-      background: #ffffff;
-      border-radius: 16px;
-      padding: 14px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .link-card b {
-      font-size: 15px;
-    }
-    .link-card span {
-      color: #6b6f78;
-      font-size: 13.5px;
     }
     @media (max-width: 640px) {
       h1 {

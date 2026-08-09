@@ -92,7 +92,7 @@ const yearCards = [...groupedYears.values()]
   description={`${athlete.name} 선수의 출생년도, 소속, 나이별 성적, 전체 대회 이력을 정리한 페이지입니다.`}
   generatedAt={meta.generatedAt}
 >
-  <div class="top-link"><a href={withBase("athlete/")}>← 공개 선수 목록</a></div>
+  <div class="top-link"><a href={withBase("athlete/")} onclick="if(window.history.length>1){window.history.back();return false;}">← 공개 선수 목록</a></div>
   <header class="card">
     <div>
       <h1>{athlete.name}</h1>
@@ -173,6 +173,17 @@ const yearCards = [...groupedYears.values()]
       <div><span>B그룹</span><p>A그룹에 들지 못한 선수들의 결승입니다.</p></div>
       <div><span>종합</span><p>전국동계체육대회처럼 그룹을 나누지 않고 매긴 순위입니다.</p></div>
       <div><span>준결승</span><p>결승 전 단계입니다. 조 안에서 매긴 등수라 전체 순위와 다릅니다.</p></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>개인정보 삭제/처리정지 요청</h2>
+    <p class="section-note">
+      선수 정보 열람·정정·삭제·처리정지를 요청하실 수 있어요. 요청 방법과 처리 기준은 개인정보 처리방침 페이지에 안내돼 있어요.
+    </p>
+    <div class="request-row">
+      <span>요청 접수 메일(예시): privacy@example.com</span>
+      <a href={withBase("privacy/#request")}>요청 안내 보기</a>
     </div>
   </section>
 
@@ -402,9 +413,36 @@ const yearCards = [...groupedYears.values()]
       font-size: 14px;
       color: #5b5f68;
     }
+    .request-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: #f5f7fa;
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+    .request-row span {
+      font-size: 13.5px;
+      color: #5b5f68;
+    }
+    .request-row a {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #2e63f6;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .request-row a:hover {
+      text-decoration: underline;
+    }
     @media (max-width: 640px) {
       .metrics {
         grid-template-columns: 1fr;
+      }
+      .request-row {
+        align-items: flex-start;
+        flex-direction: column;
       }
     }
   </style>
