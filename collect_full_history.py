@@ -470,6 +470,23 @@ def _load_retry_ids():
     return sorted(set(ids))
 
 
+def _cleanup_raw_cache():
+    if not RAW_HISTORY_DIR.exists():
+        print(f"[cleanup] 캐시 디렉터리가 없습니다: {RAW_HISTORY_DIR}")
+        return 0
+    removed = 0
+    for path in RAW_HISTORY_DIR.glob("*.html"):
+        path.unlink()
+        removed += 1
+    if not any(RAW_HISTORY_DIR.iterdir()):
+        RAW_HISTORY_DIR.rmdir()
+        raw_parent = RAW_HISTORY_DIR.parent
+        if raw_parent.exists() and not any(raw_parent.iterdir()):
+            raw_parent.rmdir()
+    print(f"[cleanup] raw history HTML 삭제 완료: {removed}건")
+    return 0
+
+
 def _build_arg_parser():
     parser = argparse.ArgumentParser(description="전체 선수 INF503 기록 수집기")
     parser.add_argument(
@@ -487,6 +504,7 @@ def _build_arg_parser():
 
     subparsers.add_parser("export", help="캐시 기반 full CSV만 재생성")
     subparsers.add_parser("compare-resolved", help="기존 14명(resolved.csv) 기준 회귀 비교")
+    subparsers.add_parser("cleanup-raw-cache", help="집계 완료 후 raw/history HTML 캐시 정리")
     return parser
 
 
@@ -497,6 +515,9 @@ def main():
     data_dir = args.data_dir or os.environ.get("SPLITS_DATA_DIR", str(DEFAULT_DATA_DIR))
     _configure_data_paths(data_dir)
     print(f"[path] data_dir={DATA_DIR}")
+
+    if command == "cleanup-raw-cache":
+        raise SystemExit(_cleanup_raw_cache())
 
     target_ids, names_by_id, merged_from_count, merge_edges = _build_targets()
     print(f"[target] athlete_index 고유 대상 {len(target_ids)}명 / id_merges 매핑 {merge_edges}건 / 병합 치환 원본행 {merged_from_count}건")

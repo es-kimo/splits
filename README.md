@@ -15,6 +15,12 @@ Python 파이프라인은 데이터 생성에 집중하고, 사이트 렌더링�
 Astro 의존성은 최초 1회 `cd web && npm install`로 설치합니다.
 reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/splits/splits/reference/`를 참고하세요.
 
+`python analyze.py`는 기존 산출물과 함께 익명 통계 CSV를 생성합니다.
+- `data/stats_distribution.csv`: 출생연도·성별·학령구간·거리 기준 분포(`기록_p10/p25/p50/p75/p90`, `순위_p25/p50/p75`)
+- `data/stats_participation.csv`: 출생연도·성별 기준 참여 통계(`최초출전나이_p25/p50/p75`, `초등부출전수_p50`)
+- k-익명성 기준 `k=10` 미만 구간은 행을 유지하되 `인원수`와 지표를 모두 `데이터 부족`으로 표기합니다.
+- 산출물에는 개인 식별 컬럼(`idNo`, `이름`, `소속`, `시도`)이 포함되지 않도록 자동 검증합니다.
+
 ## 전체 선수 기록 수집(비공개 원천 데이터)
 
 - 선수 인덱스(`data/athlete_index.csv`)와 id 병합표(`data/id_merges.csv`) 기준으로 INF503 기록을 수집합니다.
@@ -27,6 +33,7 @@ reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/sp
 python collect_full_history.py collect
 python collect_full_history.py retry-failures
 python collect_full_history.py compare-resolved
+python collect_full_history.py cleanup-raw-cache
 ```
 
 ```bash
@@ -38,6 +45,7 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 - `collect --refresh`: 전체 재수집합니다.
 - `retry-failures`: 실패 목록만 재시도한 뒤 full CSV를 다시 생성합니다.
 - `compare-resolved`: 기존 14명(`data/resolved.csv`)의 기존 산출물과 full 산출물을 회귀 비교합니다.
+- `cleanup-raw-cache`: 집계 완료 후 `data/raw/history/*.html` 캐시만 삭제합니다.
 - `--data-dir`: 입출력 데이터 기준 디렉터리를 바꿉니다. 미지정 시 `./data`, 또는 환경변수 `SPLITS_DATA_DIR`를 사용합니다.
 
 ## 검색엔진 색인 파일
