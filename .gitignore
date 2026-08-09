@@ -2,6 +2,7 @@
 !/data/athlete_index.csv
 !/data/school_aliases.csv
 !/data/id_merges.csv
+!/data/public_figures.csv
 __pycache__/
 .venv/
 .DS_Store
