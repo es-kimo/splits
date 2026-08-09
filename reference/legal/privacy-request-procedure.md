@@ -36,7 +36,7 @@
 1. 페이지 삭제
    - `athlete/{slug}/index.html` 또는 요청 대상 페이지 콘텐츠 제거
 2. 데이터셋 제거
-   - `data/public_figures.csv`에서 해당 선수 `상태=removed` 처리 후 `python build_site.py` 재생성
+   - `data/public_figures.csv`에서 해당 선수 `상태=removed` 처리 후 `python build_data.py && python build_site.py` 재생성
 3. 색인 삭제 요청
    - Google Search Console 및 네이버 서치어드바이저에서 대상 URL 삭제 요청
 

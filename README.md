@@ -10,7 +10,8 @@
 - `상태=removed`는 삭제 요청 우선 처리 상태이며, 빌드 시 페이지/목록/사이트맵에서 제외됩니다.
 
 배포 URL: https://es-kimo.github.io/splits/
-실행 방법: `pip install -r requirements.txt && python scrape.py history && python analyze.py && python build_site.py`
+실행 방법: `pip install -r requirements.txt && python scrape.py history && python analyze.py && python build_data.py && python build_site.py`
+`python build_data.py` 실행 시 `site/data/*.json` 계약 파일을 생성하고, `python build_site.py`는 해당 JSON만 읽어 HTML을 생성합니다.
 reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/splits/splits/reference/`를 참고하세요.
 
 ## 검색엔진 색인 파일
