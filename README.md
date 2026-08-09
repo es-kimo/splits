@@ -29,10 +29,16 @@ python collect_full_history.py retry-failures
 python collect_full_history.py compare-resolved
 ```
 
+```bash
+# worktree에서 개인 데이터 저장소를 직접 참조
+python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/data collect
+```
+
 - `collect`: 미수집 대상만 이어받아 수집하고 full CSV를 생성합니다.
 - `collect --refresh`: 전체 재수집합니다.
 - `retry-failures`: 실패 목록만 재시도한 뒤 full CSV를 다시 생성합니다.
 - `compare-resolved`: 기존 14명(`data/resolved.csv`)의 기존 산출물과 full 산출물을 회귀 비교합니다.
+- `--data-dir`: 입출력 데이터 기준 디렉터리를 바꿉니다. 미지정 시 `./data`, 또는 환경변수 `SPLITS_DATA_DIR`를 사용합니다.
 
 ## 검색엔진 색인 파일
 - `python build_site.py` 실행 시 Astro 출력물과 함께 루트에 `sitemap.xml`, `robots.txt`가 생성됩니다.

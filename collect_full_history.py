@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+import os
 import pathlib
 import time
 from datetime import datetime
@@ -19,7 +20,8 @@ REQUEST_GAP_SECONDS = 1
 RETRY_GAP_SECONDS = 5
 MAX_RETRIES = 3
 
-DATA_DIR = pathlib.Path("data")
+DEFAULT_DATA_DIR = pathlib.Path("data")
+DATA_DIR = DEFAULT_DATA_DIR
 RAW_HISTORY_DIR = DATA_DIR / "raw" / "history"
 ATHLETE_INDEX_CSV = DATA_DIR / "athlete_index.csv"
 ID_MERGES_CSV = DATA_DIR / "id_merges.csv"
@@ -35,6 +37,32 @@ ATHLETE_INFO_CSV = DATA_DIR / "athlete_info.csv"
 FAILURE_FIELDS = ["idNo", "이름", "사유", "시도횟수", "최종실패시각"]
 ATHLETE_INFO_FIELDS = ["idNo", "이름", "성별", "출생년도", "종별", "소속팀", "팀코드", "시도"]
 RECORD_FIELDS = ["idNo", "대회명", "일자", "일자_정규화", "종별", "세부종목", "라운드", "소속", "기록", "순위"]
+
+
+def _configure_data_paths(base_dir):
+    global DATA_DIR
+    global RAW_HISTORY_DIR
+    global ATHLETE_INDEX_CSV
+    global ID_MERGES_CSV
+    global RESOLVED_CSV
+    global PROGRESS_JSON
+    global FAILURES_CSV
+    global RECORDS_FULL_CSV
+    global ATHLETE_INFO_FULL_CSV
+    global RECORDS_CSV
+    global ATHLETE_INFO_CSV
+
+    DATA_DIR = pathlib.Path(base_dir).expanduser()
+    RAW_HISTORY_DIR = DATA_DIR / "raw" / "history"
+    ATHLETE_INDEX_CSV = DATA_DIR / "athlete_index.csv"
+    ID_MERGES_CSV = DATA_DIR / "id_merges.csv"
+    RESOLVED_CSV = DATA_DIR / "resolved.csv"
+    PROGRESS_JSON = DATA_DIR / "collect_progress.json"
+    FAILURES_CSV = DATA_DIR / "collect_failures.csv"
+    RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
+    ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
+    RECORDS_CSV = DATA_DIR / "records.csv"
+    ATHLETE_INFO_CSV = DATA_DIR / "athlete_info.csv"
 
 
 def _now_iso():
@@ -444,6 +472,11 @@ def _load_retry_ids():
 
 def _build_arg_parser():
     parser = argparse.ArgumentParser(description="전체 선수 INF503 기록 수집기")
+    parser.add_argument(
+        "--data-dir",
+        default=None,
+        help="입출력 데이터 디렉터리 (기본: ./data, 또는 환경변수 SPLITS_DATA_DIR)",
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     collect_parser = subparsers.add_parser("collect", help="전체 대상 수집 후 full CSV 생성")
@@ -461,6 +494,9 @@ def main():
     parser = _build_arg_parser()
     args = parser.parse_args()
     command = args.command or "collect"
+    data_dir = args.data_dir or os.environ.get("SPLITS_DATA_DIR", str(DEFAULT_DATA_DIR))
+    _configure_data_paths(data_dir)
+    print(f"[path] data_dir={DATA_DIR}")
 
     target_ids, names_by_id, merged_from_count, merge_edges = _build_targets()
     print(f"[target] athlete_index 고유 대상 {len(target_ids)}명 / id_merges 매핑 {merge_edges}건 / 병합 치환 원본행 {merged_from_count}건")
