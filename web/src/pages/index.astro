@@ -70,6 +70,7 @@ const detailRows = athletes.map((athlete) => ({
   title="국가대표 14명의 유년기 기록"
   description="쇼트트랙 국가대표 선수 14명의 유년기 순위 데이터를 정리한 페이지입니다. 선수별 상세 페이지로 이동해 나이별 성적과 전체 대회 이력을 볼 수 있습니다."
   generatedAt={meta.generatedAt}
+  footerVariant="none"
 >
   <header class="hero">
     <span class="badge">공개 경기 기록 정리</span>
@@ -218,6 +219,11 @@ const detailRows = athletes.map((athlete) => ({
       </a>
     </div>
   </section>
+
+  <footer class="legacy-footer">
+    공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템<br />
+    <a href={withBase("privacy/")}>개인정보 처리방침 · 삭제/처리정지 요청</a>
+  </footer>
 
   <script define:vars={{ detailRows, ages }} is:inline>
     let openName = null;
@@ -510,7 +516,6 @@ const detailRows = athletes.map((athlete) => ({
       display: flex;
       align-items: center;
       gap: 8px;
-      flex-wrap: wrap;
     }
     .elem-rank {
       font-size: 12px;
@@ -686,6 +691,11 @@ const detailRows = athletes.map((athlete) => ({
     }
     .link-card:hover {
       background: #f5f7fa;
+    }
+    .legacy-footer {
+      padding: 14px 6px 0;
+      font-size: 13px;
+      color: #9ba0aa;
     }
     @media (max-width: 640px) {
       h1 {

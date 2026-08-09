@@ -12,6 +12,9 @@ const meta = loadMetaDoc();
   description="공개 대상 선수의 개별 기록 페이지로 이동할 수 있는 쇼트트랙 선수 목록입니다."
   generatedAt={meta.generatedAt}
   contentWidth="narrow"
+  contentLineHeight="compact"
+  pageBottomPadding="60px"
+  footerVariant="none"
 >
   <div class="top-link"><a href={withBase()}>← 메인으로</a></div>
   <header class="card">
@@ -40,6 +43,10 @@ const meta = loadMetaDoc();
       })
     }
   </section>
+  <footer class="legacy-footer">
+    공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템<br />
+    <a href={withBase("privacy/")}>개인정보 처리방침 · 삭제/처리정지 요청</a>
+  </footer>
   <style>
     .top-link {
       padding: 16px 2px 4px;
@@ -116,6 +123,11 @@ const meta = loadMetaDoc();
     .row-stats .highlight {
       color: #5b7bd4;
       background: #e9f0ff;
+    }
+    .legacy-footer {
+      padding: 8px 6px 0;
+      font-size: 13px;
+      color: #9ba0aa;
     }
   </style>
 </Base>

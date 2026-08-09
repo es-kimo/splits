@@ -92,6 +92,9 @@ const yearCards = [...groupedYears.values()]
   description={`${athlete.name} 선수의 출생년도, 소속, 나이별 성적, 전체 대회 이력을 정리한 페이지입니다.`}
   generatedAt={meta.generatedAt}
   contentWidth="narrow"
+  contentLineHeight="compact"
+  pageBottomPadding="60px"
+  footerVariant="none"
 >
   <div class="top-link"><a href={withBase("athlete/")} onclick="if(window.history.length>1){window.history.back();return false;}">← 공개 선수 목록</a></div>
   <header class="card">
@@ -187,6 +190,11 @@ const yearCards = [...groupedYears.values()]
       <a href={withBase("privacy/#request")}>요청 안내 보기</a>
     </div>
   </section>
+
+  <footer class="legacy-footer">
+    공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템<br />
+    <a href={withBase("privacy/")}>개인정보 처리방침 · 삭제/처리정지 요청</a>
+  </footer>
 
   <style>
     .top-link {
@@ -436,6 +444,11 @@ const yearCards = [...groupedYears.values()]
     }
     .request-row a:hover {
       text-decoration: underline;
+    }
+    .legacy-footer {
+      padding: 8px 6px 0;
+      font-size: 13px;
+      color: #9ba0aa;
     }
     @media (max-width: 640px) {
       .metrics {
