@@ -27,6 +27,7 @@ SCHOOL_ALIASES_CSV = DATA_DIR / "school_aliases.csv"
 SCHOOL_AMBIGUOUS_CSV = DATA_DIR / "school_ambiguous.csv"
 ID_MERGE_CANDIDATES_CSV = DATA_DIR / "id_merge_candidates.csv"
 ID_MERGES_CSV = DATA_DIR / "id_merges.csv"
+ID_MERGE_COLUMNS = ["부idNo", "주idNo", "확정일자", "근거"]
 YEAR_RE = re.compile(r"(19|20)\d{2}")
 DISTANCE_RE = re.compile(r"(500|1000|1500|2000|3000)M")
 WINTER_GAME_ROUND_RE = re.compile(r"제\s*(\d+)\s*회")
@@ -501,10 +502,74 @@ def build_id_merge_tables(profiles, record_index):
     )
     if not candidate_df.empty:
         candidate_df = candidate_df.sort_values(["판정", "이름", "주idNo", "부idNo"], ascending=[True, True, True, True])
-    merge_df = pd.DataFrame(merge_rows, columns=["부idNo", "주idNo", "확정일자", "근거"])
+    merge_df = pd.DataFrame(merge_rows, columns=ID_MERGE_COLUMNS)
     if not merge_df.empty:
         merge_df = merge_df.drop_duplicates(subset=["부idNo"], keep="first").sort_values(["주idNo", "부idNo"])
     return candidate_df, merge_df
+
+
+def load_existing_id_merges():
+    if not ID_MERGES_CSV.exists():
+        return pd.DataFrame(columns=ID_MERGE_COLUMNS)
+    existing = pd.read_csv(ID_MERGES_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+    for col in ID_MERGE_COLUMNS:
+        if col not in existing.columns:
+            existing[col] = ""
+    existing = existing[ID_MERGE_COLUMNS].copy()
+    existing["부idNo"] = existing["부idNo"].map(_norm_text)
+    existing["주idNo"] = existing["주idNo"].map(_norm_text)
+    existing = existing[(existing["부idNo"] != "") & (existing["주idNo"] != "") & (existing["부idNo"] != existing["주idNo"])].copy()
+    if existing.empty:
+        return pd.DataFrame(columns=ID_MERGE_COLUMNS)
+    return existing.drop_duplicates(subset=["부idNo"], keep="first")
+
+
+def merge_id_merges(existing_df, auto_df):
+    merged_by_sub = {}
+    conflicts = 0
+
+    for _, row in existing_df.iterrows():
+        sub_id = _norm_text(row.get("부idNo"))
+        main_id = _norm_text(row.get("주idNo"))
+        if not sub_id or not main_id or sub_id == main_id:
+            continue
+        merged_by_sub[sub_id] = {
+            "부idNo": sub_id,
+            "주idNo": main_id,
+            "확정일자": _norm_text(row.get("확정일자")),
+            "근거": _norm_text(row.get("근거")),
+        }
+
+    added_auto = 0
+    for _, row in auto_df.iterrows():
+        sub_id = _norm_text(row.get("부idNo"))
+        main_id = _norm_text(row.get("주idNo"))
+        if not sub_id or not main_id or sub_id == main_id:
+            continue
+        if sub_id in merged_by_sub:
+            if merged_by_sub[sub_id]["주idNo"] != main_id:
+                conflicts += 1
+            continue
+        merged_by_sub[sub_id] = {
+            "부idNo": sub_id,
+            "주idNo": main_id,
+            "확정일자": _norm_text(row.get("확정일자")),
+            "근거": _norm_text(row.get("근거")),
+        }
+        added_auto += 1
+
+    if not merged_by_sub:
+        merged_df = pd.DataFrame(columns=ID_MERGE_COLUMNS)
+    else:
+        merged_df = pd.DataFrame(merged_by_sub.values(), columns=ID_MERGE_COLUMNS).sort_values(["주idNo", "부idNo"])
+    stats = {
+        "existing_count": int(len(existing_df)),
+        "auto_count": int(len(auto_df)),
+        "added_auto": int(added_auto),
+        "conflict_skipped": int(conflicts),
+        "total_count": int(len(merged_df)),
+    }
+    return merged_df, stats
 
 
 def build_merge_map(merge_df):
@@ -1141,7 +1206,9 @@ def main():
     school_aliases_df, school_ambiguous_df = build_school_aliases_and_ambiguous(aff_counts)
     profiles = build_id_profiles(records_df, athlete_df, athlete_index_df)
     record_index = build_record_index(records_df)
-    id_merge_candidates_df, id_merges_df = build_id_merge_tables(profiles, record_index)
+    id_merge_candidates_df, id_merges_auto_df = build_id_merge_tables(profiles, record_index)
+    id_merges_existing_df = load_existing_id_merges()
+    id_merges_df, id_merge_stats = merge_id_merges(id_merges_existing_df, id_merges_auto_df)
     id_merge_map = build_merge_map(id_merges_df)
 
     records_merged_df = apply_id_remap(records_df, id_merge_map, id_col="idNo")
@@ -1196,7 +1263,10 @@ def main():
     print("이상치 사유별 건수: 하한미달 {0}건 / 상한초과 {1}건 / 계측오류의심 {2}건".format(outlier_reason_counts["하한미달"], outlier_reason_counts["상한초과"], outlier_reason_counts["계측오류의심"]))
     print(f"이상치 {len(outliers_df)}건 검출 (data/outliers.csv)")
     review_count = 0 if id_merge_candidates_df.empty else int((id_merge_candidates_df["판정"] == "review").sum())
-    auto_count = 0 if id_merges_df.empty else len(id_merges_df)
+    auto_count = id_merge_stats["auto_count"]
+    merge_total_count = id_merge_stats["total_count"]
+    merge_added_count = id_merge_stats["added_auto"]
+    merge_conflict_skipped = id_merge_stats["conflict_skipped"]
     print(f"학교 표기 목록 저장 완료: {SCHOOL_RAW_LIST_TXT}")
     if athlete_index_path is None:
         print(f"선수 인덱스 입력: 미사용 (환경변수 {ATHLETE_INDEX_ENV} 또는 {ATHLETE_INDEX_CSV} 파일 없음)")
@@ -1205,7 +1275,9 @@ def main():
     print(f"학교 정규화 사전 저장 완료: {SCHOOL_ALIASES_CSV} ({len(school_aliases_df)}행)")
     print(f"지역 접두 모호 케이스 저장 완료: {SCHOOL_AMBIGUOUS_CSV} ({len(school_ambiguous_df)}행)")
     print(f"id 병합 후보 저장 완료: {ID_MERGE_CANDIDATES_CSV} ({len(id_merge_candidates_df)}행)")
-    print(f"id 확정 병합 저장 완료: {ID_MERGES_CSV} ({auto_count}건)")
+    print(f"id 확정 병합 저장 완료: {ID_MERGES_CSV} (기존 {id_merge_stats['existing_count']}건 + 자동후보 {auto_count}건, 신규반영 {merge_added_count}건, 총 {merge_total_count}건)")
+    if merge_conflict_skipped:
+        print(f"id 병합 충돌로 자동후보 미반영: {merge_conflict_skipped}건 (기존 확정값 유지)")
     print(f"id 병합 review 건수: {review_count}건")
     print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
     print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
