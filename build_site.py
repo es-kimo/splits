@@ -7,9 +7,12 @@ import pandas as pd
 DATA_DIR = Path("data")
 SITE_HTML = Path("index.html")
 ATHLETE_DIR = Path("athlete")
+PRIVACY_DIR = Path("privacy")
 SITEMAP_XML = Path("sitemap.xml")
 ROBOTS_TXT = Path("robots.txt")
 SITE_BASE_URL = "https://es-kimo.github.io/splits/"
+PRIVACY_CONTACT_NAME = "운영자 예시 (es-kimo)"
+PRIVACY_CONTACT_EMAIL = "privacy@example.com"
 INPUT_FILES = [
     "placements.csv",
     "youth_summary.csv",
@@ -429,7 +432,8 @@ footer{padding:14px 6px 0;font-size:13px;color:#9BA0AA}
 
     <footer>
       공개된 경기 기록을 개인이 정리한 페이지입니다. 대한빙상경기연맹 및 대한체육회와 무관합니다.<br>
-      출처: 대한체육회 경기결과 시스템(result.sports.or.kr)
+      출처: 대한체육회 경기결과 시스템(result.sports.or.kr)<br>
+      <a href="./privacy/">개인정보 처리방침 · 삭제/처리정지 요청</a>
     </footer>
   </div>
 </div>
@@ -868,8 +872,20 @@ def build_athlete_html(athlete):
       </div>
     </section>
 
+    <section style="background:#fff;border-radius:20px;padding:22px 20px">
+      <h2 style="margin:0 0 6px;font-size:18px;font-weight:800;letter-spacing:-0.02em">개인정보 삭제/처리정지 요청</h2>
+      <p style="margin:0 0 12px;font-size:14px;color:#6B6F78">
+        선수 정보 열람·정정·삭제·처리정지를 요청하실 수 있어요. 요청 방법과 처리 기준은 개인정보 처리방침 페이지에 안내돼 있어요.
+      </p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#F5F7FA;border-radius:14px;padding:12px 14px">
+        <span style="font-size:13.5px;color:#5B5F68">요청 접수 메일(예시): __PRIVACY_EMAIL__</span>
+        <a href="../../privacy/" style="font-size:13.5px;font-weight:700;color:#2E63F6;white-space:nowrap">요청 안내 보기</a>
+      </div>
+    </section>
+
     <footer style="padding:8px 6px 0;font-size:13px;color:#9BA0AA">
-      공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템
+      공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템<br>
+      <a href="../../privacy/">개인정보 처리방침 · 삭제/처리정지 요청</a>
     </footer>
   </div>
 </div>
@@ -980,6 +996,7 @@ class Component extends DCLogic {
         .replace("__SEASON_SPAN_JSON__", json.dumps(season_span, ensure_ascii=False))
         .replace("__YEAR_RANGE_JSON__", json.dumps(year_range, ensure_ascii=False))
         .replace("__MISSING_NOTE_JSON__", json.dumps(missing_note, ensure_ascii=False))
+        .replace("__PRIVACY_EMAIL__", esc_html(PRIVACY_CONTACT_EMAIL))
     )
 
 
@@ -1049,11 +1066,139 @@ a:hover{color:#1B47C4}
     <section style="background:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:8px">
       __CARDS_HTML__
     </section>
+    <footer style="padding:8px 6px 0;font-size:13px;color:#9BA0AA">
+      공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템<br>
+      <a href="../privacy/">개인정보 처리방침 · 삭제/처리정지 요청</a>
+    </footer>
   </div>
 </div>
 </body>
 </html>
 """.replace("__CARDS_HTML__", cards_html)
+
+
+def build_privacy_html():
+    return """<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>개인정보 처리방침 및 삭제/처리정지 요청</title>
+<meta name="description" content="쇼트트랙 공개 경기 기록 정리 사이트의 개인정보 처리방침과 열람·정정·삭제·처리정지 요청 안내입니다.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+body{margin:0;background:#F3F5F8;-webkit-font-smoothing:antialiased;text-wrap:pretty}
+a{color:#2E63F6;text-decoration:none}
+a:hover{color:#1B47C4}
+</style>
+</head>
+<body>
+<div style="font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;color:#17181C;line-height:1.55;background:#F3F5F8;padding-bottom:60px">
+  <div style="max-width:700px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:12px">
+    <div style="padding:16px 2px 4px">
+      <a href="../" style="font-size:14px;font-weight:600;color:#6B6F78">← 메인으로</a>
+    </div>
+
+    <header style="background:#fff;border-radius:20px;padding:22px 20px;display:flex;flex-direction:column;gap:10px">
+      <h1 style="margin:0;font-size:29px;font-weight:800;letter-spacing:-0.03em">개인정보 처리방침</h1>
+      <p style="margin:0;font-size:14px;color:#6B6F78">
+        본 페이지는 공개된 아마추어 경기 기록 정리 사이트의 개인정보 처리기준과 권리 행사 방법을 안내해요.
+      </p>
+      <p style="margin:0;font-size:13px;color:#8A8F99">
+        법률 전문가의 최종 검토 문서는 아니며, 서비스 확장 시 내용을 재검토합니다.
+      </p>
+    </header>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">1. 운영 주체</h2>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">
+        본 사이트는 개인이 비영리로 운영합니다. 대한빙상경기연맹 및 대한체육회와 무관합니다.
+      </p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">2. 처리하는 개인정보 항목</h2>
+      <p style="margin:0 0 10px;font-size:14.5px;color:#5B5F68">
+        본 사이트는 공개 기록 정리를 위해 다음 항목을 처리합니다.
+      </p>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">
+        성명, 출생연도, 소속, 시도, 종별, 경기 기록(대회명·연도·종목·순위)
+      </p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">3. 수집하지 않는 항목</h2>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">
+        주민등록번호, 연락처, 주소, 사진은 수집하거나 저장하지 않습니다.
+      </p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">4. 수집 출처 및 처리 목적</h2>
+      <p style="margin:0 0 8px;font-size:14.5px;color:#5B5F68">
+        데이터 출처는 대한체육회 경기결과 정보제공 시스템(<a href="https://result.sports.or.kr/" target="_blank" rel="noopener">result.sports.or.kr</a>)입니다.
+      </p>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">
+        정보주체로부터 직접 수집하지 않으며, 공개된 아마추어 경기 기록을 정리하고 통계를 제공하는 목적으로 처리합니다.
+      </p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">5. 보유 및 이용 기간</h2>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">
+        관련 정보는 삭제 요청이 접수될 때까지 보유·이용하며, 요청이 확인되면 지체 없이 처리합니다.
+      </p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">6. 제3자 제공 및 처리 위탁</h2>
+      <p style="margin:0 0 8px;font-size:14.5px;color:#5B5F68">
+        개인정보를 제3자에게 제공하지 않습니다.
+      </p>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">
+        별도 처리 위탁은 하지 않습니다. 단, 사이트는 GitHub Pages 인프라를 통해 호스팅됩니다.
+      </p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">7. 정보주체의 권리 및 행사 방법</h2>
+      <p style="margin:0 0 10px;font-size:14.5px;color:#5B5F68">
+        정보주체는 열람·정정·삭제·처리정지를 요청할 수 있습니다.
+      </p>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">
+        요청은 아래 이메일로 접수하며, 본인 또는 법정대리인 확인 절차 후 처리 결과를 회신합니다.
+      </p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">8. 삭제·처리정지 요청 창구</h2>
+      <div style="background:#F5F7FA;border-radius:14px;padding:14px;margin-bottom:10px">
+        <p style="margin:0 0 6px;font-size:14px;color:#3A3D45"><b style="font-weight:700">접수 이메일(예시):</b> __PRIVACY_EMAIL__</p>
+        <p style="margin:0;font-size:13px;color:#8A8F99">현재는 예시 주소입니다. 실제 운영 주소 확정 시 즉시 갱신합니다.</p>
+      </div>
+      <p style="margin:0 0 6px;font-size:14.5px;color:#5B5F68">요청 메일에는 다음 내용을 포함해 주세요.</p>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">1) 요청자 이름 2) 본인/법정대리인 여부 3) 대상 선수명 또는 URL 4) 요청 유형(열람·정정·삭제·처리정지) 5) 연락 가능한 회신 주소</p>
+    </section>
+
+    <section style="background:#fff;border-radius:20px;padding:20px">
+      <h2 style="margin:0 0 10px;font-size:19px;font-weight:800;letter-spacing:-0.02em">9. 개인정보 보호책임자</h2>
+      <p style="margin:0;font-size:14.5px;color:#5B5F68">
+        이름/닉네임(예시): __PRIVACY_CONTACT_NAME__<br>
+        이메일(예시): __PRIVACY_EMAIL__
+      </p>
+    </section>
+
+    <footer style="padding:8px 6px 0;font-size:13px;color:#9BA0AA">
+      본 문서는 공개 기록 정리 사이트의 개인정보 처리 기준 안내문입니다.<br>
+      <a href="./">개인정보 처리방침</a> · <a href="../">메인 페이지</a>
+    </footer>
+  </div>
+</div>
+</body>
+</html>
+""".replace("__PRIVACY_CONTACT_NAME__", html.escape(PRIVACY_CONTACT_NAME, quote=True)).replace(
+        "__PRIVACY_EMAIL__", html.escape(PRIVACY_CONTACT_EMAIL, quote=True)
+    )
 
 
 def write_athlete_index(payload):
@@ -1076,8 +1221,15 @@ def write_athlete_pages(payload):
     return count
 
 
+def write_privacy_page():
+    path = PRIVACY_DIR / "index.html"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(build_privacy_html(), encoding="utf-8")
+    return path
+
+
 def sitemap_urls(payload):
-    urls = [site_url(""), site_url("athlete/")]
+    urls = [site_url(""), site_url("athlete/"), site_url("privacy/")]
     seen = set(urls)
     for athlete in payload.get("athletes", []):
         id_no = as_id(athlete.get("idNo"))
@@ -1123,11 +1275,13 @@ def main():
     SITE_HTML.write_text(build_html(payload), encoding="utf-8")
     athlete_index_path = write_athlete_index(payload)
     athlete_page_count = write_athlete_pages(payload)
+    privacy_page_path = write_privacy_page()
     sitemap_path = write_sitemap(payload)
     robots_path = write_robots()
     print(f"[ok] 생성 완료: {SITE_HTML}")
     print(f"[ok] 생성 완료: {athlete_index_path}")
     print(f"[ok] 생성 완료: {ATHLETE_DIR}/{{idNo}}/index.html ({athlete_page_count}개)")
+    print(f"[ok] 생성 완료: {privacy_page_path}")
     print(f"[ok] 생성 완료: {sitemap_path}")
     print(f"[ok] 생성 완료: {robots_path}")
 

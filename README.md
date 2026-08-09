@@ -13,6 +13,7 @@ reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/sp
   - `https://es-kimo.github.io/splits/`
   - `https://es-kimo.github.io/splits/athlete/`
   - `https://es-kimo.github.io/splits/athlete/{idNo}/`
+  - `https://es-kimo.github.io/splits/privacy/`
 
 ## 검색엔진 등록 절차
 1. Google Search Console
