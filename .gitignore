@@ -3,6 +3,12 @@
 !/data/school_aliases.csv
 !/data/id_merges.csv
 !/data/public_figures.csv
+# full-history collection artifacts (PII/raw cache)
+/data/collect_progress.json
+/data/collect_failures.csv
+/data/records_full.csv
+/data/athlete_info_full.csv
+/data/raw/history/
 __pycache__/
 .venv/
 .DS_Store

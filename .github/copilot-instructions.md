@@ -19,3 +19,8 @@
   - 사용자 안내/인터랙션 안내: `~요`
   - 데이터 사실/기준/한계 설명: `~습니다`
 - 레이아웃/컴포넌트/색상 변경이 있으면 `reference/design/design-system-reference.md` 기준을 우선 참고한다.
+
+## 데이터 재사용/외부 경로 원칙
+- 대용량 원천 데이터는 기본적으로 Git에 커밋하지 않는다.
+- Copilot worktree에서 기존 수집 결과를 재사용해야 하면 `collect_full_history.py --data-dir <경로>`를 사용한다.
+- 팀 기본 공유 경로는 `/Users/kihyun/orgs/personal/splits/data`로 간주하고, 해당 경로가 있으면 우선 참조한다.
