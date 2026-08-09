@@ -16,13 +16,14 @@ function xmlEscape(value: string): string {
 export const GET: APIRoute = () => {
   const { athletes } = loadAthletesDoc();
   const { items } = loadMeetsDoc();
+  const athleteUrls = [...new Set(athletes.map((athlete) => `athlete/${athlete.slug}/`))];
   const urls = [
     "",
     "athlete/",
     "privacy/",
     "distribution/",
     "meet/",
-    ...athletes.map((athlete) => athlete.url),
+    ...athleteUrls,
     ...items.map((item) => `meet/${meetSlug(item)}/`),
   ];
   const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'];
