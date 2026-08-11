@@ -24,7 +24,7 @@ export const GET: APIRoute = () => {
     "distribution/",
     "meet/",
     ...athleteUrls,
-    ...items.map((item) => `meet/${meetSlug(item)}/`),
+    ...items.map((item) => item.url || `meet/${meetSlug(item)}/`),
   ];
   const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'];
   for (const path of urls) {

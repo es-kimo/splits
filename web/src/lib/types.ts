@@ -2,6 +2,8 @@ export interface AthleteHistoryItem {
   year: number | null;
   age: number | null;
   meet: string;
+  meetSlug: string | null;
+  meetUrl: string | null;
   distance: number | null;
   sf: boolean;
   rank: number;
@@ -41,15 +43,74 @@ export interface AthletesDoc {
 export interface MeetItem {
   year: number;
   meet: string;
+  slug: string;
+  url: string;
   raceCount: number;
   athleteCount: number;
   distanceSet: number[];
   roundTypes: string[];
   hasSemifinal: boolean;
+  dateStart: string | null;
+  dateEnd: string | null;
+  location: string | null;
+  categoryBreakdown: MeetCategoryBreakdownItem[];
+  distanceDistribution: MeetDistanceDistribution;
+  publicFigureResults: MeetPublicFigureResult[];
+  seriesKey: string;
+  seriesName: string;
+  seriesRound: number | null;
+  seriesLinks: MeetSeriesLink[];
 }
 
 export interface MeetsDoc {
   items: MeetItem[];
+}
+
+export interface MeetCategoryBreakdownItem {
+  category: string;
+  athleteCount: number;
+}
+
+export interface MeetDistanceDistributionItem {
+  distance: number;
+  athleteCount: number | null;
+  insufficient: boolean;
+  timeP10: number | null;
+  timeP25: number | null;
+  timeP50: number | null;
+  timeP75: number | null;
+  timeP90: number | null;
+}
+
+export interface MeetDistanceDistribution {
+  kAnonymityMin: number;
+  insufficientText: string;
+  items: MeetDistanceDistributionItem[];
+}
+
+export interface MeetPublicFigurePlacement {
+  distance: number | null;
+  rank: number;
+  sf: boolean;
+  round: string;
+}
+
+export interface MeetPublicFigureResult {
+  name: string;
+  slug: string;
+  url: string;
+  bestRank: number;
+  raceCount: number;
+  distances: number[];
+  rounds: string[];
+  placements: MeetPublicFigurePlacement[];
+}
+
+export interface MeetSeriesLink {
+  year: number;
+  meet: string;
+  slug: string;
+  url: string;
 }
 
 export interface PeerDistributionFilters {

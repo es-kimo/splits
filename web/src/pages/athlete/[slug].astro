@@ -57,6 +57,7 @@ function normalizeGroupLabel(text: string): "종합" | "A" | "B" {
 
 interface GroupedMeet {
   name: string;
+  meetUrl: string | null;
   results: AthleteHistoryItem[];
 }
 
@@ -73,8 +74,11 @@ for (const item of athlete.history) {
   const meetName = item.meet || "-";
   let meetBucket = yearBucket.meets.find((meet) => meet.name === meetName);
   if (!meetBucket) {
-    meetBucket = { name: meetName, results: [] };
+    meetBucket = { name: meetName, meetUrl: item.meetUrl, results: [] };
     yearBucket.meets.push(meetBucket);
+  }
+  if (!meetBucket.meetUrl && item.meetUrl) {
+    meetBucket.meetUrl = item.meetUrl;
   }
   meetBucket.results.push(item);
   groupedYears.set(item.year, yearBucket);
@@ -169,7 +173,7 @@ const yearCards = [...groupedYears.values()]
             <div class="meet-list">
               {yearGroup.meets.map((meet) => (
                 <div class="meet-card">
-                  <b>{meet.name}</b>
+                  <b>{meet.meetUrl ? <a href={withBase(meet.meetUrl)}>{meet.name}</a> : meet.name}</b>
                   <div class="results">
                     {meet.results.map((result) => {
                       const groupLabel = normalizeGroupLabel(result.round);
@@ -379,6 +383,12 @@ const yearCards = [...groupedYears.values()]
       font-weight: 700;
       line-height: 1.4;
       letter-spacing: -0.01em;
+    }
+    .meet-card b a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: #d3d8e0;
+      text-underline-offset: 2px;
     }
     .results {
       display: flex;

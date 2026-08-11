@@ -6,6 +6,12 @@ import { meetSlug } from "../../lib/meet";
 
 const meta = loadMetaDoc();
 const { items } = loadMeetsDoc();
+
+function formatDateRange(start: string | null, end: string | null): string {
+  if (!start && !end) return "일자 정보 없음";
+  if (start && end && start !== end) return `${start} ~ ${end}`;
+  return start || end || "일자 정보 없음";
+}
 ---
 
 <Base
@@ -16,18 +22,24 @@ const { items } = loadMeetsDoc();
   <div class="top-link"><a href={withBase()}>← 메인으로</a></div>
   <header class="card">
     <h1>대회 목록</h1>
-    <p>대회별 경기 수와 참여 선수 수를 확인할 수 있어요.</p>
+    <p>대회 메타데이터와 익명 집계를 확인할 수 있어요.</p>
   </header>
   <section class="card list">
     {
       items.map((item) => (
-        <a class="row" href={withBase(`meet/${meetSlug(item)}/`)}>
+        <a class="row" href={withBase(item.url || `meet/${meetSlug(item)}/`)}>
           <div class="row-head">
             <b>{item.meet}</b>
             <span>{item.year}년</span>
           </div>
           <div class="row-meta">
-            경기 {item.raceCount}건 · 선수 {item.athleteCount}명 · 종목 {item.distanceSet.map((distance) => `${distance}m`).join(", ")}
+            일자 {formatDateRange(item.dateStart, item.dateEnd)}{item.location ? ` · 장소 ${item.location}` : ""}
+          </div>
+          <div class="row-meta">
+            경기 {item.raceCount}건 · 참가 {item.athleteCount}명 · 종목 {item.distanceSet.map((distance) => `${distance}m`).join(", ")}
+          </div>
+          <div class="row-meta subtle">
+            공인 선수 {item.publicFigureResults?.length ?? 0}명 · 시리즈 {item.seriesName || item.meet}
           </div>
         </a>
       ))
@@ -90,6 +102,11 @@ const { items } = loadMeetsDoc();
       margin-top: 6px;
       color: #5b5f68;
       font-size: 13px;
+    }
+    .row-meta.subtle {
+      color: #8a8f99;
+      margin-top: 5px;
+      font-size: 12px;
     }
   </style>
 </Base>

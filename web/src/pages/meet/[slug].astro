@@ -15,19 +15,40 @@ export function getStaticPaths() {
 
 const { item } = Astro.props as { item: MeetItem };
 const meta = loadMetaDoc();
+const categoryBreakdown = item.categoryBreakdown ?? [];
+const distanceDistribution = item.distanceDistribution ?? {
+  kAnonymityMin: 10,
+  insufficientText: "데이터 부족",
+  items: [],
+};
+const publicFigureResults = item.publicFigureResults ?? [];
+const seriesLinks = item.seriesLinks ?? [];
+
+function formatDateRange(start: string | null, end: string | null): string {
+  if (!start && !end) return "일자 정보 없음";
+  if (start && end && start !== end) return `${start} ~ ${end}`;
+  return start || end || "일자 정보 없음";
+}
+
+function formatTime(value: number | null): string {
+  if (value === null || Number.isNaN(value)) return "-";
+  return `${value.toFixed(3)}초`;
+}
 ---
 
 <Base title={`${item.meet} (${item.year})`} description={`${item.year}년 ${item.meet} 대회 익명 통계`} generatedAt={meta.generatedAt}>
   <div class="top-link"><a href={withBase("meet/")}>← 대회 목록</a></div>
   <header class="card">
     <h1>{item.meet}</h1>
-    <p>{item.year}년 대회 익명 집계입니다.</p>
+    <p>{item.year}년 대회 메타데이터와 익명 집계입니다.</p>
+    <p><b>일자:</b> {formatDateRange(item.dateStart, item.dateEnd)}</p>
+    <p><b>장소:</b> {item.location || "공개 정보 없음"}</p>
   </header>
   <section class="card">
     <h2>요약 지표</h2>
     <div class="metrics">
       <div><b>{item.raceCount}건</b><span>집계 경기</span></div>
-      <div><b>{item.athleteCount}명</b><span>참여 선수</span></div>
+      <div><b>{item.athleteCount}명</b><span>참가 인원</span></div>
       <div><b>{item.hasSemifinal ? "있음" : "없음"}</b><span>준결승 기록</span></div>
     </div>
   </section>
@@ -35,6 +56,94 @@ const meta = loadMetaDoc();
     <h2>대회 구성</h2>
     <p><b>종목:</b> {item.distanceSet.map((distance) => `${distance}m`).join(", ")}</p>
     <p><b>라운드 유형:</b> {item.roundTypes.join(", ") || "-"}</p>
+  </section>
+  <section class="card">
+    <h2>종별 구성(집계)</h2>
+    {
+      categoryBreakdown.length === 0 ? (
+        <p>종별 집계 정보가 없습니다.</p>
+      ) : (
+        <div class="chips">
+          {categoryBreakdown.map((row) => (
+            <span>{row.category} {row.athleteCount}명</span>
+          ))}
+        </div>
+      )
+    }
+  </section>
+  <section class="card">
+    <h2>거리별 기록 분포</h2>
+    <p class="section-note">예선 기록 기준이며, 인원이 {distanceDistribution.kAnonymityMin}명 미만인 구간은 공개하지 않습니다.</p>
+    {
+      distanceDistribution.items.length === 0 ? (
+        <p>거리별 분포 데이터가 없습니다.</p>
+      ) : (
+        <div class="dist-grid">
+          {
+            distanceDistribution.items.map((row) => (
+              <article class="dist-card">
+                <b>{row.distance}m</b>
+                {
+                  row.insufficient ? (
+                    <p>{distanceDistribution.insufficientText}</p>
+                  ) : (
+                    <div class="dist-values">
+                      <span>p10 {formatTime(row.timeP10)}</span>
+                      <span>p25 {formatTime(row.timeP25)}</span>
+                      <span>p50 {formatTime(row.timeP50)}</span>
+                      <span>p75 {formatTime(row.timeP75)}</span>
+                      <span>p90 {formatTime(row.timeP90)}</span>
+                    </div>
+                  )
+                }
+              </article>
+            ))
+          }
+        </div>
+      )
+    }
+  </section>
+  <section class="card">
+    <h2>출전 공인 선수 성적</h2>
+    <p class="section-note">`public_figures.csv` 기준 공개 대상 선수만 표시합니다.</p>
+    {
+      publicFigureResults.length === 0 ? (
+        <p>이 대회에 공개 대상 선수 기록이 없습니다.</p>
+      ) : (
+        <div class="public-list">
+          {publicFigureResults.map((athlete) => (
+            <article class="public-card">
+              <div class="public-head">
+                <a href={withBase(athlete.url)}>{athlete.name}</a>
+                <span>최고 {athlete.bestRank}등 · {athlete.raceCount}경기</span>
+              </div>
+              <div class="public-meta">
+                거리 {athlete.distances.map((distance) => `${distance}m`).join(", ")} · 라운드 {athlete.rounds.join(", ")}
+              </div>
+              <div class="public-placements">
+                {
+                  athlete.placements.map((placement) => (
+                    <span>{placement.distance ?? "-"}m {placement.round} {placement.rank}등</span>
+                  ))
+                }
+              </div>
+            </article>
+          ))}
+        </div>
+      )
+    }
+  </section>
+  <section class="card">
+    <h2>같은 시리즈 다른 회차</h2>
+    {
+      seriesLinks.length === 0 ? (
+        <p>연결할 다른 회차가 없습니다.</p>
+      ) : (
+        <div class="series-links">
+          {seriesLinks.map((seriesItem) => <a href={withBase(seriesItem.url)}>{seriesItem.year}년 · {seriesItem.meet}</a>)}
+        </div>
+      )
+    }
   </section>
   <style>
     .top-link {
@@ -69,6 +178,10 @@ const meta = loadMetaDoc();
       color: #5b5f68;
       font-size: 14px;
     }
+    .section-note {
+      color: #6b6f78;
+      margin-bottom: 10px;
+    }
     p:last-child {
       margin-bottom: 0;
     }
@@ -93,8 +206,98 @@ const meta = loadMetaDoc();
       color: #8a8f99;
       font-size: 12px;
     }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chips span {
+      font-size: 13px;
+      color: #5b5f68;
+      background: #f5f7fa;
+      border-radius: 999px;
+      padding: 5px 10px;
+    }
+    .dist-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .dist-card {
+      background: #fafbfc;
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .dist-card b {
+      font-size: 14px;
+    }
+    .dist-values {
+      display: grid;
+      gap: 4px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .dist-values span {
+      font-size: 12.5px;
+      color: #5b5f68;
+    }
+    .public-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .public-card {
+      background: #fafbfc;
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .public-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .public-head a {
+      font-weight: 700;
+    }
+    .public-head span {
+      color: #8a8f99;
+      font-size: 12px;
+    }
+    .public-meta {
+      font-size: 12.5px;
+      color: #6b6f78;
+      margin-bottom: 6px;
+    }
+    .public-placements {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .public-placements span {
+      font-size: 12px;
+      color: #5b5f68;
+      background: #f1f4f8;
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+    .series-links {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .series-links a {
+      font-size: 14px;
+      font-weight: 600;
+    }
     @media (max-width: 640px) {
       .metrics {
+        grid-template-columns: 1fr;
+      }
+      .dist-grid {
         grid-template-columns: 1fr;
       }
     }

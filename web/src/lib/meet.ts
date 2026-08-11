@@ -4,7 +4,7 @@ function normalizeMeetText(value: string): string {
   return value
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .trim()
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
@@ -21,7 +21,8 @@ function hashText(value: string): string {
 }
 
 export function meetSlug(item: MeetItem): string {
-  const normalized = normalizeMeetText(item.meet);
+  if (item.slug) return item.slug;
+  const normalized = normalizeMeetText(item.meet || "meet");
   const base = normalized.split("-").find((part) => part.length > 0) || "meet";
   const hash = hashText(`${item.year}-${item.meet}`).slice(0, 6);
   return `${item.year}-${base}-${hash}`;
