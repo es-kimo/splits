@@ -36,6 +36,7 @@ const figures = item.publicFigureResults ?? [];
 const seriesRows = [{ year: item.year, meet: item.meet, url: item.url || `meet/${meetSlug(item)}/`, current: true }]
   .concat((item.seriesLinks ?? []).map((row) => ({ ...row, current: false })))
   .sort((a, b) => b.year - a.year);
+const ogTitle = `${item.meet} 결과`;
 
 function formatPlacementChip(placement: MeetPublicFigurePlacement): string {
   const distance = placement.distance !== null ? `${placement.distance}m` : "-";
@@ -52,6 +53,8 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
 <Base
   title={`${item.meet} (${item.year})`}
   description={`${item.year}년 ${item.meet} 대회 상세 데이터`}
+  ogTitle={ogTitle}
+  ogImage="og/meet.png"
   generatedAt={meta.generatedAt}
   contentWidth="narrow"
   contentLineHeight="compact"

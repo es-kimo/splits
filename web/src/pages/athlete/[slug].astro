@@ -32,6 +32,7 @@ const birthText = athlete.birth !== null ? `${athlete.birth}년생` : "출생연
 const pageTitle = `${athlete.name} 경기 기록 — splits`;
 const pageDescription = `${athlete.name}(${birthText}, ${athlete.team}) 쇼트트랙 경기 기록`;
 const canonicalUrl = `https://es-kimo.github.io/splits/athlete/${athlete.slug}/`;
+const ogTitle = `${athlete.name} 경기 기록`;
 
 const missingNote =
   athlete.birth !== null && minYear !== null
@@ -104,6 +105,8 @@ const yearCards = [...groupedYears.values()]
   title={pageTitle}
   description={pageDescription}
   canonical={canonicalUrl}
+  ogTitle={ogTitle}
+  ogImage="og/athlete.png"
   generatedAt={meta.generatedAt}
   contentWidth="narrow"
   contentLineHeight="compact"
