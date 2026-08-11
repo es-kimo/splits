@@ -79,9 +79,9 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
     출처: 대한체육회 경기결과 시스템
   </footer>
 
-  <script type="application/json" id="meetListData">{JSON.stringify(listPayload)}</script>
-  <script type="application/json" id="meetKindOptions">{JSON.stringify(kindOptions)}</script>
-  <script type="application/json" id="meetDistanceOptions">{JSON.stringify(distanceOptions)}</script>
+  <script type="application/json" id="meetListData" set:html={JSON.stringify(listPayload)}></script>
+  <script type="application/json" id="meetKindOptions" set:html={JSON.stringify(kindOptions)}></script>
+  <script type="application/json" id="meetDistanceOptions" set:html={JSON.stringify(distanceOptions)}></script>
 
   <script is:inline>
     (() => {
@@ -102,9 +102,9 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
         !(distOptionsEl instanceof HTMLScriptElement) ||
         !(queryInput instanceof HTMLInputElement) ||
         !(clearQueryButton instanceof HTMLButtonElement) ||
-        !(kindChips instanceof HTMLDivElement) ||
-        !(distChips instanceof HTMLDivElement) ||
-        !(resultLabel instanceof HTMLSpanElement) ||
+        !(kindChips instanceof HTMLElement) ||
+        !(distChips instanceof HTMLElement) ||
+        !(resultLabel instanceof HTMLElement) ||
         !(toggleOrderButton instanceof HTMLButtonElement) ||
         !(emptyState instanceof HTMLElement) ||
         !(yearGroups instanceof HTMLElement)
@@ -129,11 +129,11 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
 
       const escapeHtml = (value) =>
         String(value)
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#39;");
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
 
       const kindChipStyle = (kind) => {
         const palette = kindColor[kind] || kindColor["기타"];

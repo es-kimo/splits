@@ -216,7 +216,7 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
     출처: 대한체육회 경기결과 시스템
   </footer>
 
-  <script type="application/json" id="meetDistData">{JSON.stringify(distributionPayload)}</script>
+  <script type="application/json" id="meetDistData" set:html={JSON.stringify(distributionPayload)}></script>
   <script is:inline>
     (() => {
       const distDataEl = document.getElementById("meetDistData");
