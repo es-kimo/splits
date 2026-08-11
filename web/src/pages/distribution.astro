@@ -10,78 +10,421 @@ const meta = loadMetaDoc();
 
 <Base
   title="또래 기록 분포 조회"
-  description="출생연도·성별·학령구간·거리 조건에서 기록 또는 순위의 상대 위치를 확인합니다."
+  description="출생연도 포함 비교와 통합 비교를 모두 지원하며, 성별·학령구간·거리 조건에서 기록 또는 순위의 상대 위치를 확인합니다."
   generatedAt={meta.generatedAt}
+  contentWidth="narrow"
+  pageBottomPadding="64px"
 >
-  <div class="top-link"><a href={withBase()}>← 메인으로</a></div>
-  <header class="card">
-    <h1>또래 기록 분포 조회</h1>
-    <p>같은 조건 집단에서 기록이나 순위가 어느 위치인지 바로 확인할 수 있어요.</p>
-  </header>
-  <section class="card">
-    <h2>분포 입력</h2>
-    <p class="section-note">출생연도·성별·학령구간·거리를 고르고 기록 또는 순위를 입력해 보세요.</p>
-    <DistributionTool
-      client:visible
-      kAnonymityMin={distribution.kAnonymityMin}
-      insufficientText={distribution.insufficientText}
-      filters={distribution.filters}
-      rows={distribution.rows}
-    />
-  </section>
-  <section class="card notice-card">
-    <h2>해석할 때 꼭 확인해 주세요</h2>
-    <ul>
-      <li>기록 분포는 예선 기록 기준입니다.</li>
-      <li>2012년 이전 구간은 데이터가 부족합니다.</li>
-      <li>인원 10명 미만 구간은 데이터 부족으로만 표시합니다.</li>
-      <li>이 결과는 진로 판단 근거가 아닙니다.</li>
-    </ul>
-  </section>
+  <DistributionTool
+    client:visible
+    homeUrl={withBase()}
+    kAnonymityMin={distribution.kAnonymityMin}
+    insufficientText={distribution.insufficientText}
+    filters={distribution.filters}
+    rows={distribution.rows}
+  />
   <style>
-    .top-link {
-      padding: 16px 2px 4px;
+    :global(.dist-tool) {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      color: #17181c;
+      line-height: 1.55;
     }
-    .top-link a {
+    :global(.dist-top-link) {
+      padding: 16px 2px 0;
+    }
+    :global(.dist-top-link a) {
       font-size: 14px;
       font-weight: 600;
-      color: #6b6f78;
+      color: #6b6f78 !important;
     }
-    .card {
-      background: #ffffff;
-      border-radius: 20px;
-      padding: 22px 20px;
-      margin-bottom: 12px;
+    :global(.dist-hero) {
+      padding: 8px 4px 4px;
     }
-    h1 {
+    :global(.dist-hero h1) {
       margin: 0;
-      font-size: 29px;
+      font-size: 30px;
       font-weight: 800;
       letter-spacing: -0.03em;
+      line-height: 1.32;
     }
-    h2 {
-      margin: 0 0 6px;
-      font-size: 20px;
+    :global(.dist-hero p) {
+      margin: 10px 0 0;
+      font-size: 15.5px;
+      color: #5b5f68;
+    }
+    :global(.dist-card) {
+      background: #ffffff;
+      border-radius: 22px;
+      padding: 22px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    :global(.dist-stage-title) {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    :global(.dist-stage-title b) {
+      font-size: 16px;
+      font-weight: 700;
+      color: #17181c;
+    }
+    :global(.dist-stage-badge) {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #2e63f6;
+      background: #e9f0ff;
+      border-radius: 7px;
+      padding: 3px 8px;
+      line-height: 1;
+    }
+    :global(.dist-seg-wrap) {
+      display: flex;
+      gap: 6px;
+      background: #f2f4f7;
+      border-radius: 14px;
+      padding: 4px;
+      margin-bottom: 10px;
+    }
+    :global(.dist-seg-button) {
+      flex: 1;
+      min-height: 44px;
+      border: 0;
+      border-radius: 11px;
+      background: transparent;
+      color: #8a8f99;
+      font-family: inherit;
+      font-size: 14.5px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    :global(.dist-seg-button.is-active) {
+      background: #ffffff;
+      color: #17181c;
+      box-shadow: 0 1px 3px rgb(23 24 28 / 10%);
+    }
+    :global(.dist-scope-card) {
+      gap: 12px;
+    }
+    :global(.dist-scope-note) {
+      margin: 0;
+      font-size: 14px;
+      color: #5b5f68;
+      background: #f5f7fa;
+      border-radius: 12px;
+      padding: 12px 13px;
+    }
+    :global(.dist-chip-row) {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      -webkit-overflow-scrolling: touch;
+    }
+    :global(.dist-chip-row:last-child) {
+      padding-bottom: 0;
+    }
+    :global(.dist-chip) {
+      flex: none;
+      min-height: 44px;
+      padding: 0 15px;
+      border: 0;
+      border-radius: 12px;
+      background: #f2f4f7;
+      color: #5b5f68;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    :global(.dist-chip.is-active) {
+      background: #17181c;
+      color: #ffffff;
+    }
+    :global(.dist-year-select) {
+      display: grid;
+      gap: 6px;
+      margin-top: 12px;
+    }
+    :global(.dist-year-select span) {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #5b5f68;
+    }
+    :global(.dist-year-select select) {
+      width: 100%;
+      min-height: 44px;
+      border-radius: 12px;
+      border: 1px solid #d8dee8;
+      background: #ffffff;
+      padding: 0 12px;
+      font-size: 14px;
+      color: #17181c;
+      font-family: inherit;
+    }
+    :global(.dist-year-merged-note) {
+      margin: 12px 0 0;
+      font-size: 13px;
+      color: #8a8f99;
+    }
+    :global(.dist-step-divider) {
+      border-top: 1px solid #f0f2f5;
+      padding-top: 18px;
+    }
+    :global(.dist-input-guide) {
+      margin: 0 0 12px;
+      font-size: 13.5px;
+      color: #8a8f99;
+    }
+    :global(.dist-input-row) {
+      display: flex;
+      gap: 8px;
+    }
+    :global(.dist-input-box) {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 54px;
+      padding: 0 15px;
+      border-radius: 14px;
+      border: 1.5px solid #e3e7ed;
+      background: #ffffff;
+    }
+    :global(.dist-input-box input) {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      outline: none;
+      background: transparent;
+      font-family: inherit;
+      font-size: 17px;
+      font-weight: 600;
+      color: #17181c;
+    }
+    :global(.dist-input-box span) {
+      flex: none;
+      font-size: 13px;
+      color: #a9aeb8;
+    }
+    :global(.dist-clear-button) {
+      flex: none;
+      min-height: 54px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 14px;
+      background: #f2f4f7;
+      color: #5b5f68;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    :global(.dist-error-text) {
+      margin-top: 10px;
+      font-size: 13.5px;
+      color: #c2453b;
+    }
+    :global(.dist-group-label) {
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: #8a8f99;
+    }
+    :global(.dist-verdict) {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: #2e63f6;
+      line-height: 1.3;
+    }
+    :global(.dist-verdict-detail) {
+      margin-top: 6px;
+      font-size: 15px;
+      color: #5b5f68;
+    }
+    :global(.dist-band-wrap) {
+      margin-top: 20px;
+      background: #fafbfc;
+      border-radius: 18px;
+      padding: 18px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    :global(.dist-band-labels) {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 9px;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #8a8f99;
+    }
+    :global(.dist-band-marker-wrap) {
+      position: relative;
+      padding-top: 26px;
+    }
+    :global(.dist-band) {
+      display: flex;
+      height: 32px;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    :global(.dist-band > div) {
+      flex: 1;
+    }
+    :global(.dist-band > div:nth-child(1)) {
+      background: #2e63f6;
+    }
+    :global(.dist-band > div:nth-child(2)) {
+      background: #6d95f9;
+    }
+    :global(.dist-band > div:nth-child(3)) {
+      background: #a9c3fa;
+    }
+    :global(.dist-band > div:nth-child(4)) {
+      background: #cfdcfc;
+    }
+    :global(.dist-marker) {
+      position: absolute;
+      top: 0;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    :global(.dist-marker-tag) {
+      background: #17181c;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 8px;
+      padding: 4px 8px;
+      white-space: nowrap;
+      line-height: 1.2;
+    }
+    :global(.dist-marker-line) {
+      width: 2px;
+      height: 8px;
+      background: #17181c;
+      margin: 0 auto;
+    }
+    :global(.dist-edge-labels) {
+      display: flex;
+      margin-top: 7px;
+    }
+    :global(.dist-edge-labels span) {
+      flex: 1;
+      font-size: 11.5px;
+      color: #8a8f99;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
+    :global(.dist-edge-labels span:first-child) {
+      text-align: left;
+    }
+    :global(.dist-edge-labels span:last-child) {
+      text-align: right;
+    }
+    :global(.dist-reading-guide) {
+      margin-top: 14px;
+      border-top: 1px solid #edf0f4;
+      padding-top: 12px;
+      font-size: 13.5px;
+      color: #6b6f78;
+    }
+    :global(.dist-caution-box) {
+      margin-top: 14px;
+      background: #f5f7fa;
+      border-radius: 16px;
+      padding: 15px 16px;
+    }
+    :global(.dist-caution-title) {
+      font-size: 14px;
+      font-weight: 700;
+      color: #3a3d45;
+      margin-bottom: 4px;
+    }
+    :global(.dist-caution-body) {
+      font-size: 13.5px;
+      color: #6b6f78;
+    }
+    :global(.dist-thin-card) {
+      text-align: center;
+      padding: 36px 22px 30px;
+    }
+    :global(.dist-thin-title) {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    :global(.dist-thin-body) {
+      margin: 0 auto;
+      max-width: 340px;
+      font-size: 14.5px;
+      color: #6b6f78;
+    }
+    :global(.dist-thin-actions) {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    :global(.dist-thin-actions button) {
+      min-height: 48px;
+      border: 0;
+      border-radius: 14px;
+      background: #2e63f6;
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    :global(.dist-card h2) {
+      margin: 0;
+      font-size: 19px;
       font-weight: 800;
       letter-spacing: -0.02em;
     }
-    p {
-      margin: 4px 0 0;
-      font-size: 14px;
+    :global(.dist-notes-intro) {
+      margin: 0 0 16px;
+      font-size: 14.5px;
       color: #6b6f78;
     }
-    .section-note {
-      margin: 0 0 14px;
+    :global(.dist-notes-list) {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
-    .notice-card ul {
-      margin: 8px 0 0;
-      padding-left: 18px;
+    :global(.dist-note-item) {
+      background: #fafbfc;
+      border-radius: 16px;
+      padding: 16px;
+    }
+    :global(.dist-note-q) {
+      margin-bottom: 5px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #17181c;
+    }
+    :global(.dist-note-a) {
+      font-size: 14.5px;
       color: #5b5f68;
-      font-size: 14px;
-      line-height: 1.6;
     }
-    .notice-card li + li {
-      margin-top: 4px;
+    @media (max-width: 640px) {
+      :global(.dist-hero h1) {
+        font-size: 28px;
+      }
+      :global(.dist-input-box input) {
+        font-size: 16px;
+      }
     }
   </style>
 </Base>
