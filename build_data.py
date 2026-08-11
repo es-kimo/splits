@@ -1,4 +1,5 @@
 import json
+import hashlib
 import re
 from datetime import date
 from pathlib import Path
@@ -60,6 +61,8 @@ PEER_METRIC_MAP = [
 DATE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ROUND_NUMBER_RE = re.compile(r"제\s*(\d+)\s*회")
 PHASE_NUMBER_RE = re.compile(r"(\d+)\s*차")
+MEET_SLUG_SEED_MAX_BYTES = 48
+MEET_SLUG_HASH_LEN = 8
 
 
 def as_text(value):
@@ -160,6 +163,35 @@ def _remove_year_prefix_from_slug(value, year):
     for pattern in patterns:
         text = re.sub(pattern, "", text)
     return text.strip("-") or value
+
+
+def _trim_slug_to_max_bytes(value, max_bytes):
+    text = re.sub(r"-{2,}", "-", _norm_text(value)).strip("-")
+    if not text:
+        return ""
+    chunks = []
+    size = 0
+    for ch in text:
+        encoded = ch.encode("utf-8")
+        if size + len(encoded) > max_bytes:
+            break
+        chunks.append(ch)
+        size += len(encoded)
+    return re.sub(r"-{2,}", "-", "".join(chunks)).strip("-")
+
+
+def _meet_slug_hash(year, meet_name):
+    seed = f"{year}:{_norm_text(meet_name)}".encode("utf-8")
+    return hashlib.sha1(seed).hexdigest()[:MEET_SLUG_HASH_LEN]
+
+
+def _build_meet_slug(year, meet_name, slug_seed):
+    # 파일시스템(예: ext4)의 파일명 길이 제한을 넘지 않도록 seed를 UTF-8 바이트 단위로 제한한다.
+    compact_seed = _trim_slug_to_max_bytes(slug_seed, MEET_SLUG_SEED_MAX_BYTES)
+    hashed = _meet_slug_hash(year, meet_name)
+    if compact_seed:
+        return f"{year}-{compact_seed}-{hashed}"
+    return f"{year}-meet-{hashed}"
 
 
 def _extract_series_key(meet_name):
@@ -631,11 +663,11 @@ def build_meets(clean_records, placements_all, placements_target, active_public_
 
     slug_counts = {}
     for item in items:
-        slug_base = item.pop("_slugSeed") or "meet"
-        raw_slug = f"{item['year']}-{slug_base}"
-        slug_counts[raw_slug] = slug_counts.get(raw_slug, 0) + 1
-        count = slug_counts[raw_slug]
-        slug = raw_slug if count == 1 else f"{raw_slug}-{count}"
+        slug_seed = item.pop("_slugSeed") or "meet"
+        slug_base = _build_meet_slug(item["year"], item["meet"], slug_seed)
+        slug_counts[slug_base] = slug_counts.get(slug_base, 0) + 1
+        count = slug_counts[slug_base]
+        slug = slug_base if count == 1 else f"{slug_base}-{count}"
         item["slug"] = slug
         item["url"] = f"meet/{slug}/"
 

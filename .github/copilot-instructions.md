@@ -54,3 +54,8 @@
 - 대용량 원천 데이터는 기본적으로 Git에 커밋하지 않는다.
 - Copilot worktree에서 기존 수집 결과를 재사용해야 하면 `collect_full_history.py --data-dir <경로>`를 사용한다.
 - 팀 기본 공유 경로는 `/Users/kihyun/orgs/personal/splits/data`로 간주하고, 해당 경로가 있으면 우선 참조한다.
+
+## 정적 라우트 경로 길이 안전성
+- 대회 페이지 슬러그는 파일시스템 한계(예: ext4 파일명 255 bytes)를 넘지 않도록 길이를 제한한다.
+- `build_data.py`에서 `meet.slug`를 만들 때는 **compact seed + hash** 패턴을 유지하고, seed는 UTF-8 바이트 기준으로 제한한다.
+- 슬러그/라우트 규칙을 수정한 뒤에는 생성된 `meet/<slug>/` 디렉터리의 최대 segment byte 길이를 확인한다.
