@@ -1,10 +1,14 @@
 ---
-import { withBase } from "../lib/base";
+import { toAbsoluteUrl, withBase } from "../lib/base";
 
 interface Props {
   title: string;
   description: string;
   canonical?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  ogType?: string;
   generatedAt?: string;
   contentWidth?: "default" | "narrow";
   contentLineHeight?: "default" | "compact";
@@ -16,6 +20,10 @@ const {
   title,
   description,
   canonical,
+  ogTitle,
+  ogDescription,
+  ogImage,
+  ogType,
   generatedAt,
   contentWidth = "default",
   contentLineHeight = "default",
@@ -30,6 +38,11 @@ const pageClass = [
   .filter(Boolean)
   .join(" ");
 const pageStyle = `--page-bottom:${pageBottomPadding};`;
+const canonicalUrl = canonical ? toAbsoluteUrl(canonical) : Astro.url?.toString() ?? toAbsoluteUrl();
+const resolvedOgTitle = ogTitle ?? title;
+const resolvedOgDescription = ogDescription ?? description;
+const resolvedOgImage = toAbsoluteUrl(ogImage ?? "og/default.png");
+const resolvedOgType = ogType ?? "website";
 ---
 
 <!doctype html>
@@ -39,7 +52,12 @@ const pageStyle = `--page-bottom:${pageBottomPadding};`;
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    {canonical && <link rel="canonical" href={canonical} />}
+    <meta property="og:title" content={resolvedOgTitle} />
+    <meta property="og:description" content={resolvedOgDescription} />
+    <meta property="og:image" content={resolvedOgImage} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:type" content={resolvedOgType} />
+    <link rel="canonical" href={canonicalUrl} />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
