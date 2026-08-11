@@ -18,7 +18,9 @@ const meta = loadMetaDoc();
 const kind = classifyMeetKind(item.meet);
 const isNational = isNationalMeetKind(kind);
 const dateRange = formatMeetDateRange(item.dateStart ?? null, item.dateEnd ?? null);
-const locationText = item.location || "장소 정보 없음";
+const locationTextRaw = String(item.location ?? "").trim();
+const hasLocation = locationTextRaw.length > 0;
+const locationText = hasLocation ? locationTextRaw : null;
 const categoryBreakdown = (item.categoryBreakdown ?? []).slice().sort((a, b) => b.athleteCount - a.athleteCount);
 const maxCategoryCount = categoryBreakdown.length > 0 ? Math.max(...categoryBreakdown.map((row) => row.athleteCount)) : 1;
 const distributionRows = (item.distanceDistribution?.items ?? []).slice().sort((a, b) => a.distance - b.distance);
@@ -37,6 +39,14 @@ const seriesRows = [{ year: item.year, meet: item.meet, url: item.url || `meet/$
   .concat((item.seriesLinks ?? []).map((row) => ({ ...row, current: false })))
   .sort((a, b) => b.year - a.year);
 const ogTitle = `${item.meet} 결과`;
+const infoRows = [
+  ...(hasLocation ? [{ label: "장소", value: locationTextRaw }] : []),
+  ...(item.distanceSet.length > 0 ? [{ label: "종목", value: item.distanceSet.map((distance) => `${distance}m`).join(", ") }] : []),
+  ...(item.roundTypes.length > 0 ? [{ label: "경기 방식", value: item.roundTypes.join(", ") }] : []),
+  { label: "준결승 기록", value: item.hasSemifinal ? "있음" : "없음" },
+  { label: "집계 기준", value: "예선 기록 분포, 결승/채점종합 성적" },
+];
+const showInfoSection = infoRows.length > 2;
 
 function formatPlacementChip(placement: MeetPublicFigurePlacement): string {
   const distance = placement.distance !== null ? `${placement.distance}m` : "-";
@@ -70,7 +80,15 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
     </div>
     <div>
       <h1>{item.meet}</h1>
-      <p>{dateRange}<br />{locationText}</p>
+      <p>
+        {dateRange}
+        {hasLocation && (
+          <>
+            <br />
+            {locationTextRaw}
+          </>
+        )}
+      </p>
     </div>
     <div class="metrics">
       <div>
@@ -199,20 +217,22 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
     </div>
   </section>
 
-  <section class="card">
-    <div id="infoToggle" class="info-toggle" role="button" tabindex="0">
-      <h2>대회 정보 자세히</h2>
-      <span id="infoToggleLabel">펼치기</span>
-    </div>
-    <div id="infoBody" class="info-body" hidden>
-      <div class="info-row"><span>대회 기간</span><span>{dateRange}</span></div>
-      <div class="info-row"><span>장소</span><span>{locationText}</span></div>
-      <div class="info-row"><span>종목</span><span>{item.distanceSet.length > 0 ? item.distanceSet.map((distance) => `${distance}m`).join(", ") : "종목 정보 없음"}</span></div>
-      <div class="info-row"><span>경기 방식</span><span>{item.roundTypes.length > 0 ? item.roundTypes.join(", ") : "정보 없음"}</span></div>
-      <div class="info-row"><span>준결승 기록</span><span>{item.hasSemifinal ? "있음" : "없음"}</span></div>
-      <div class="info-row"><span>집계 기준</span><span>예선 기록 분포, 결승/채점종합 성적</span></div>
-    </div>
-  </section>
+  {
+    showInfoSection && (
+      <section class="card">
+        <h2>대회 정보</h2>
+        <p class="section-note">상단 요약 외 기준 정보를 정리했습니다.</p>
+        <div class="info-body compact">
+          {infoRows.map((row) => (
+            <div class="info-row">
+              <span>{row.label}</span>
+              <span>{row.value}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    )
+  }
 
   <footer class="legacy-footer">
     공개된 경기 결과를 정리한 페이지입니다. 개인이 특정될 수 있는 집계는 공개하지 않습니다.<br />
@@ -233,9 +253,6 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
       const timeResultTitle = document.getElementById("timeResultTitle");
       const timeResultDetail = document.getElementById("timeResultDetail");
       const timeErrorText = document.getElementById("timeErrorText");
-      const infoToggle = document.getElementById("infoToggle");
-      const infoToggleLabel = document.getElementById("infoToggleLabel");
-      const infoBody = document.getElementById("infoBody");
       if (
         !(distDataEl instanceof HTMLScriptElement) ||
         !(distTabs instanceof HTMLElement) ||
@@ -247,17 +264,14 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
         !(timeResultBox instanceof HTMLElement) ||
         !(timeResultTitle instanceof HTMLElement) ||
         !(timeResultDetail instanceof HTMLElement) ||
-        !(timeErrorText instanceof HTMLElement) ||
-        !(infoToggle instanceof HTMLElement) ||
-        !(infoToggleLabel instanceof HTMLElement) ||
-        !(infoBody instanceof HTMLElement)
+        !(timeErrorText instanceof HTMLElement)
       ) {
         return;
       }
 
       const rows = JSON.parse(distDataEl.textContent || "[]");
       if (!Array.isArray(rows) || rows.length === 0) return;
-      const state = { distance: Number(rows[0].distance || 0), myTime: "", infoOpen: false };
+      const state = { distance: Number(rows[0].distance || 0), myTime: "" };
 
       const fmt = (sec) => {
         if (sec == null || Number.isNaN(sec)) return "-";
@@ -357,8 +371,6 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
         renderTabs();
         renderBands();
         renderMyTimeResult();
-        infoBody.hidden = !state.infoOpen;
-        infoToggleLabel.textContent = state.infoOpen ? "접기" : "펼치기";
       };
 
       distTabs.addEventListener("click", (event) => {
@@ -381,18 +393,6 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
         state.myTime = "";
         myTimeInput.value = "";
         renderMyTimeResult();
-      });
-
-      const toggleInfo = () => {
-        state.infoOpen = !state.infoOpen;
-        renderAll();
-      };
-      infoToggle.addEventListener("click", toggleInfo);
-      infoToggle.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          toggleInfo();
-        }
       });
 
       renderAll();
@@ -791,26 +791,14 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
       background: #17181c;
       color: #fff;
     }
-    .info-toggle {
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .info-toggle h2 {
-      margin: 0;
-    }
-    .info-toggle span {
-      margin-left: auto;
-      font-size: 13.5px;
-      font-weight: 600;
-      color: #2e63f6;
-    }
     .info-body {
       display: flex;
       flex-direction: column;
       gap: 1px;
       margin-top: 14px;
+    }
+    .info-body.compact {
+      margin-top: 0;
     }
     .info-row {
       display: flex;
