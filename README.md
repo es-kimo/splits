@@ -21,6 +21,7 @@ reference 안내: 세부 데이터 구조/분석 메모는 `/home/runner/work/sp
 - 익명 통계 입력은 `data/records_full.csv`, `data/athlete_info_full.csv`가 있으면 이를 우선 사용하고, 없으면 `data/records.csv`, `data/athlete_info.csv`를 사용합니다.
 - k-익명성 기준 `k=10` 미만 구간은 행을 유지하되 `인원수`와 지표를 모두 `데이터 부족`으로 표기합니다.
 - 산출물에는 개인 식별 컬럼(`idNo`, `이름`, `소속`, `시도`)이 포함되지 않도록 자동 검증합니다.
+- `python build_data.py`는 `stats_distribution.csv`를 `site/data/distribution.json`으로 변환해 `distribution/` 페이지 클라이언트 계산 입력으로 사용합니다.
 
 ## 전체 선수 기록 수집(비공개 원천 데이터)
 

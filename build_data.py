@@ -18,18 +18,56 @@ INPUT_FILES = [
     "athlete_info.csv",
     "coverage.csv",
     "public_figures.csv",
+    "stats_distribution.csv",
 ]
 AGES = [str(age) for age in range(7, 19)]
 PUBLIC_FIGURES_REQUIRED_COLUMNS = ["idNo", "이름", "슬러그", "출생연도", "지정근거", "언론보도URL", "지정일자", "상태"]
 PUBLIC_FIGURES_ALLOWED_STATUS = {"active", "removed"}
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 K_ANONYMITY_MIN = 10
+INSUFFICIENT_TEXT = "데이터 부족"
+STATS_DISTRIBUTION_REQUIRED_COLUMNS = [
+    "출생연도",
+    "성별",
+    "학령구간",
+    "거리",
+    "인원수",
+    "기록_p10",
+    "기록_p25",
+    "기록_p50",
+    "기록_p75",
+    "기록_p90",
+    "순위_p25",
+    "순위_p50",
+    "순위_p75",
+]
+SCHOOL_LEVEL_ORDER = ["유치부", "초등", "중등", "고등", "대학", "일반", "오픈"]
+PEER_METRIC_MAP = [
+    ("기록_p10", "timeP10", 3),
+    ("기록_p25", "timeP25", 3),
+    ("기록_p50", "timeP50", 3),
+    ("기록_p75", "timeP75", 3),
+    ("기록_p90", "timeP90", 3),
+    ("순위_p25", "rankP25", 2),
+    ("순위_p50", "rankP50", 2),
+    ("순위_p75", "rankP75", 2),
+]
 
 
 def as_int(value):
     text = str(value or "").strip()
     digits = "".join(ch for ch in text if ch.isdigit())
     return int(digits) if digits else None
+
+
+def as_float(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def as_id(value):
@@ -324,57 +362,106 @@ def build_meets(placements_target):
     return {"items": items}
 
 
-def _rank_summary(group):
-    ranks = group["순위_num"].dropna().astype(int)
-    if ranks.empty:
-        return None
+def _read_metric_value(raw_value, row_no, column_name):
+    text = str(raw_value or "").strip()
+    if not text:
+        raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 {column_name} 값이 비어 있습니다.")
+    value = as_float(text)
+    if value is None:
+        raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 {column_name} 값이 숫자가 아닙니다: {text}")
+    return value
+
+
+def _unique_in_order(values):
+    return list(dict.fromkeys(values))
+
+
+def build_distribution(stats_distribution_frame):
+    columns = list(stats_distribution_frame.columns)
+    if columns != STATS_DISTRIBUTION_REQUIRED_COLUMNS:
+        raise ValueError(f"[error] data/stats_distribution.csv 컬럼이 기대값과 다릅니다: {columns}")
+
+    school_level_order = {name: idx for idx, name in enumerate(SCHOOL_LEVEL_ORDER)}
+    rows = []
+    for idx, item in stats_distribution_frame.iterrows():
+        row_no = idx + 2
+        birth_year = as_int(item.get("출생연도", ""))
+        gender = str(item.get("성별", "")).strip()
+        school_level = str(item.get("학령구간", "")).strip()
+        distance = as_int(item.get("거리", ""))
+        if birth_year is None:
+            raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 출생연도 값이 올바르지 않습니다.")
+        if not gender:
+            raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 성별 값이 비어 있습니다.")
+        if not school_level:
+            raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 학령구간 값이 비어 있습니다.")
+        if distance is None:
+            raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 거리 값이 올바르지 않습니다.")
+
+        count_text = str(item.get("인원수", "")).strip()
+        insufficient = count_text == INSUFFICIENT_TEXT
+        if not count_text:
+            raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 인원수 값이 비어 있습니다.")
+
+        metric_values = {}
+        athlete_count = None
+        if insufficient:
+            for source_col, target_col, _round_digits in PEER_METRIC_MAP:
+                metric_text = str(item.get(source_col, "")).strip()
+                if metric_text != INSUFFICIENT_TEXT:
+                    raise ValueError(
+                        f"[error] data/stats_distribution.csv {row_no}행: 인원수=데이터 부족인데 {source_col} 값이 노출되었습니다."
+                    )
+                metric_values[target_col] = None
+        else:
+            athlete_count = as_int(count_text)
+            if athlete_count is None:
+                raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 인원수 값이 숫자가 아닙니다: {count_text}")
+            if athlete_count < K_ANONYMITY_MIN:
+                raise ValueError(
+                    f"[error] data/stats_distribution.csv {row_no}행 인원수가 k-익명 기준 미만으로 노출되었습니다: {athlete_count}"
+                )
+            for source_col, target_col, round_digits in PEER_METRIC_MAP:
+                metric_value = _read_metric_value(item.get(source_col, ""), row_no, source_col)
+                metric_values[target_col] = round(metric_value, round_digits)
+
+        rows.append(
+            {
+                "birthYear": birth_year,
+                "gender": gender,
+                "schoolLevel": school_level,
+                "distance": distance,
+                "athleteCount": athlete_count,
+                "insufficient": insufficient,
+                **metric_values,
+            }
+        )
+
+    rows = sorted(
+        rows,
+        key=lambda row: (
+            row["birthYear"],
+            row["gender"],
+            school_level_order.get(row["schoolLevel"], len(school_level_order)),
+            row["schoolLevel"],
+            row["distance"],
+        ),
+    )
+    present_school_levels = _unique_in_order([row["schoolLevel"] for row in rows])
+    ordered_school_levels = [name for name in SCHOOL_LEVEL_ORDER if name in present_school_levels]
+    ordered_school_levels.extend(sorted([name for name in present_school_levels if name not in SCHOOL_LEVEL_ORDER]))
+
     return {
-        "sampleSize": int(len(ranks)),
-        "rankMin": int(ranks.min()),
-        "rankMedian": round(float(ranks.median()), 1),
-        "rankMax": int(ranks.max()),
-        "top3Rate": round(float((ranks <= 3).mean()), 4),
+        "kAnonymityMin": K_ANONYMITY_MIN,
+        "insufficientText": INSUFFICIENT_TEXT,
+        "filters": {
+            "birthYears": sorted({row["birthYear"] for row in rows}),
+            "genders": _unique_in_order([row["gender"] for row in rows]),
+            "schoolLevels": ordered_school_levels,
+            "distances": sorted({row["distance"] for row in rows}),
+        },
+        "rows": rows,
     }
-
-
-def _k_safe(group):
-    athlete_count = int(group["idNo"].astype(str).str.strip().replace("", pd.NA).dropna().nunique())
-    return athlete_count >= K_ANONYMITY_MIN, athlete_count
-
-
-def build_distribution(placements_target):
-    base = placements_target[placements_target["순위_num"].notna()].copy()
-    by_age = []
-    for age, group in base[base["나이_추정_num"].notna()].groupby("나이_추정_num", sort=True):
-        ok, athlete_count = _k_safe(group)
-        if not ok:
-            continue
-        stats = _rank_summary(group)
-        if not stats:
-            continue
-        by_age.append({"age": int(age), "athleteCount": athlete_count, **stats})
-
-    by_distance = []
-    for distance, group in base[base["거리_num"].notna()].groupby("거리_num", sort=True):
-        ok, athlete_count = _k_safe(group)
-        if not ok:
-            continue
-        stats = _rank_summary(group)
-        if not stats:
-            continue
-        by_distance.append({"distance": int(distance), "athleteCount": athlete_count, **stats})
-
-    by_year = []
-    for year, group in base[base["대회연도_num"].notna()].groupby("대회연도_num", sort=True):
-        ok, athlete_count = _k_safe(group)
-        if not ok:
-            continue
-        stats = _rank_summary(group)
-        if not stats:
-            continue
-        by_year.append({"year": int(year), "athleteCount": athlete_count, **stats})
-
-    return {"kAnonymityMin": K_ANONYMITY_MIN, "byAge": by_age, "byDistance": by_distance, "byYear": by_year}
 
 
 def build_meta(payload, public_figures):
@@ -397,7 +484,7 @@ def main():
         frames = {name: read_csv(name) for name in INPUT_FILES}
         payload, placements_target, public_figures, active_id_set = build_athletes_payload(frames)
         meets = build_meets(placements_target)
-        distribution = build_distribution(placements_target)
+        distribution = build_distribution(frames["stats_distribution.csv"])
         meta = build_meta(payload, public_figures)
         athletes_doc = {"ages": payload["ages"], "athletes": payload["athletes"]}
         assert_public_scope(athletes_doc["athletes"], active_id_set)
