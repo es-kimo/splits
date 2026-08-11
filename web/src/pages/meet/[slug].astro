@@ -2,8 +2,8 @@
 import Base from "../../layouts/Base.astro";
 import { withBase } from "../../lib/base";
 import { loadMeetsDoc, loadMetaDoc } from "../../lib/data";
-import { meetSlug } from "../../lib/meet";
-import type { MeetItem } from "../../lib/types";
+import { classifyMeetKind, formatMeetDateRange, isNationalMeetKind, meetSlug } from "../../lib/meet";
+import type { MeetItem, MeetPublicFigurePlacement } from "../../lib/types";
 
 export function getStaticPaths() {
   const { items } = loadMeetsDoc();
@@ -15,27 +15,387 @@ export function getStaticPaths() {
 
 const { item } = Astro.props as { item: MeetItem };
 const meta = loadMetaDoc();
+const kind = classifyMeetKind(item.meet);
+const isNational = isNationalMeetKind(kind);
+const dateRange = formatMeetDateRange(item.dateStart ?? null, item.dateEnd ?? null);
+const locationText = item.location || "장소 정보 없음";
+const categoryBreakdown = (item.categoryBreakdown ?? []).slice().sort((a, b) => b.athleteCount - a.athleteCount);
+const maxCategoryCount = categoryBreakdown.length > 0 ? Math.max(...categoryBreakdown.map((row) => row.athleteCount)) : 1;
+const distributionRows = (item.distanceDistribution?.items ?? []).slice().sort((a, b) => a.distance - b.distance);
+const distributionPayload = distributionRows.map((row) => ({
+  distance: row.distance,
+  insufficient: row.insufficient,
+  p10: row.timeP10,
+  p25: row.timeP25,
+  p50: row.timeP50,
+  p75: row.timeP75,
+  p90: row.timeP90,
+}));
+const defaultDistance = distributionRows.length > 0 ? distributionRows[0].distance : 0;
+const figures = item.publicFigureResults ?? [];
+const seriesRows = [{ year: item.year, meet: item.meet, url: item.url || `meet/${meetSlug(item)}/`, current: true }]
+  .concat((item.seriesLinks ?? []).map((row) => ({ ...row, current: false })))
+  .sort((a, b) => b.year - a.year);
+
+function formatPlacementChip(placement: MeetPublicFigurePlacement): string {
+  const distance = placement.distance !== null ? `${placement.distance}m` : "-";
+  return `${distance} ${placement.rank}등`;
+}
+
+function placementChipClass(placement: MeetPublicFigurePlacement): string {
+  if (placement.sf) return "chip-semi";
+  if (placement.rank === 1) return "chip-gold";
+  return "chip-normal";
+}
 ---
 
-<Base title={`${item.meet} (${item.year})`} description={`${item.year}년 ${item.meet} 대회 익명 통계`} generatedAt={meta.generatedAt}>
+<Base
+  title={`${item.meet} (${item.year})`}
+  description={`${item.year}년 ${item.meet} 대회 상세 데이터`}
+  generatedAt={meta.generatedAt}
+  contentWidth="narrow"
+  contentLineHeight="compact"
+  pageBottomPadding="60px"
+  footerVariant="none"
+>
   <div class="top-link"><a href={withBase("meet/")}>← 대회 목록</a></div>
-  <header class="card">
-    <h1>{item.meet}</h1>
-    <p>{item.year}년 대회 익명 집계입니다.</p>
-  </header>
-  <section class="card">
-    <h2>요약 지표</h2>
+
+  <header class="card header-card">
+    <div class="badge-row">
+      <span class="kind-badge">{kind}</span>
+      {isNational && <span class="national-badge">전국 규모</span>}
+    </div>
+    <div>
+      <h1>{item.meet}</h1>
+      <p>{dateRange}<br />{locationText}</p>
+    </div>
     <div class="metrics">
-      <div><b>{item.raceCount}건</b><span>집계 경기</span></div>
-      <div><b>{item.athleteCount}명</b><span>참여 선수</span></div>
-      <div><b>{item.hasSemifinal ? "있음" : "없음"}</b><span>준결승 기록</span></div>
+      <div>
+        <div class="metric-main">{item.raceCount}건</div>
+        <div class="metric-sub">치러진 경기</div>
+      </div>
+      <div>
+        <div class="metric-main">{item.athleteCount}명</div>
+        <div class="metric-sub">참가 선수</div>
+      </div>
+      <div>
+        <div class="metric-main">{item.distanceSet.length}종목</div>
+        <div class="metric-sub">{item.distanceSet.length > 0 ? `${Math.min(...item.distanceSet)}~${Math.max(...item.distanceSet)}m` : "종목 정보 없음"}</div>
+      </div>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>기록이 어디쯤이면 잘한 걸까요?</h2>
+    <p class="section-note">이 대회 예선 기록을 빠른 순서대로 정리했습니다. 종목을 고르고 기록을 넣으면 대략적인 위치를 확인할 수 있어요.</p>
+
+    <div id="distTabs" class="tab-row">
+      {
+        distributionRows.map((row) => (
+          <button type="button" class={`tab-btn ${row.distance === defaultDistance ? "active" : ""}`} data-distance={row.distance}>
+            {row.distance}m
+          </button>
+        ))
+      }
+    </div>
+
+    <div class="distribution-box">
+      <div class="scale-header"><span>빠른 기록</span><span>느린 기록</span></div>
+      <div class="scale-bar">
+        <div></div><div></div><div></div><div></div>
+      </div>
+      <div id="bandValues" class="band-values"></div>
+      <div class="band-names">
+        <span>상위 10%</span><span>상위 25%</span><span>중간</span><span>하위 25%</span><span>하위 10%</span>
+      </div>
+
+      <div id="distUnavailable" class="dist-unavailable" hidden>
+        이 종목은 공개 가능한 표본이 부족해서 분포 비교를 제공하지 않습니다.
+      </div>
+
+      <div id="timeCheckBox" class="time-check-box">
+        <div class="time-check-title">내 기록으로 확인해보기</div>
+        <div class="time-input-row">
+          <label class="time-input-wrap">
+            <input id="myTimeInput" type="text" placeholder="예: 2:29.15" autocomplete="off" />
+            <span>분:초</span>
+          </label>
+          <button id="clearTimeButton" type="button" class="clear-time-btn" hidden>지우기</button>
+        </div>
+        <div id="timeResultBox" class="time-result" hidden>
+          <div id="timeResultTitle"></div>
+          <div id="timeResultDetail"></div>
+        </div>
+        <div id="timeErrorText" class="time-error" hidden>
+          시간 형식을 확인해주세요. 2분 29초 15는 <b>2:29.15</b>, 45초 8은 <b>45.8</b>로 적어주세요.
+        </div>
+      </div>
+    </div>
+
+    <p class="note-text">참가 인원이 적은 종목은 개인이 특정될 수 있어 분포를 공개하지 않습니다. 결승은 순위 운영 영향이 커서 예선 기록만 사용했습니다.</p>
+  </section>
+
+  <section class="card">
+    <h2>누가 나왔나요</h2>
+    <p class="section-note">종별로 참가 인원을 집계했습니다.</p>
+    <div class="category-list">
+      {
+        categoryBreakdown.map((row) => (
+          <div class="category-row">
+            <span class="category-name">{row.category}</span>
+            <div class="category-bar-bg"><span class="category-bar" style={`width:${(row.athleteCount / maxCategoryCount) * 100}%`}></span></div>
+            <span class="category-count">{row.athleteCount}명</span>
+          </div>
+        ))
+      }
     </div>
   </section>
+
   <section class="card">
-    <h2>대회 구성</h2>
-    <p><b>종목:</b> {item.distanceSet.map((distance) => `${distance}m`).join(", ")}</p>
-    <p><b>라운드 유형:</b> {item.roundTypes.join(", ") || "-"}</p>
+    <h2>이 대회에 나온 공개 선수</h2>
+    <p class="section-note">이 사이트에서 공개 중인 선수의 기록만 표시합니다.</p>
+    {
+      figures.length === 0 ? (
+        <p class="empty-text">이 대회에 공개 선수 기록이 없습니다.</p>
+      ) : (
+        <div class="figure-list">
+          {figures.map((figure) => (
+            <article class="figure-card">
+              <div class="figure-head">
+                <b>{figure.name}</b>
+                <span>최고 {figure.bestRank}등 · {figure.raceCount}경기</span>
+                <a href={withBase(figure.url)}>기록 보기 ›</a>
+              </div>
+              <div class="placement-row">
+                {
+                  figure.placements.map((placement) => (
+                    <span class={placementChipClass(placement)}>{formatPlacementChip(placement)}</span>
+                  ))
+                }
+              </div>
+            </article>
+          ))}
+        </div>
+      )
+    }
   </section>
+
+  <section class="card">
+    <h2>같은 대회, 다른 해</h2>
+    <p class="section-note">해마다 기록이 어떻게 달라졌는지 이어서 볼 수 있어요.</p>
+    <div class="series-row">
+      {
+        seriesRows.map((row) =>
+          row.current ? (
+            <span class="series-chip active">{row.year}년</span>
+          ) : (
+            <a class="series-chip" href={withBase(row.url)}>{row.year}년</a>
+          )
+        )
+      }
+    </div>
+  </section>
+
+  <section class="card">
+    <div id="infoToggle" class="info-toggle" role="button" tabindex="0">
+      <h2>대회 정보 자세히</h2>
+      <span id="infoToggleLabel">펼치기</span>
+    </div>
+    <div id="infoBody" class="info-body" hidden>
+      <div class="info-row"><span>대회 기간</span><span>{dateRange}</span></div>
+      <div class="info-row"><span>장소</span><span>{locationText}</span></div>
+      <div class="info-row"><span>종목</span><span>{item.distanceSet.length > 0 ? item.distanceSet.map((distance) => `${distance}m`).join(", ") : "종목 정보 없음"}</span></div>
+      <div class="info-row"><span>경기 방식</span><span>{item.roundTypes.length > 0 ? item.roundTypes.join(", ") : "정보 없음"}</span></div>
+      <div class="info-row"><span>준결승 기록</span><span>{item.hasSemifinal ? "있음" : "없음"}</span></div>
+      <div class="info-row"><span>집계 기준</span><span>예선 기록 분포, 결승/채점종합 성적</span></div>
+    </div>
+  </section>
+
+  <footer class="legacy-footer">
+    공개된 경기 결과를 정리한 페이지입니다. 개인이 특정될 수 있는 집계는 공개하지 않습니다.<br />
+    출처: 대한체육회 경기결과 시스템
+  </footer>
+
+  <script type="application/json" id="meetDistData" set:html={JSON.stringify(distributionPayload)}></script>
+  <script is:inline>
+    (() => {
+      const distDataEl = document.getElementById("meetDistData");
+      const distTabs = document.getElementById("distTabs");
+      const bandValues = document.getElementById("bandValues");
+      const distUnavailable = document.getElementById("distUnavailable");
+      const timeCheckBox = document.getElementById("timeCheckBox");
+      const myTimeInput = document.getElementById("myTimeInput");
+      const clearTimeButton = document.getElementById("clearTimeButton");
+      const timeResultBox = document.getElementById("timeResultBox");
+      const timeResultTitle = document.getElementById("timeResultTitle");
+      const timeResultDetail = document.getElementById("timeResultDetail");
+      const timeErrorText = document.getElementById("timeErrorText");
+      const infoToggle = document.getElementById("infoToggle");
+      const infoToggleLabel = document.getElementById("infoToggleLabel");
+      const infoBody = document.getElementById("infoBody");
+      if (
+        !(distDataEl instanceof HTMLScriptElement) ||
+        !(distTabs instanceof HTMLElement) ||
+        !(bandValues instanceof HTMLElement) ||
+        !(distUnavailable instanceof HTMLElement) ||
+        !(timeCheckBox instanceof HTMLElement) ||
+        !(myTimeInput instanceof HTMLInputElement) ||
+        !(clearTimeButton instanceof HTMLButtonElement) ||
+        !(timeResultBox instanceof HTMLElement) ||
+        !(timeResultTitle instanceof HTMLElement) ||
+        !(timeResultDetail instanceof HTMLElement) ||
+        !(timeErrorText instanceof HTMLElement) ||
+        !(infoToggle instanceof HTMLElement) ||
+        !(infoToggleLabel instanceof HTMLElement) ||
+        !(infoBody instanceof HTMLElement)
+      ) {
+        return;
+      }
+
+      const rows = JSON.parse(distDataEl.textContent || "[]");
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      const state = { distance: Number(rows[0].distance || 0), myTime: "", infoOpen: false };
+
+      const fmt = (sec) => {
+        if (sec == null || Number.isNaN(sec)) return "-";
+        if (sec < 60) return `${Number(sec).toFixed(2)}초`;
+        const minutes = Math.floor(sec / 60);
+        const seconds = sec - minutes * 60;
+        return `${minutes}분 ${seconds < 10 ? "0" : ""}${seconds.toFixed(2)}초`;
+      };
+
+      const parseTime = (value) => {
+        const text = String(value || "").trim();
+        if (!text) return null;
+        let matched = text.match(/^(\d+):(\d{1,2}(?:\.\d+)?)$/);
+        if (matched) return Number(matched[1]) * 60 + Number(matched[2]);
+        matched = text.match(/^(\d+)분\s*(\d{1,2}(?:\.\d+)?)초?$/);
+        if (matched) return Number(matched[1]) * 60 + Number(matched[2]);
+        matched = text.match(/^(\d{1,3}(?:\.\d+)?)초?$/);
+        if (matched) return Number(matched[1]);
+        return Number.NaN;
+      };
+
+      const selectedRow = () => rows.find((row) => Number(row.distance) === Number(state.distance)) || rows[0];
+
+      const renderTabs = () => {
+        const buttons = distTabs.querySelectorAll("button[data-distance]");
+        buttons.forEach((button) => {
+          if (!(button instanceof HTMLButtonElement)) return;
+          const distance = Number(button.dataset.distance || "0");
+          button.classList.toggle("active", distance === Number(state.distance));
+        });
+      };
+
+      const renderBands = () => {
+        const row = selectedRow();
+        if (!row || row.insufficient || row.p10 == null) {
+          bandValues.innerHTML = `
+            <span>-</span><span>-</span><span>-</span><span>-</span><span>-</span>
+          `;
+          distUnavailable.hidden = false;
+          timeCheckBox.style.display = "none";
+          return;
+        }
+        bandValues.innerHTML = `
+          <span>${fmt(row.p10)}</span>
+          <span>${fmt(row.p25)}</span>
+          <span>${fmt(row.p50)}</span>
+          <span>${fmt(row.p75)}</span>
+          <span>${fmt(row.p90)}</span>
+        `;
+        distUnavailable.hidden = true;
+        timeCheckBox.style.display = "block";
+      };
+
+      const renderMyTimeResult = () => {
+        const row = selectedRow();
+        clearTimeButton.hidden = state.myTime.length === 0;
+        timeResultBox.hidden = true;
+        timeErrorText.hidden = true;
+        if (!row || row.insufficient || row.p10 == null) return;
+        const parsed = state.myTime.trim() ? parseTime(state.myTime) : null;
+        if (parsed == null) return;
+        if (Number.isNaN(parsed)) {
+          timeErrorText.hidden = false;
+          return;
+        }
+
+        const points = [
+          [row.p10, 10],
+          [row.p25, 25],
+          [row.p50, 50],
+          [row.p75, 75],
+          [row.p90, 90],
+        ];
+
+        let percentile = 94;
+        if (parsed <= row.p10) percentile = 8;
+        else if (parsed < row.p90) {
+          for (let i = 0; i < points.length - 1; i += 1) {
+            const [startValue, startPercent] = points[i];
+            const [endValue, endPercent] = points[i + 1];
+            if (parsed >= startValue && parsed <= endValue) {
+              const t = (parsed - startValue) / (endValue - startValue);
+              percentile = startPercent + t * (endPercent - startPercent);
+              break;
+            }
+          }
+        }
+
+        const rounded = Math.round(percentile);
+        timeResultTitle.textContent = rounded <= 10 ? "상위 10% 안쪽입니다" : `참가자 중 상위 ${rounded}% 정도입니다`;
+        const gapToMid = row.p50 - parsed;
+        timeResultDetail.textContent = `${fmt(parsed)} · 중간 기록(${fmt(row.p50)})보다 ${Math.abs(gapToMid).toFixed(2)}초 ${gapToMid >= 0 ? "빠릅니다" : "느립니다"}`;
+        timeResultBox.hidden = false;
+      };
+
+      const renderAll = () => {
+        renderTabs();
+        renderBands();
+        renderMyTimeResult();
+        infoBody.hidden = !state.infoOpen;
+        infoToggleLabel.textContent = state.infoOpen ? "접기" : "펼치기";
+      };
+
+      distTabs.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const button = target.closest("button[data-distance]");
+        if (!(button instanceof HTMLButtonElement)) return;
+        state.distance = Number(button.dataset.distance || "0");
+        renderAll();
+      });
+
+      myTimeInput.addEventListener("input", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        state.myTime = target.value;
+        renderMyTimeResult();
+      });
+
+      clearTimeButton.addEventListener("click", () => {
+        state.myTime = "";
+        myTimeInput.value = "";
+        renderMyTimeResult();
+      });
+
+      const toggleInfo = () => {
+        state.infoOpen = !state.infoOpen;
+        renderAll();
+      };
+      infoToggle.addEventListener("click", toggleInfo);
+      infoToggle.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggleInfo();
+        }
+      });
+
+      renderAll();
+    })();
+  </script>
+
   <style>
     .top-link {
       padding: 16px 2px 4px;
@@ -46,56 +406,438 @@ const meta = loadMetaDoc();
       color: #6b6f78;
     }
     .card {
-      background: #ffffff;
+      background: #fff;
       border-radius: 20px;
       padding: 22px 20px;
       margin-bottom: 12px;
     }
+    .header-card {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .kind-badge,
+    .national-badge {
+      font-size: 11.5px;
+      font-weight: 700;
+      border-radius: 7px;
+      padding: 3px 7px;
+    }
+    .kind-badge {
+      color: #2e63f6;
+      background: #e9f0ff;
+    }
+    .national-badge {
+      color: #0e7a5f;
+      background: #e1f5ee;
+    }
     h1 {
       margin: 0;
-      font-size: 25px;
-      line-height: 1.4;
+      font-size: 26px;
+      line-height: 1.35;
       font-weight: 800;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.025em;
     }
     h2 {
-      margin: 0 0 10px;
-      font-size: 18px;
+      margin: 0 0 4px;
+      font-size: 19px;
       font-weight: 800;
       letter-spacing: -0.02em;
     }
     p {
-      margin: 0 0 8px;
+      margin: 8px 0 0;
+      font-size: 15px;
       color: #5b5f68;
-      font-size: 14px;
+      line-height: 1.55;
     }
-    p:last-child {
-      margin-bottom: 0;
+    .section-note {
+      margin: 0 0 14px;
+      font-size: 14.5px;
+      color: #6b6f78;
     }
     .metrics {
       display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
-      grid-template-columns: repeat(3, 1fr);
     }
     .metrics > div {
       background: #f5f7fa;
+      border-radius: 14px;
+      padding: 12px 12px 11px;
+    }
+    .metric-main {
+      font-size: 21px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .metric-sub {
+      font-size: 12.5px;
+      color: #8a8f99;
+    }
+    .tab-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .tab-btn {
+      border: 0;
+      background: #f2f4f7;
+      color: #5b5f68;
+      border-radius: 12px;
+      padding: 0 15px;
+      min-height: 44px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tab-btn.active {
+      background: #17181c;
+      color: #fff;
+    }
+    .distribution-box {
+      background: #fafbfc;
+      border-radius: 18px;
+      padding: 18px 16px 16px;
+    }
+    .scale-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #8a8f99;
+      margin-bottom: 8px;
+    }
+    .scale-bar {
+      position: relative;
+      height: 34px;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #edf0f4;
+      display: flex;
+    }
+    .scale-bar div:nth-child(1) {
+      flex: 1;
+      background: #2e63f6;
+    }
+    .scale-bar div:nth-child(2) {
+      flex: 1;
+      background: #6d95f9;
+    }
+    .scale-bar div:nth-child(3) {
+      flex: 1;
+      background: #a9c3fa;
+    }
+    .scale-bar div:nth-child(4) {
+      flex: 1;
+      background: #cfdcfc;
+    }
+    .band-values,
+    .band-names {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin-top: 7px;
+    }
+    .band-values span {
+      font-size: 11.5px;
+      color: #8a8f99;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
+    .band-values span:first-child,
+    .band-names span:first-child {
+      text-align: left;
+    }
+    .band-values span:last-child,
+    .band-names span:last-child {
+      text-align: right;
+    }
+    .band-names {
+      margin-top: 2px;
+    }
+    .band-names span {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #c6cbd4;
+      text-align: center;
+    }
+    .dist-unavailable {
+      margin-top: 14px;
+      background: #f2f4f7;
       border-radius: 12px;
       padding: 12px;
+      font-size: 13px;
+      color: #6b6f78;
+      line-height: 1.5;
+    }
+    .time-check-box {
+      margin-top: 18px;
+      border-top: 1px solid #edf0f4;
+      padding-top: 16px;
+    }
+    .time-check-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      margin-bottom: 9px;
+    }
+    .time-input-row {
+      display: flex;
+      gap: 8px;
+    }
+    .time-input-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #fff;
+      border: 1.5px solid #e3e7ed;
+      border-radius: 14px;
+      padding: 0 14px;
+      min-height: 52px;
+    }
+    .time-input-wrap input {
+      flex: 1;
+      border: 0;
+      outline: none;
+      background: transparent;
+      font-size: 16.5px;
+      font-weight: 600;
+      min-width: 0;
+      font-family: inherit;
+    }
+    .time-input-wrap span {
+      font-size: 13px;
+      color: #a9aeb8;
+      flex: none;
+    }
+    .clear-time-btn {
+      flex: none;
+      min-height: 52px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 14px;
+      background: #f2f4f7;
+      color: #5b5f68;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .time-result {
+      margin-top: 12px;
+      background: #e9f0ff;
+      border-radius: 14px;
+      padding: 16px;
+    }
+    .time-result > :first-child {
+      font-size: 19px;
+      font-weight: 800;
+      color: #2e63f6;
+      letter-spacing: -0.02em;
+    }
+    .time-result > :last-child {
+      font-size: 14px;
+      color: #3f5fa8;
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+    .time-error {
+      margin-top: 10px;
+      font-size: 13.5px;
+      color: #c2453b;
+      line-height: 1.5;
+    }
+    .note-text {
+      margin: 14px 0 0;
+      font-size: 13px;
+      color: #9ba0aa;
+      line-height: 1.55;
+    }
+    .category-list {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 9px;
     }
-    .metrics b {
-      font-size: 20px;
-      color: #17181c;
+    .category-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
-    .metrics span {
+    .category-name {
+      font-size: 14.5px;
+      font-weight: 600;
+      width: 88px;
+      flex: none;
+    }
+    .category-bar-bg {
+      flex: 1;
+      height: 22px;
+      background: #f2f4f7;
+      border-radius: 7px;
+      position: relative;
+      overflow: hidden;
+    }
+    .category-bar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 22px;
+      border-radius: 7px;
+      background: #a9c3fa;
+    }
+    .category-count {
+      font-size: 14px;
+      font-weight: 700;
+      width: 56px;
+      text-align: right;
+      flex: none;
+      font-variant-numeric: tabular-nums;
+    }
+    .figure-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .figure-card {
+      background: #fafbfc;
+      border-radius: 16px;
+      padding: 14px 14px 12px;
+    }
+    .figure-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 9px;
+      flex-wrap: wrap;
+    }
+    .figure-head b {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .figure-head span {
+      font-size: 12.5px;
       color: #8a8f99;
-      font-size: 12px;
+    }
+    .figure-head a {
+      margin-left: auto;
+      font-size: 13px;
+      font-weight: 600;
+      color: #2e63f6;
+      text-decoration: none;
+    }
+    .placement-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .placement-row span {
+      font-size: 12.5px;
+      font-weight: 600;
+      border-radius: 999px;
+      padding: 4px 10px;
+    }
+    .chip-gold {
+      background: #2e63f6;
+      color: #fff;
+    }
+    .chip-normal {
+      background: #e9f0ff;
+      color: #2e63f6;
+    }
+    .chip-semi {
+      background: #f2f4f7;
+      color: #9ba0aa;
+    }
+    .empty-text {
+      margin: 0;
+      font-size: 14px;
+      color: #8a8f99;
+    }
+    .series-row {
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .series-chip {
+      flex: none;
+      min-height: 44px;
+      padding: 0 15px;
+      border: 0;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      white-space: nowrap;
+      background: #f2f4f7;
+      color: #5b5f68;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .series-chip.active {
+      background: #17181c;
+      color: #fff;
+    }
+    .info-toggle {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .info-toggle h2 {
+      margin: 0;
+    }
+    .info-toggle span {
+      margin-left: auto;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #2e63f6;
+    }
+    .info-body {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      margin-top: 14px;
+    }
+    .info-row {
+      display: flex;
+      gap: 12px;
+      padding: 11px 2px;
+      border-top: 1px solid #f0f2f5;
+    }
+    .info-row > span:first-child {
+      font-size: 14px;
+      color: #8a8f99;
+      width: 88px;
+      flex: none;
+    }
+    .info-row > span:last-child {
+      font-size: 14px;
+      color: #3a3d45;
+      flex: 1;
+      line-height: 1.5;
+    }
+    .legacy-footer {
+      padding: 8px 6px 0;
+      font-size: 13px;
+      color: #9ba0aa;
     }
     @media (max-width: 640px) {
       .metrics {
         grid-template-columns: 1fr;
+      }
+      .figure-head a {
+        margin-left: 0;
       }
     }
   </style>

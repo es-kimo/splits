@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+from analyze import best_placement, build_clean_records
 
 DATA_DIR = Path("data")
 SITE_DATA_DIR = Path("site/data")
@@ -19,6 +20,10 @@ INPUT_FILES = [
     "coverage.csv",
     "public_figures.csv",
     "stats_distribution.csv",
+]
+MEET_SOURCE_RECORD_CANDIDATES = [
+    ("records_full.csv", "athlete_info_full.csv"),
+    ("records.csv", "athlete_info.csv"),
 ]
 AGES = [str(age) for age in range(7, 19)]
 PUBLIC_FIGURES_REQUIRED_COLUMNS = ["idNo", "이름", "슬러그", "출생연도", "지정근거", "언론보도URL", "지정일자", "상태"]
@@ -52,16 +57,29 @@ PEER_METRIC_MAP = [
     ("순위_p50", "rankP50", 2),
     ("순위_p75", "rankP75", 2),
 ]
+DATE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ROUND_NUMBER_RE = re.compile(r"제\s*(\d+)\s*회")
+PHASE_NUMBER_RE = re.compile(r"(\d+)\s*차")
+
+
+def as_text(value):
+    # CSV 경유 입력은 fillna("")로 결측이 지워지지만, analyze.py에서 직접 넘어온 프레임은
+    # pd.NA/NaN이 살아 있다. `value or ""` 형태는 pd.NA에서 TypeError가 나므로 여기서 흡수한다.
+    if value is None:
+        return ""
+    if not isinstance(value, str) and pd.isna(value):
+        return ""
+    return str(value).strip()
 
 
 def as_int(value):
-    text = str(value or "").strip()
+    text = as_text(value)
     digits = "".join(ch for ch in text if ch.isdigit())
     return int(digits) if digits else None
 
 
 def as_float(value):
-    text = str(value or "").strip()
+    text = as_text(value)
     if not text:
         return None
     try:
@@ -71,11 +89,11 @@ def as_float(value):
 
 
 def as_id(value):
-    return str(value or "").strip()
+    return as_text(value)
 
 
 def as_bool(value):
-    return str(value or "").strip().lower() in {"true", "1", "y", "yes", "t"}
+    return as_text(value).lower() in {"true", "1", "y", "yes", "t"}
 
 
 def rank_band_text(rank):
@@ -93,9 +111,110 @@ def read_csv(name):
     return pd.read_csv(path, dtype=str, encoding="utf-8-sig").fillna("")
 
 
+def read_csv_path(path):
+    if not path.exists():
+        raise FileNotFoundError(f"[error] 파일이 없습니다: {path}")
+    return pd.read_csv(path, dtype=str, encoding="utf-8-sig").fillna("")
+
+
 def write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _norm_text(value):
+    return str(value or "").strip()
+
+
+def _as_iso_date(value):
+    text = _norm_text(value)
+    return text if DATE_ISO_RE.fullmatch(text) else None
+
+
+def _pick_location(group):
+    for column in ["개최장소", "개최지", "장소"]:
+        if column not in group.columns:
+            continue
+        for value in group[column].tolist():
+            text = _norm_text(value)
+            if text:
+                return text
+    return None
+
+
+def _normalize_slug_text(value):
+    text = _norm_text(value).lower()
+    text = re.sub(r"[^\w\s-]", " ", text, flags=re.UNICODE)
+    text = text.replace("_", " ")
+    text = re.sub(r"\s+", "-", text)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text or "meet"
+
+
+def _remove_year_prefix_from_slug(value, year):
+    text = value
+    patterns = [
+        rf"^{year}(?:-\d{{2}})?-",
+        rf"^{year}(?:/{str(year + 1)[-2:]})?(?:시즌)?-",
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, "", text)
+    return text.strip("-") or value
+
+
+def _extract_series_key(meet_name):
+    text = _norm_text(meet_name).lower()
+    text = re.sub(r"\d{4}\s*/\s*\d{2}\s*시즌", " ", text)
+    text = re.sub(r"\d{4}\s*시즌", " ", text)
+    text = re.sub(r"\b(19|20)\d{2}\b", " ", text)
+    text = re.sub(r"제\s*\d+\s*회", " 제회 ", text)
+    text = re.sub(r"\d+\s*차", " 차 ", text)
+    text = re.sub(r"[^\w\s-]", " ", text, flags=re.UNICODE)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or _normalize_slug_text(meet_name)
+
+
+def _extract_series_label(meet_name):
+    text = _norm_text(meet_name)
+    text = re.sub(r"^\d{4}\s*/\s*\d{2}\s*시즌\s*", "", text)
+    text = re.sub(r"^\d{4}\s*시즌\s*", "", text)
+    text = re.sub(r"^\d{4}\s*", "", text)
+    text = re.sub(r"제\s*\d+\s*회\s*", "", text)
+    text = re.sub(r"\d+\s*차\s*", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    return text or _norm_text(meet_name) or "-"
+
+
+def _extract_round_order(meet_name):
+    text = _norm_text(meet_name)
+    round_match = ROUND_NUMBER_RE.search(text)
+    if round_match:
+        return int(round_match.group(1))
+    phase_match = PHASE_NUMBER_RE.search(text)
+    if phase_match:
+        return int(phase_match.group(1))
+    return None
+
+
+def _load_meet_source():
+    missing = []
+    for record_name, athlete_name in MEET_SOURCE_RECORD_CANDIDATES:
+        record_path = DATA_DIR / record_name
+        athlete_path = DATA_DIR / athlete_name
+        if not record_path.exists() or not athlete_path.exists():
+            missing.append((record_path, athlete_path))
+            continue
+        records = read_csv_path(record_path)
+        athlete_info = read_csv_path(athlete_path)
+        clean_records = build_clean_records(records, athlete_info)
+        placements = best_placement(clean_records)
+        placements["idNo"] = placements["idNo"].map(as_id)
+        placements["대회연도_num"] = placements["대회연도"].map(as_int)
+        placements["거리_num"] = placements["거리"].map(as_int)
+        placements["sf_bool"] = placements["SF여부"].map(as_bool)
+        return clean_records, placements
+    missing_text = ", ".join([f"{record_path.name}+{athlete_path.name}" for record_path, athlete_path in missing])
+    raise FileNotFoundError(f"[error] 대회 집계용 기록 파일이 없습니다: {missing_text}")
 
 
 def parse_public_figures(frame):
@@ -333,33 +452,235 @@ def build_athletes_payload(frames):
     return payload, placements_target, public_figures, active_id_set
 
 
-def build_meets(placements_target):
-    if placements_target.empty:
-        return {"items": []}
-    base = placements_target.copy()
+def _group_placements_by_meet(frame):
+    if frame.empty:
+        return {}
+    base = frame.copy()
+    base["idNo"] = base["idNo"].map(as_id)
+    base["대회연도_num"] = base["대회연도"].map(as_int)
     base["대회명_text"] = base["대회명"].astype(str).str.strip().replace("", "-")
+    base["거리_num"] = base["거리"].map(as_int)
+    base["sf_bool"] = base["SF여부"].map(as_bool)
     base = base[base["대회연도_num"].notna()].copy()
+    if base.empty:
+        return {}
+    return {(int(year), meet): group.copy() for (year, meet), group in base.groupby(["대회연도_num", "대회명_text"], dropna=False, sort=False)}
+
+
+def build_meets(clean_records, placements_all, placements_target, active_public_by_id):
+    if clean_records.empty:
+        return {"items": []}
+
+    base = clean_records.copy()
+    base["idNo"] = base["idNo"].map(as_id)
+    base["대회명_text"] = base["대회명"].astype(str).str.strip().replace("", "-")
+    base["대회연도_num"] = pd.to_numeric(base["대회연도"], errors="coerce").astype("Int64")
+    base["거리_num"] = pd.to_numeric(base["거리"], errors="coerce").astype("Int64")
+    base["기록_초_num"] = pd.to_numeric(base["기록_초"], errors="coerce")
+    base["라운드종류_text"] = base["라운드종류"].astype(str).str.strip() if "라운드종류" in base.columns else ""
+    base["일자_정규화_text"] = base["일자_정규화"].astype(str).str.strip() if "일자_정규화" in base.columns else ""
+    base["일자_text"] = base["일자"].astype(str).str.strip() if "일자" in base.columns else ""
+    base["종별_text"] = base["종별"].astype(str).str.strip() if "종별" in base.columns else ""
+    base = base[(base["대회연도_num"].notna()) & (base["대회명_text"] != "-")].copy()
     if base.empty:
         return {"items": []}
 
+    placement_by_meet = _group_placements_by_meet(placements_all)
+    public_placement_by_meet = _group_placements_by_meet(placements_target)
+
     items = []
-    grouped = base.groupby(["대회연도_num", "대회명_text"], dropna=False, sort=False)
-    for (year, meet), group in grouped:
+    for (year, meet), group in base.groupby(["대회연도_num", "대회명_text"], dropna=False, sort=False):
+        year_int = int(year)
+        meet_key = (year_int, meet)
         distances = sorted({int(v) for v in group["거리_num"].dropna().tolist()})
-        rounds = sorted({str(v).strip() for v in group["결승구분"].tolist() if str(v).strip()})
+
+        date_candidates = []
+        date_candidates.extend([_as_iso_date(value) for value in group["일자_정규화_text"].tolist()])
+        date_candidates.extend([_as_iso_date(value) for value in group["일자_text"].tolist()])
+        valid_dates = sorted({value for value in date_candidates if value})
+        date_start = valid_dates[0] if valid_dates else None
+        date_end = valid_dates[-1] if valid_dates else None
+        location = _pick_location(group)
+
+        athlete_count = int(group["idNo"].replace("", pd.NA).dropna().nunique())
+
+        category_source = group[["idNo", "종별_text"]].copy()
+        category_source = category_source[(category_source["idNo"] != "") & (category_source["종별_text"] != "")]
+        category_source = category_source.drop_duplicates(subset=["idNo", "종별_text"])
+        category_breakdown = (
+            category_source.groupby("종별_text")["idNo"]
+            .nunique()
+            .sort_values(ascending=False)
+            .reset_index(name="athleteCount")
+            .rename(columns={"종별_text": "category"})
+            .to_dict("records")
+        )
+
+        placement_group = placement_by_meet.get(meet_key, pd.DataFrame())
+        round_types = sorted({str(value).strip() for value in placement_group.get("결승구분", pd.Series(dtype=str)).tolist() if str(value).strip()})
+        race_count = int(len(placement_group)) if not placement_group.empty else int(group["거리_num"].notna().sum())
+        has_semifinal = bool(group["라운드종류_text"].isin(["준결승", "준준결승"]).any())
+
+        distribution_items = []
+        for distance in distances:
+            distance_rows = group[
+                (group["거리_num"] == distance)
+                & (group["라운드종류_text"] == "예선")
+                & group["기록_초_num"].notna()
+            ].copy()
+            distance_athlete_count = int(distance_rows["idNo"].replace("", pd.NA).dropna().nunique())
+            insufficient = distance_athlete_count < K_ANONYMITY_MIN
+            if insufficient:
+                distribution_items.append(
+                    {
+                        "distance": distance,
+                        "athleteCount": None,
+                        "insufficient": True,
+                        "timeP10": None,
+                        "timeP25": None,
+                        "timeP50": None,
+                        "timeP75": None,
+                        "timeP90": None,
+                    }
+                )
+                continue
+
+            quantiles = distance_rows["기록_초_num"].quantile([0.10, 0.25, 0.50, 0.75, 0.90])
+            distribution_items.append(
+                {
+                    "distance": distance,
+                    "athleteCount": distance_athlete_count,
+                    "insufficient": False,
+                    "timeP10": round(float(quantiles.loc[0.10]), 3),
+                    "timeP25": round(float(quantiles.loc[0.25]), 3),
+                    "timeP50": round(float(quantiles.loc[0.50]), 3),
+                    "timeP75": round(float(quantiles.loc[0.75]), 3),
+                    "timeP90": round(float(quantiles.loc[0.90]), 3),
+                }
+            )
+
+        public_group = public_placement_by_meet.get(meet_key, pd.DataFrame())
+        public_results = []
+        if not public_group.empty:
+            for id_no, athlete_group in public_group.groupby("idNo", sort=False):
+                public = active_public_by_id.get(as_id(id_no))
+                if not public:
+                    continue
+                placements = []
+                for _, row in athlete_group.iterrows():
+                    rank = as_int(row.get("순위"))
+                    if rank is None:
+                        continue
+                    placements.append(
+                        {
+                            "distance": as_int(row.get("거리")),
+                            "rank": rank,
+                            "sf": as_bool(row.get("SF여부")),
+                            "round": _norm_text(row.get("결승구분")) or _norm_text(row.get("라운드종류")) or "-",
+                        }
+                    )
+                placements = sorted(placements, key=lambda value: ((value.get("distance") is None), value.get("distance") or 9999, value.get("sf"), value.get("rank") or 9999))
+                if not placements:
+                    continue
+                public_results.append(
+                    {
+                        "name": public["name"],
+                        "slug": public["slug"],
+                        "url": f"athlete/{public['slug']}/",
+                        "bestRank": min(item["rank"] for item in placements),
+                        "raceCount": len(placements),
+                        "distances": sorted({item["distance"] for item in placements if item["distance"] is not None}),
+                        "rounds": _unique_in_order([item["round"] for item in placements]),
+                        "placements": placements,
+                    }
+                )
+            public_results = sorted(public_results, key=lambda item: (item["bestRank"], item["name"]))
+
+        slug_seed = _remove_year_prefix_from_slug(_normalize_slug_text(meet), year_int)
+        series_key = _extract_series_key(meet)
+        series_name = _extract_series_label(meet)
+        series_round = _extract_round_order(meet)
         items.append(
             {
-                "year": int(year),
+                "year": year_int,
                 "meet": meet,
-                "raceCount": int(len(group)),
-                "athleteCount": int(group["idNo"].astype(str).str.strip().replace("", pd.NA).dropna().nunique()),
+                "raceCount": race_count,
+                "athleteCount": athlete_count,
                 "distanceSet": distances,
-                "roundTypes": rounds,
-                "hasSemifinal": bool(group["sf_bool"].fillna(False).any()),
+                "roundTypes": round_types,
+                "hasSemifinal": has_semifinal,
+                "dateStart": date_start,
+                "dateEnd": date_end,
+                "location": location,
+                "categoryBreakdown": category_breakdown,
+                "distanceDistribution": {
+                    "kAnonymityMin": K_ANONYMITY_MIN,
+                    "insufficientText": INSUFFICIENT_TEXT,
+                    "items": distribution_items,
+                },
+                "publicFigureResults": public_results,
+                "seriesKey": series_key,
+                "seriesName": series_name,
+                "seriesRound": series_round,
+                "_slugSeed": slug_seed,
+                "seriesLinks": [],
             }
         )
-    items = sorted(items, key=lambda x: (-x["year"], x["meet"]))
+
+    items = sorted(items, key=lambda item: (-item["year"], item["meet"]))
+
+    slug_counts = {}
+    for item in items:
+        slug_base = item.pop("_slugSeed") or "meet"
+        raw_slug = f"{item['year']}-{slug_base}"
+        slug_counts[raw_slug] = slug_counts.get(raw_slug, 0) + 1
+        count = slug_counts[raw_slug]
+        slug = raw_slug if count == 1 else f"{raw_slug}-{count}"
+        item["slug"] = slug
+        item["url"] = f"meet/{slug}/"
+
+    by_series = {}
+    for item in items:
+        by_series.setdefault(item["seriesKey"], []).append(item)
+    for series_items in by_series.values():
+        ordered = sorted(
+            series_items,
+            key=lambda item: (
+                -(item["year"] or 0),
+                item["seriesRound"] is None,
+                item["seriesRound"] or 9999,
+                item["meet"],
+            ),
+        )
+        for current in ordered:
+            current["seriesLinks"] = [
+                {
+                    "year": other["year"],
+                    "meet": other["meet"],
+                    "slug": other["slug"],
+                    "url": other["url"],
+                }
+                for other in ordered
+                if other["slug"] != current["slug"]
+            ]
+
     return {"items": items}
+
+
+def attach_meet_links(athletes, meets):
+    meet_map = {}
+    for item in meets.get("items", []):
+        key = (as_int(item.get("year")), _norm_text(item.get("meet")))
+        if key[0] is None or not key[1]:
+            continue
+        meet_map[key] = item
+    for athlete in athletes:
+        history = athlete.get("history", [])
+        for row in history:
+            key = (as_int(row.get("year")), _norm_text(row.get("meet")))
+            target = meet_map.get(key)
+            row["meetSlug"] = target["slug"] if target else None
+            row["meetUrl"] = target["url"] if target else None
 
 
 def _read_metric_value(raw_value, row_no, column_name):
@@ -483,7 +804,10 @@ def main():
     try:
         frames = {name: read_csv(name) for name in INPUT_FILES}
         payload, placements_target, public_figures, active_id_set = build_athletes_payload(frames)
-        meets = build_meets(placements_target)
+        active_public_by_id = {item["idNo"]: item for item in public_figures if item.get("status") == "active"}
+        meet_records, meet_placements = _load_meet_source()
+        meets = build_meets(meet_records, meet_placements, placements_target, active_public_by_id)
+        attach_meet_links(payload["athletes"], meets)
         distribution = build_distribution(frames["stats_distribution.csv"])
         meta = build_meta(payload, public_figures)
         athletes_doc = {"ages": payload["ages"], "athletes": payload["athletes"]}

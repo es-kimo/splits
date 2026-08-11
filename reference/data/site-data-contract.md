@@ -36,6 +36,8 @@
           "year": 2015,
           "age": 11,
           "meet": "대회명",
+          "meetSlug": "2015-대회-슬러그",
+          "meetUrl": "meet/2015-대회-슬러그/",
           "distance": 500,
           "sf": false,
           "rank": 2,
@@ -49,7 +51,7 @@
 
 ## 2) meets.json
 
-대회 단위 익명 집계입니다.
+대회 단위 메타데이터 + 익명 집계입니다.
 
 ```json
 {
@@ -57,11 +59,71 @@
     {
       "year": 2024,
       "meet": "대회명",
+      "slug": "2024-대회-슬러그",
+      "url": "meet/2024-대회-슬러그/",
       "raceCount": 128,
       "athleteCount": 14,
       "distanceSet": [500, 1000, 1500],
       "roundTypes": ["A", "B", "종합"],
-      "hasSemifinal": true
+      "hasSemifinal": true,
+      "dateStart": "2024-10-12",
+      "dateEnd": "2024-10-13",
+      "location": null,
+      "categoryBreakdown": [
+        { "category": "남자초등5,6학년", "athleteCount": 81 },
+        { "category": "여자초등5,6학년", "athleteCount": 72 }
+      ],
+      "distanceDistribution": {
+        "kAnonymityMin": 10,
+        "insufficientText": "데이터 부족",
+        "items": [
+          {
+            "distance": 500,
+            "athleteCount": 64,
+            "insufficient": false,
+            "timeP10": 45.123,
+            "timeP25": 46.001,
+            "timeP50": 47.331,
+            "timeP75": 49.224,
+            "timeP90": 51.009
+          },
+          {
+            "distance": 3000,
+            "athleteCount": null,
+            "insufficient": true,
+            "timeP10": null,
+            "timeP25": null,
+            "timeP50": null,
+            "timeP75": null,
+            "timeP90": null
+          }
+        ]
+      },
+      "publicFigureResults": [
+        {
+          "name": "홍길동",
+          "slug": "hong-gildong",
+          "url": "athlete/hong-gildong/",
+          "bestRank": 1,
+          "raceCount": 3,
+          "distances": [500, 1000, 1500],
+          "rounds": ["A"],
+          "placements": [
+            { "distance": 500, "rank": 1, "sf": false, "round": "A" }
+          ]
+        }
+      ],
+      "seriesKey": "전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회",
+      "seriesName": "전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회",
+      "seriesRound": 39,
+      "seriesLinks": [
+        {
+          "year": 2023,
+          "meet": "KB금융그룹 제38회 전국남녀 종합 쇼트트랙스피드스케이팅 선수권대회",
+          "slug": "2023-kb금융그룹-제38회-전국남녀-종합-쇼트트랙스피드스케이팅-선수권대회",
+          "url": "meet/2023-kb금융그룹-제38회-전국남녀-종합-쇼트트랙스피드스케이팅-선수권대회/"
+        }
+      ]
     }
   ]
 }
@@ -151,3 +213,5 @@
 - 개인 식별 정보는 `data/public_figures.csv`에서 `상태=active`인 선수만 포함합니다.
 - 명단 외 선수의 `idNo`, 이름, 소속, 출생 정보는 JSON에 포함하지 않습니다.
 - `distribution.json`은 집계값만 포함하며 원시 레코드/개별 선수 식별자를 포함하지 않습니다.
+- `meets.json`의 `publicFigureResults`는 공개 명단 선수만 포함하며, 일반 선수 개별 성적은 포함하지 않습니다.
+- `meets.json`의 `distanceDistribution`은 `k>=10` 구간만 수치가 노출됩니다. 기준 미만 구간은 `insufficient=true`와 `null` 값으로 표시합니다.
