@@ -369,7 +369,7 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
     .chip-row:last-child {
       padding-bottom: 0;
     }
-    .chip-btn {
+    .chip-row :global(.chip-btn) {
       flex: none;
       min-height: 44px;
       padding: 0 15px;
@@ -383,7 +383,7 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
       background: #f2f4f7;
       color: #5b5f68;
     }
-    .chip-btn.active {
+    .chip-row :global(.chip-btn.active) {
       background: #17181c;
       color: #fff;
     }
