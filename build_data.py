@@ -62,14 +62,24 @@ ROUND_NUMBER_RE = re.compile(r"제\s*(\d+)\s*회")
 PHASE_NUMBER_RE = re.compile(r"(\d+)\s*차")
 
 
+def as_text(value):
+    # CSV 경유 입력은 fillna("")로 결측이 지워지지만, analyze.py에서 직접 넘어온 프레임은
+    # pd.NA/NaN이 살아 있다. `value or ""` 형태는 pd.NA에서 TypeError가 나므로 여기서 흡수한다.
+    if value is None:
+        return ""
+    if not isinstance(value, str) and pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
 def as_int(value):
-    text = str(value or "").strip()
+    text = as_text(value)
     digits = "".join(ch for ch in text if ch.isdigit())
     return int(digits) if digits else None
 
 
 def as_float(value):
-    text = str(value or "").strip()
+    text = as_text(value)
     if not text:
         return None
     try:
@@ -79,11 +89,11 @@ def as_float(value):
 
 
 def as_id(value):
-    return str(value or "").strip()
+    return as_text(value)
 
 
 def as_bool(value):
-    return str(value or "").strip().lower() in {"true", "1", "y", "yes", "t"}
+    return as_text(value).lower() in {"true", "1", "y", "yes", "t"}
 
 
 def rank_band_text(rank):
