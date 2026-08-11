@@ -73,7 +73,7 @@ function formatTime(value: number | null): string {
   </section>
   <section class="card">
     <h2>거리별 기록 분포</h2>
-    <p class="section-note">예선 기록 기준이며, 인원이 {distanceDistribution.kAnonymityMin}명 미만인 구간은 공개하지 않습니다.</p>
+    <p class="section-note">예선 기록을 기준으로, 빠른 기록부터 느린 기록까지 흐름을 보여줘요. 참가 인원이 적은 구간은 개인정보 보호를 위해 숨겨요.</p>
     {
       distanceDistribution.items.length === 0 ? (
         <p>거리별 분포 데이터가 없습니다.</p>
@@ -88,11 +88,11 @@ function formatTime(value: number | null): string {
                     <p>{distanceDistribution.insufficientText}</p>
                   ) : (
                     <div class="dist-values">
-                      <span>p10 {formatTime(row.timeP10)}</span>
-                      <span>p25 {formatTime(row.timeP25)}</span>
-                      <span>p50 {formatTime(row.timeP50)}</span>
-                      <span>p75 {formatTime(row.timeP75)}</span>
-                      <span>p90 {formatTime(row.timeP90)}</span>
+                      <span>가장 빠른 쪽 {formatTime(row.timeP10)}</span>
+                      <span>빠른 편 {formatTime(row.timeP25)}</span>
+                      <span>가운데 기록 {formatTime(row.timeP50)}</span>
+                      <span>느린 편 {formatTime(row.timeP75)}</span>
+                      <span>가장 느린 쪽 {formatTime(row.timeP90)}</span>
                     </div>
                   )
                 }
@@ -105,7 +105,7 @@ function formatTime(value: number | null): string {
   </section>
   <section class="card">
     <h2>출전 공인 선수 성적</h2>
-    <p class="section-note">`public_figures.csv` 기준 공개 대상 선수만 표시합니다.</p>
+    <p class="section-note">이 사이트에서 공개 중인 선수의 기록만 보여줘요.</p>
     {
       publicFigureResults.length === 0 ? (
         <p>이 대회에 공개 대상 선수 기록이 없습니다.</p>
