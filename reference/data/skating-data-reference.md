@@ -44,6 +44,8 @@
 | `INF503.do` | 선수 대회참가이력                | **페이지네이션 없음**, 전체 반환      |
 | `INF201.do` | 일정/결과 목록                   | `<tr onclick="fnEventInfo(classCd,toCd)">` |
 | `INF202.do` | 대회 상세/세부종목 목록          | `fnEventSchedule(kindCd,detailClassCd)`로 이동 |
+| `INF307.do` | 대회 영상 목록 허브              | `INF202`의 `fnEventVod()`가 POST 이동 |
+| `INF308.do` | 경기영상 목록                    | `fnVodDetail('SK', eventCd, movSeq)` 식별자 제공 |
 | `INF301.do` | 세부종목 일정/결과 허브          | `fnEventResult(...)` 호출점              |
 | `INF310.do` | 경기결과                         | 선수명 링크 `fnViewHistory(idNo)`에서 idNo 추출 가능 |
 | `INF501.do` | 팀 기록 (`fnTeamRecord(teamCd)`) | **미탐색 — 확장의 핵심**              |
@@ -53,7 +55,6 @@
 | 화면        | 추정 용도                                             |
 | ----------- | ----------------------------------------------------- |
 | `INF101.do` | 참가신청                                              |
-| `INF308.do` | 경기영상 (`movSeq` 파라미터와 연관 추정)              |
 | `INF601.do` | 모바일 검색                                           |
 | `INF100.do` | 개인정보처리방침                                      |
 | `INF001.do` | 로그인 후 복귀 페이지                                 |
@@ -95,7 +96,7 @@ teamCd, idNo, pageIndex, searchKeyword
 | `pageIndex`       | 페이지      | INF703만 유효        |
 | `searchKeyword`   | 검색어      | URL 인코딩된 한글    |
 | `classCd`, `toCd` | 대회 식별자 | 미파악               |
-| `movSeq`          | 영상 시퀀스 | 미파악               |
+| `movSeq`          | 영상 시퀀스 | `INF308` 목록→상세 링크 키 |
 
 **`pclassCd=SK` 가 확장의 열쇠다.**
 같은 시스템이 다른 종목 코드로 운영되고 있을 가능성이 매우 높다.
@@ -461,6 +462,11 @@ INF503 검증: pageIndex 1/2/3 응답이 바이트 단위로 동일(311,604 byte
 `searchAppYn`은 hidden input으로 폼에 존재하지만, 목록 행 onclick에는 직접 실리지 않았다.
 또한 `INF302` 참가선수명단은 완료 대회에서 비어 있는 케이스가 있어, 완료 대회 기준으로는 `INF310` 경로가 더 안정적이었다.
 
+추가 확인(2026-08-12):
+- `INF202`의 `fnEventList()`는 `POST /SK/INF201.do`로 되돌아가는 목록 이동 버튼이다.
+- `INF202`의 `fnEventVod()`는 `POST /SK/INF307.do`로 이동하며, 이 단계에서 `idNo`는 노출되지 않았다.
+- 즉, 참가자 수집 경로는 `fnEventList/fnEventVod`가 아니라 기존 `INF301→INF310` 체인이 맞다.
+
 검증 예시: `classCd=2`, `toCd=202514413` 대회 1건에서 고유 `idNo` 238개 추출.
 
 #### 2026-08-08 실행 결과 (열거 이슈 #8)
@@ -506,7 +512,7 @@ INF503 검증: pageIndex 1/2/3 응답이 바이트 단위로 동일(311,604 byte
 ## 10. 미해결 질문
 
 - `classCd`, `toCd` 의 숫자 체계 의미(값은 추출 가능하나 코드 체계 의미는 미해석)
-- `movSeq` 와 경기영상(`INF308`)의 구조
+  - 관측: 동일 `toCd=202514430`에서 `classCd=1`은 `INF202` 세부종목 68건, `classCd=2`는 0건
 - `INF501` (팀 기록) 응답 구조
 - `INF702` (팀 검색) 응답 구조
 - 화면 표시 건수 "선수 정보(N)"의 실제 집계 기준
