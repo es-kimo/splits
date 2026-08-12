@@ -20,12 +20,25 @@ function hashText(value: string): string {
   return Math.abs(hash >>> 0).toString(36);
 }
 
+function trimSlugToUtf8Bytes(value: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  let bytes = 0;
+  let result = "";
+  for (const ch of value) {
+    const encoded = encoder.encode(ch).length;
+    if (bytes + encoded > maxBytes) break;
+    result += ch;
+    bytes += encoded;
+  }
+  return result.replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
 export function meetSlug(item: MeetItem): string {
   if (item.slug) return item.slug;
   const normalized = normalizeMeetText(item.meet || "meet");
-  const base = normalized.split("-").find((part) => part.length > 0) || "meet";
-  const hash = hashText(`${item.year}-${item.meet}`).slice(0, 6);
-  return `${item.year}-${base}-${hash}`;
+  const compact = trimSlugToUtf8Bytes(normalized, 48) || "meet";
+  const hash = hashText(`${item.year}-${item.meet}`).slice(0, 8);
+  return `${item.year}-${compact}-${hash}`;
 }
 
 export function classifyMeetKind(meetName: string): string {
