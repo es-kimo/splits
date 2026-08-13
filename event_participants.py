@@ -145,6 +145,7 @@ def _read_pairs_from_table(table):
 
 def _extract_result_headers(table):
     headers = []
+    name_columns = ("성명", "선수명", "팀명", "소속")
     for tr in table.find_all("tr"):
         ths = tr.find_all("th")
         if not ths:
@@ -152,7 +153,7 @@ def _extract_result_headers(table):
         if len(ths) == 1 and ths[0].get("colspan"):
             continue
         values = [_norm(th.get_text(" ", strip=True)) for th in ths]
-        if "순위" in values and ("성명" in values or "선수명" in values or "팀명" in values):
+        if "순위" in values and any(col in values for col in name_columns):
             headers = values
             break
     return headers
@@ -368,19 +369,36 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
             "stats": {
                 "header_detected": False,
                 "data_row_count": 0,
+                "category_row_count": 0,
                 "row_with_participant_count": 0,
                 "row_without_participant_count": 0,
+                "row_without_participant_likely_result_count": 0,
                 "participant_entry_count": 0,
             },
         }
     headers = _extract_result_headers(table)
     header_detected = bool(headers)
+    if not header_detected:
+        print(
+            "[warn] INF310 헤더 미감지: classCd={0} toCd={1} kindCd={2} detailClassCd={3} rhCd={4} rhNm={5} pcntGbn={6}".format(
+                class_cd,
+                to_cd,
+                kind_cd,
+                detail_class_cd,
+                result_call.get("rhCd", ""),
+                result_call.get("rhNm", ""),
+                result_call.get("pcntGbn", "") or "-",
+            )
+        )
     rows = []
     seen = set()
     current_round = _norm(result_call.get("rhNm"))
+    current_category = ""
     data_row_count = 0
+    category_row_count = 0
     row_with_participant_count = 0
     row_without_participant_count = 0
+    row_without_participant_likely_result_count = 0
     participant_entry_count = 0
     for tr in table.find_all("tr"):
         ths = tr.find_all("th")
@@ -392,18 +410,18 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
         tds = tr.find_all("td")
         if not tds:
             continue
+        if len(tds) == 1 and tds[0].get("colspan"):
+            category_text = _norm(tds[0].get_text(" ", strip=True))
+            if category_text:
+                current_category = category_text
+            category_row_count += 1
+            continue
         data_row_count += 1
         values = [_norm(td.get_text(" ", strip=True)) for td in tds]
         row_map = {}
         for idx, value in enumerate(values):
             key = headers[idx] if idx < len(headers) and headers[idx] else f"col{idx}"
             row_map[key] = value
-        participants = _extract_participant_entries(tr, row_map)
-        if not participants:
-            row_without_participant_count += 1
-            continue
-        row_with_participant_count += 1
-        participant_entry_count += len(participants)
         rank = _norm(row_map.get("순위"))
         bib = _norm(row_map.get("BIB"))
         lane = _norm(row_map.get("레인"))
@@ -411,10 +429,19 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
         record = _norm(row_map.get("기록"))
         reason = _norm(row_map.get("사유"))
         record_gap = _norm(row_map.get("기록차"))
+        row_name = _norm(row_map.get("성명") or row_map.get("선수명") or row_map.get("팀명"))
+        participants = _extract_participant_entries(tr, row_map)
+        if not participants:
+            row_without_participant_count += 1
+            if rank or record or row_name:
+                row_without_participant_likely_result_count += 1
+            continue
+        row_with_participant_count += 1
+        participant_entry_count += len(participants)
         for participant in participants:
             id_no = participant["idNo"]
             name = participant["name"]
-            unique_key = (id_no, name, current_round, rank, record, result_call["baseClassCd"], result_call["rhCd"])
+            unique_key = (id_no, current_round, current_category, rank, record, result_call["baseClassCd"], result_call["rhCd"])
             if unique_key in seen:
                 continue
             seen.add(unique_key)
@@ -422,6 +449,7 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
                 {
                     "idNo": id_no,
                     "이름": name,
+                    "종별구분": current_category,
                     "라운드": current_round,
                     "순위": rank,
                     "기록": record,
@@ -437,8 +465,10 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
         "stats": {
             "header_detected": header_detected,
             "data_row_count": data_row_count,
+            "category_row_count": category_row_count,
             "row_with_participant_count": row_with_participant_count,
             "row_without_participant_count": row_without_participant_count,
+            "row_without_participant_likely_result_count": row_without_participant_likely_result_count,
             "participant_entry_count": participant_entry_count,
         },
     }
@@ -455,7 +485,9 @@ def collect_participants_for_event(class_cd, to_cd, search_app_yn="", sleep_seco
     inf310_calls = 0
     inf310_header_missing_calls = 0
     inf310_data_rows = 0
+    inf310_category_rows = 0
     inf310_rows_without_participant = 0
+    inf310_rows_without_participant_likely_result = 0
     inf310_participant_entries = 0
     pcnt_counts = {}
     kind_counts = {}
@@ -515,7 +547,9 @@ def collect_participants_for_event(class_cd, to_cd, search_app_yn="", sleep_seco
             parse_stats = inf310_result["stats"]
             inf310_calls += 1
             inf310_data_rows += parse_stats["data_row_count"]
+            inf310_category_rows += parse_stats["category_row_count"]
             inf310_rows_without_participant += parse_stats["row_without_participant_count"]
+            inf310_rows_without_participant_likely_result += parse_stats["row_without_participant_likely_result_count"]
             inf310_participant_entries += parse_stats["participant_entry_count"]
             if not parse_stats["header_detected"]:
                 inf310_header_missing_calls += 1
@@ -528,6 +562,7 @@ def collect_participants_for_event(class_cd, to_cd, search_app_yn="", sleep_seco
                     "kindCd": detail["kindCd"],
                     "detailClassCd": detail["detailClassCd"],
                     "종별": detail["종별"],
+                    "종별구분": row["종별구분"],
                     "세부종목": detail["세부종목"],
                     "구분": detail["구분"],
                     "baseClassCd": call["baseClassCd"],
@@ -602,7 +637,9 @@ def collect_participants_for_event(class_cd, to_cd, search_app_yn="", sleep_seco
             "unique_id_count": len(unique_rows),
             "inf310_header_missing_call_count": inf310_header_missing_calls,
             "inf310_data_row_count": inf310_data_rows,
+            "inf310_category_row_count": inf310_category_rows,
             "inf310_row_without_participant_count": inf310_rows_without_participant,
+            "inf310_row_without_participant_likely_result_count": inf310_rows_without_participant_likely_result,
             "inf310_participant_entry_count": inf310_participant_entries,
             "kindCd_counts": dict(sorted(kind_counts.items())),
             "pcntGbn_counts": dict(sorted(pcnt_counts.items())),
@@ -837,6 +874,7 @@ def cmd_collect(args):
             "kindCd",
             "detailClassCd",
             "종별",
+            "종별구분",
             "세부종목",
             "구분",
             "baseClassCd",
@@ -880,9 +918,11 @@ def cmd_collect(args):
         )
     )
     print(
-        "[done] INF310 파싱: data row {0}건 / 참가자 없음 row {1}건 / header 미감지 호출 {2}회".format(
+        "[done] INF310 파싱: data row {0}건 / 구분행 {1}건 / 참가자 없음 row {2}건(결과행 추정 {3}건) / header 미감지 호출 {4}회".format(
             stats["inf310_data_row_count"],
+            stats["inf310_category_row_count"],
             stats["inf310_row_without_participant_count"],
+            stats["inf310_row_without_participant_likely_result_count"],
             stats["inf310_header_missing_call_count"],
         )
     )
@@ -956,6 +996,7 @@ def cmd_validate_route(args):
                 "kindCd",
                 "detailClassCd",
                 "종별",
+                "종별구분",
                 "세부종목",
                 "구분",
                 "baseClassCd",
@@ -1156,7 +1197,9 @@ def cmd_validate_route(args):
             "요청수_INF301": stats["inf301_call_count"],
             "요청수_INF310": stats["inf310_call_count"],
             "INF310_data_row_count": stats["inf310_data_row_count"],
+            "INF310_category_row_count": stats["inf310_category_row_count"],
             "INF310_row_without_participant_count": stats["inf310_row_without_participant_count"],
+            "INF310_row_without_participant_likely_result_count": stats["inf310_row_without_participant_likely_result_count"],
             "INF310_header_missing_call_count": stats["inf310_header_missing_call_count"],
         }
         event_summaries.append(event_summary)
@@ -1239,7 +1282,7 @@ def cmd_validate_route(args):
         [
             "- `INF202` 참가인원은 실제 출전 인원과 정의가 달라 검증 기준으로 사용하지 않습니다.",
             "- 이번 실행에서 A 불일치는 전부 `INF202 > INF310` 방향이었고, 대회 경로 파싱/호출 검증은 별도 지표로 판단합니다.",
-            "- 대체 검증은 `INF301` 노출 라운드 전수 호출 여부 + `INF310` 파싱 드롭 카운트(참가자 없음 row, header 미감지 호출)로 수행합니다.",
+            "- 대체 검증은 `INF301` 노출 라운드 전수 호출 여부 + `INF310` 파싱 지표(구분행, 참가자 없음 row, header 미감지 호출)로 수행합니다.",
         ]
     )
 
@@ -1254,7 +1297,7 @@ def cmd_validate_route(args):
                 f"- INF301 채점종합 노출 세부종목 수: {summary['INF301_채점종합노출_세부종목수']}",
                 f"- A 불일치 분해: 단체 {summary['A_세부종목_불일치수_단체']} / 개인 {summary['A_세부종목_불일치수_개인']}",
                 f"- 요청 수: INF202={summary['요청수_INF202']}, INF301={summary['요청수_INF301']}, INF310={summary['요청수_INF310']}",
-                f"- INF310 파싱 점검: data row {summary['INF310_data_row_count']}, 참가자 없음 row {summary['INF310_row_without_participant_count']}, header 미감지 호출 {summary['INF310_header_missing_call_count']}",
+                f"- INF310 파싱 점검: data row {summary['INF310_data_row_count']}, 구분행 {summary['INF310_category_row_count']}, 참가자 없음 row {summary['INF310_row_without_participant_count']} (결과행 추정 {summary['INF310_row_without_participant_likely_result_count']}), header 미감지 호출 {summary['INF310_header_missing_call_count']}",
                 "",
             ]
         )
@@ -1275,7 +1318,7 @@ def cmd_validate_route(args):
                 "",
                 "- 조건 1) 채점종합 보완: 일부 대회는 INF301/INF310 경로에서 채점종합 라운드가 노출되지 않아, INF503 보강이 필요합니다.",
                 "- 조건 2) 계주 파싱/원천 한계 점검: 계주는 다중 링크 수집으로 보강했지만, 일부 응답은 idNo 링크 자체가 없어 대회 원천 한계를 함께 관리해야 합니다.",
-                "- 조건 3) 드롭 행 정체 확인: 표본 점검에서 호출당 1건 드롭은 종별 구분 행(예: `여자부`)로 확인되어 무해 행으로 분류합니다.",
+                "- 조건 3) 드롭 행 분리 확인: INF310 파싱 지표에서 `구분행`과 `참가자 없음 결과행`을 분리해, 무해 행과 실제 미추출 후보를 구분 관리해야 합니다.",
             ]
         )
     if unresolved_notes:
