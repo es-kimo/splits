@@ -653,6 +653,16 @@ def _build_records_index(records_path, merge_map):
     return by_id, meet_norms_by_id
 
 
+def _collect_event_ids_from_records(records_by_id, allowed_ids, event_name):
+    out = set()
+    for id_no, rows in records_by_id.items():
+        if allowed_ids is not None and id_no not in allowed_ids:
+            continue
+        if any(_same_meet(row.get("대회명", ""), event_name) for row in rows):
+            out.add(id_no)
+    return out
+
+
 def _event_tuple_from_occurrence(row):
     return (
         _norm_meet(row.get("baseClassNm") or row.get("세부종목")),
@@ -836,7 +846,7 @@ def cmd_validate_route(args):
     run_dir.mkdir(parents=True, exist_ok=True)
 
     merge_map = _load_merge_map(data_dir)
-    surname_ids = _load_surname_ids(data_dir, merge_map)
+    surname_index_ids = _load_surname_ids(data_dir, merge_map)
     public_figure_ids = _load_public_figure_ids(data_dir, merge_map)
     records_source = _pick_records_source(pathlib.Path(args.compare_data_dir))
     records_by_id = {}
@@ -846,9 +856,7 @@ def cmd_validate_route(args):
         print(f"[info] 비교 원천 사용: {records_source}")
         records_by_id, meet_norms_by_id = _build_records_index(records_source, merge_map)
     else:
-        unresolved_notes.append("records_full.csv/records.csv가 없어 C·D 일부 판정이 제한됩니다.")
-        if not args.allow_live_inf503:
-            unresolved_notes.append("--allow-live-inf503 미지정으로 INF503 실시간 보강을 수행하지 않았습니다.")
+        unresolved_notes.append("records_full.csv/records.csv가 없어 대회 단위 B·C 대조 및 D 판정이 제한됩니다.")
 
     all_a_rows = []
     all_b_rows = []
@@ -929,36 +937,38 @@ def cmd_validate_route(args):
             if canonical:
                 event_ids.add(canonical)
 
-        intersection = sorted(event_ids.intersection(surname_ids))
-        event_minus = sorted(event_ids - surname_ids)
-        surname_minus = sorted(surname_ids - event_ids)
+        surname_event_ids = (
+            _collect_event_ids_from_records(records_by_id=records_by_id, allowed_ids=surname_index_ids, event_name=event_name)
+            if records_by_id
+            else None
+        )
+        if surname_event_ids is None:
+            intersection = []
+            event_minus = []
+            surname_minus = []
+            b_status = "unknown_baseline_missing"
+        else:
+            intersection = sorted(event_ids.intersection(surname_event_ids))
+            event_minus = sorted(event_ids - surname_event_ids)
+            surname_minus = sorted(surname_event_ids - event_ids)
+            b_status = "ok"
         b_row = {
             "eventKey": event_key,
             "대회명": event_name,
             "대회경로_id수": len(event_ids),
-            "성씨경로_id수": len(surname_ids),
-            "교집합": len(intersection),
-            "대회경로-성씨경로": len(event_minus),
-            "성씨경로-대회경로": len(surname_minus),
+            "성씨경로_대회단위_id수": len(surname_event_ids) if surname_event_ids is not None else "",
+            "교집합": len(intersection) if b_status == "ok" else "",
+            "대회경로-성씨경로": len(event_minus) if b_status == "ok" else "",
+            "성씨경로-대회경로": len(surname_minus) if b_status == "ok" else "",
+            "B_판정상태": b_status,
         }
         all_b_rows.append(b_row)
 
         c_counts = {"no_history": 0, "has_target_meet_record": 0, "other_meets_only": 0, "unknown": 0}
-        if surname_minus:
-            if records_by_id:
-                for id_no in surname_minus:
-                    category, rec_count = _classify_with_records(id_no, event_name, records_by_id, meet_norms_by_id)
-                    c_counts[category] = c_counts.get(category, 0) + 1
-                    all_c_rows.append(
-                        {
-                            "eventKey": event_key,
-                            "대회명": event_name,
-                            "idNo": id_no,
-                            "분류": category,
-                            "기록건수": rec_count,
-                        }
-                    )
-            elif args.allow_live_inf503:
+        if b_status != "ok":
+            c_counts["unknown"] = 0
+        elif surname_minus:
+            if args.verify_c_live_inf503:
                 if len(surname_minus) > args.live_inf503_max:
                     raise RuntimeError(
                         f"[error] INF503 실시간 분류 한도 초과: {len(surname_minus)}명 > --live-inf503-max {args.live_inf503_max}"
@@ -981,6 +991,19 @@ def cmd_validate_route(args):
                             "idNo": id_no,
                             "분류": category,
                             "기록건수": len(rows),
+                        }
+                    )
+            elif records_by_id:
+                for id_no in surname_minus:
+                    category, rec_count = _classify_with_records(id_no, event_name, records_by_id, meet_norms_by_id)
+                    c_counts[category] = c_counts.get(category, 0) + 1
+                    all_c_rows.append(
+                        {
+                            "eventKey": event_key,
+                            "대회명": event_name,
+                            "idNo": id_no,
+                            "분류": category,
+                            "기록건수": rec_count,
                         }
                     )
             else:
@@ -1038,7 +1061,10 @@ def cmd_validate_route(args):
                 }
             )
 
-        a_mismatch_count = sum(1 for row in detail_metrics if row["A_참가인원차이_INF202-INF310"] not in (0, None))
+        mismatch_rows = [row for row in detail_metrics if row["A_참가인원차이_INF202-INF310"] not in (0, None)]
+        a_mismatch_count = len(mismatch_rows)
+        a_team_mismatch_count = sum(1 for row in mismatch_rows if _norm(row.get("구분")) == "단체")
+        a_individual_mismatch_count = a_mismatch_count - a_team_mismatch_count
         for row in detail_metrics:
             all_a_rows.append({"eventKey": event_key, "대회명": event_name, **row})
         event_summary = {
@@ -1048,9 +1074,13 @@ def cmd_validate_route(args):
             "toCd": to_cd,
             "searchAppYn": search_app_yn,
             "A_세부종목_불일치수": a_mismatch_count,
+            "A_세부종목_불일치수_단체": a_team_mismatch_count,
+            "A_세부종목_불일치수_개인": a_individual_mismatch_count,
             "B_교집합": len(intersection),
             "B_대회경로-성씨경로": len(event_minus),
             "B_성씨경로-대회경로": len(surname_minus),
+            "B_성씨경로_대회단위_id수": len(surname_event_ids) if surname_event_ids is not None else None,
+            "B_판정상태": b_status,
             "C_no_history": c_counts.get("no_history", 0),
             "C_has_target_meet_record": c_counts.get("has_target_meet_record", 0),
             "C_other_meets_only": c_counts.get("other_meets_only", 0),
@@ -1091,7 +1121,7 @@ def cmd_validate_route(args):
     _write_csv(
         run_dir / "B_set_comparison.csv",
         all_b_rows,
-        ["eventKey", "대회명", "대회경로_id수", "성씨경로_id수", "교집합", "대회경로-성씨경로", "성씨경로-대회경로"],
+        ["eventKey", "대회명", "대회경로_id수", "성씨경로_대회단위_id수", "교집합", "대회경로-성씨경로", "성씨경로-대회경로", "B_판정상태"],
     )
     _write_csv(run_dir / "C_diff_classification.csv", all_c_rows, ["eventKey", "대회명", "idNo", "분류", "기록건수"])
     _write_csv(
@@ -1099,6 +1129,14 @@ def cmd_validate_route(args):
         all_d_rows,
         ["eventKey", "대회명", "idNo", "상태", "대회경로_튜플수", "기존데이터_튜플수", "기존데이터_채점종합튜플수"],
     )
+    score_round_gap_total = sum(summary.get("D_match_except_score_round", 0) for summary in event_summaries)
+    if harmful_missing_total > 0:
+        final_verdict = "불가"
+    elif score_round_gap_total > 0 or unresolved_notes:
+        final_verdict = "조건부"
+    else:
+        final_verdict = "가능"
+
     _write_json(
         run_dir / "summary.json",
         {
@@ -1107,8 +1145,9 @@ def cmd_validate_route(args):
             "recordsSource": str(records_source) if records_source else None,
             "eventSummaries": event_summaries,
             "harmfulMissingTotal": harmful_missing_total,
+            "scoreRoundGapTotal": score_round_gap_total,
             "unresolvedNotes": unresolved_notes,
-            "finalVerdict": "가능" if harmful_missing_total == 0 and not unresolved_notes else "조건부",
+            "finalVerdict": final_verdict,
         },
     )
 
@@ -1141,6 +1180,7 @@ def cmd_validate_route(args):
                 f"- kindCd 관측값: {kind_keys or '(없음)'}",
                 f"- pcntGbn 분포: {summary['pcntGbn_counts']}",
                 f"- INF301 채점종합 노출 세부종목 수: {summary['INF301_채점종합노출_세부종목수']}",
+                f"- A 불일치 분해: 단체 {summary['A_세부종목_불일치수_단체']} / 개인 {summary['A_세부종목_불일치수_개인']}",
                 f"- 요청 수: INF202={summary['요청수_INF202']}, INF301={summary['요청수_INF301']}, INF310={summary['요청수_INF310']}",
                 "",
             ]
@@ -1150,9 +1190,20 @@ def cmd_validate_route(args):
             "## 최종 판정",
             "",
             f"- 핵심 누락 수(기록이 있는데 대회 경로 미포착): **{harmful_missing_total}**",
-            f"- 판정: **{'가능' if harmful_missing_total == 0 and not unresolved_notes else '조건부'}**",
+            f"- 채점종합 누락 보정 필요 건수(D 채점종합제외일치): **{score_round_gap_total}**",
+            f"- 판정: **{final_verdict}**",
         ]
     )
+    if score_round_gap_total > 0:
+        report_lines.extend(
+            [
+                "",
+                "## 판정 메모",
+                "",
+                "- 일부 대회는 INF301/INF310 경로에서 채점종합 라운드가 노출되지 않아, 순위 분석의 최종 성적 기준 보완이 필요합니다.",
+                "- 대회 경로 단독이 아니라 채점종합 보강(예: INF503 보완)을 포함한 하이브리드 구성이 필요합니다.",
+            ]
+        )
     if unresolved_notes:
         report_lines.extend(["", "## 제한/보류", ""])
         for note in unresolved_notes:
@@ -1199,7 +1250,12 @@ def build_parser():
     validate_parser.add_argument("--out-dir", default="", help="검증 산출물 디렉터리 (기본값: <data-dir>/route_validation)")
     validate_parser.add_argument("--run-id", default="", help="실행 식별자(미지정 시 timestamp)")
     validate_parser.add_argument("--sleep", type=float, default=0.2, help="요청 간 sleep 초 (기본값: 0.2)")
-    validate_parser.add_argument("--allow-live-inf503", action="store_true", help="records 원천이 없을 때 INF503 실시간 분류 허용")
+    validate_parser.add_argument(
+        "--verify-c-live-inf503",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="C 차집합을 INF503 실시간 조회로 교차검증할지 여부 (기본값: 사용)",
+    )
     validate_parser.add_argument(
         "--live-inf503-max",
         type=int,
