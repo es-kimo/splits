@@ -1,8 +1,8 @@
 /data/*
-!/data/athlete_index.csv
-!/data/school_aliases.csv
-!/data/id_merges.csv
+!/data/README.md
+!/data/records_anon.csv
 !/data/public_figures.csv
+!/data/coverage.csv
 !/data/stats_distribution.csv
 !/data/stats_participation.csv
 # full-history collection artifacts (PII/raw cache)
@@ -12,6 +12,8 @@
 /data/athlete_info_full.csv
 /data/raw/history/
 __pycache__/
+.env
+.env.*
 .venv/
 .DS_Store
 web/node_modules/

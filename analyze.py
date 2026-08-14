@@ -11,6 +11,7 @@ RECORDS_CSV = DATA_DIR / "records.csv"
 ATHLETE_INFO_CSV = DATA_DIR / "athlete_info.csv"
 RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
 ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
+RECORDS_ANON_CSV = DATA_DIR / "records_anon.csv"
 ATHLETE_INDEX_CSV = DATA_DIR / "athlete_index.csv"
 ATHLETE_INDEX_ENV = "SPLITS_ATHLETE_INDEX_CSV"
 CLEAN_RECORDS_CSV = DATA_DIR / "clean_records.csv"
@@ -38,6 +39,26 @@ KNOWN_WINTER_ROUNDS = {88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 103
 K_ANONYMITY_MIN = 10
 INSUFFICIENT_TEXT = "데이터 부족"
 FORBIDDEN_OUTPUT_COLUMNS = {"idNo", "이름", "소속", "시도"}
+FORBIDDEN_ANON_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
+RECORDS_ANON_REQUIRED_COLUMNS = [
+    "toCd",
+    "대회명",
+    "대회연도",
+    "일자",
+    "종별",
+    "학령구간",
+    "거리",
+    "SF여부",
+    "라운드",
+    "라운드종류",
+    "순위",
+    "기록_초",
+    "사유",
+    "성별",
+    "출생년도",
+    "학년",
+    "익명키",
+]
 DIST_GROUP_COLS = ["출생연도", "성별", "학령구간", "거리"]
 DIST_OUTPUT_COLS = [
     "출생연도",
@@ -991,6 +1012,90 @@ def select_stats_source(records_merged_df, athlete_merged_df, id_merge_map):
     return stats_clean, stats_placements, stats_summary, stats_athlete, source_label
 
 
+def _load_anon_clean_records():
+    anon_df = pd.read_csv(RECORDS_ANON_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+    columns = list(anon_df.columns)
+    if columns != RECORDS_ANON_REQUIRED_COLUMNS:
+        raise ValueError(f"[error] data/records_anon.csv 컬럼이 기대값과 다릅니다: {columns}")
+    forbidden = FORBIDDEN_ANON_COLUMNS.intersection(columns)
+    if forbidden:
+        raise ValueError(f"[error] data/records_anon.csv에 금지 컬럼이 포함되었습니다: {', '.join(sorted(forbidden))}")
+    if anon_df.empty:
+        empty_clean = pd.DataFrame(
+            columns=[
+                "idNo",
+                "이름",
+                "대회명",
+                "대회연도",
+                "출생년도",
+                "성별",
+                "학령구간",
+                "거리",
+                "SF여부",
+                "라운드",
+                "라운드종류",
+                "순위",
+                "기록_초",
+                "종별",
+                "일자",
+                "일자_정규화",
+                "순위_정수",
+                "나이_추정",
+            ]
+        )
+        empty_clean.attrs["year_missing_after_restore"] = 0
+        empty_clean.attrs["winter_round_fallback_unknown"] = 0
+        return empty_clean, pd.DataFrame(columns=["idNo", "이름", "출생년도", "성별"])
+
+    clean = pd.DataFrame(
+        {
+            "idNo": anon_df["익명키"].astype(str).str.strip(),
+            "이름": anon_df["익명키"].astype(str).str.strip(),
+            "대회명": anon_df["대회명"].map(_norm_text),
+            "대회연도": pd.to_numeric(anon_df["대회연도"], errors="coerce").astype("Int64"),
+            "출생년도": pd.to_numeric(anon_df["출생년도"], errors="coerce").astype("Int64"),
+            "성별": anon_df["성별"].map(_norm_text),
+            "학령구간": anon_df["학령구간"].map(_norm_text),
+            "거리": pd.to_numeric(anon_df["거리"], errors="coerce").astype("Int64"),
+            "SF여부": anon_df["SF여부"].astype(str).str.strip().str.lower().isin({"y", "yes", "true", "1", "t"}),
+            "라운드": anon_df["라운드"].map(_norm_text),
+            "라운드종류": anon_df["라운드종류"].map(_norm_text),
+            "순위": anon_df["순위"].map(_norm_text),
+            "기록_초": pd.to_numeric(anon_df["기록_초"], errors="coerce"),
+            "종별": anon_df["종별"].map(_norm_text),
+            "일자": anon_df["일자"].map(_norm_text),
+            "일자_정규화": anon_df["일자"].map(_norm_text),
+        }
+    )
+    missing_round_kind = clean["라운드종류"] == ""
+    if missing_round_kind.any():
+        clean.loc[missing_round_kind, "라운드종류"] = clean.loc[missing_round_kind, "라운드"].map(classify_round)
+    clean["순위_정수"] = pd.Series(clean["순위"].apply(parse_rank), dtype="Int64")
+    clean["순위"] = clean["순위_정수"].astype("Int64")
+    clean["나이_추정"] = pd.Series([estimate_age(y, b) for y, b in zip(clean["대회연도"], clean["출생년도"])], dtype="Int64")
+    clean = clean[clean["idNo"] != ""].copy()
+    clean.attrs["year_missing_after_restore"] = int(clean["대회연도"].isna().sum())
+    clean.attrs["winter_round_fallback_unknown"] = 0
+
+    athlete = (
+        clean[["idNo", "이름", "출생년도", "성별"]]
+        .drop_duplicates(subset=["idNo"], keep="first")
+        .sort_values(["이름", "idNo"], na_position="last")
+    )
+    return clean, athlete
+
+
+def build_stats_from_anon_records():
+    clean_df, athlete_df = _load_anon_clean_records()
+    placements_df = best_placement(clean_df)
+    summary_df = summarize_youth(placements_df, clean_df, athlete_df)
+    coverage_df = build_coverage(clean_df)
+    stats_distribution_df = build_stats_distribution(clean_df, placements_df, athlete_df)
+    stats_participation_df = build_stats_participation(summary_df, athlete_df)
+    validate_anonymous_stats(stats_distribution_df, stats_participation_df)
+    return coverage_df, stats_distribution_df, stats_participation_df
+
+
 def _to_group_key_frame(df, id_col="idNo"):
     key_df = df.copy()
     key_df[id_col] = key_df[id_col].astype(str).str.strip()
@@ -1196,7 +1301,19 @@ def print_console(summary_df, placements_df):
     print("나이 구간별로 포함된 선수가 다르므로 나이 간 직접 비교는 부적절함")
 def main():
     if not RECORDS_CSV.exists() or not ATHLETE_INFO_CSV.exists():
-        print("[error] data/records.csv 또는 data/athlete_info.csv 파일이 없습니다.")
+        if not RECORDS_ANON_CSV.exists():
+            print("[error] data/records.csv 또는 data/athlete_info.csv 파일이 없습니다.")
+            print("[error] data/records_anon.csv도 없어 익명 통계를 재생성할 수 없습니다.")
+            return
+        coverage_df, stats_distribution_df, stats_participation_df = build_stats_from_anon_records()
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
+        stats_distribution_df.to_csv(STATS_DISTRIBUTION_CSV, index=False, encoding="utf-8-sig")
+        stats_participation_df.to_csv(STATS_PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
+        print(f"데이터 커버리지 저장 완료: {COVERAGE_CSV}")
+        print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
+        print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
+        print(f"익명 통계 입력 소스: {RECORDS_ANON_CSV.name}")
         return
     records_df = pd.read_csv(RECORDS_CSV, dtype=str, encoding="utf-8-sig").fillna("")
     athlete_df = pd.read_csv(ATHLETE_INFO_CSV, dtype=str, encoding="utf-8-sig").fillna("")
