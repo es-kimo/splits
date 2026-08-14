@@ -1,5 +1,6 @@
 import json
 import hashlib
+import os
 import re
 from datetime import date
 from pathlib import Path
@@ -9,10 +10,12 @@ from analyze import best_placement, build_clean_records
 
 DATA_DIR = Path("data")
 SITE_DATA_DIR = Path("site/data")
+RECORDS_ANON_CSV = DATA_DIR / "records_anon.csv"
 ATHLETES_JSON = SITE_DATA_DIR / "athletes.json"
 MEETS_JSON = SITE_DATA_DIR / "meets.json"
 DISTRIBUTION_JSON = SITE_DATA_DIR / "distribution.json"
 META_JSON = SITE_DATA_DIR / "meta.json"
+ANON_SALT_ENV = "SPLITS_ANON_SALT"
 INPUT_FILES = [
     "placements.csv",
     "youth_summary.csv",
@@ -63,6 +66,27 @@ ROUND_NUMBER_RE = re.compile(r"제\s*(\d+)\s*회")
 PHASE_NUMBER_RE = re.compile(r"(\d+)\s*차")
 MEET_SLUG_SEED_MAX_BYTES = 48
 MEET_SLUG_HASH_LEN = 8
+RECORDS_ANON_REQUIRED_COLUMNS = [
+    "toCd",
+    "대회명",
+    "대회연도",
+    "일자",
+    "종별",
+    "학령구간",
+    "거리",
+    "SF여부",
+    "라운드",
+    "라운드종류",
+    "순위",
+    "기록_초",
+    "사유",
+    "성별",
+    "출생년도",
+    "학년",
+    "익명키",
+]
+RECORDS_ANON_FORBIDDEN_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
+GRADE_RE = re.compile(r"([1-6](?:\s*,\s*[1-6])?)\s*학년")
 
 
 def as_text(value):
@@ -123,6 +147,11 @@ def read_csv_path(path):
 def write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def write_csv(path, frame):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(path, index=False, encoding="utf-8-sig")
 
 
 def _norm_text(value):
@@ -247,6 +276,95 @@ def _load_meet_source():
         return clean_records, placements
     missing_text = ", ".join([f"{record_path.name}+{athlete_path.name}" for record_path, athlete_path in missing])
     raise FileNotFoundError(f"[error] 대회 집계용 기록 파일이 없습니다: {missing_text}")
+
+
+def _build_anon_key(id_no, salt):
+    source = as_id(id_no)
+    if not source:
+        return ""
+    return hashlib.sha256(f"{source}{salt}".encode("utf-8")).hexdigest()[:12]
+
+
+def _extract_grade_text(category_text):
+    text = as_text(category_text).replace(" ", "")
+    if not text:
+        return ""
+    match = GRADE_RE.search(text)
+    if not match:
+        return ""
+    return match.group(1).replace(" ", "")
+
+
+def _format_float_text(value, digits=3):
+    num = as_float(value)
+    if num is None:
+        return ""
+    return f"{round(num, digits):.{digits}f}"
+
+
+def build_records_anon(clean_records, salt):
+    salt_text = as_text(salt)
+    if not salt_text:
+        raise ValueError(f"[error] 익명키 생성을 위한 환경변수 {ANON_SALT_ENV} 값이 필요합니다.")
+    if clean_records.empty:
+        return pd.DataFrame(columns=RECORDS_ANON_REQUIRED_COLUMNS)
+
+    base = clean_records.copy()
+    base["idNo_text"] = base["idNo"].map(as_id)
+    base["대회연도_num"] = pd.to_numeric(base.get("대회연도"), errors="coerce").astype("Int64")
+    base["거리_num"] = pd.to_numeric(base.get("거리"), errors="coerce").astype("Int64")
+    base["SF여부_bool"] = base.get("SF여부", "").map(as_bool)
+    base["순위_num"] = pd.to_numeric(base.get("순위_정수"), errors="coerce").astype("Int64")
+    base["익명키"] = base["idNo_text"].map(lambda value: _build_anon_key(value, salt_text))
+
+    rows = []
+    for _, row in base.iterrows():
+        year_num = row.get("대회연도_num")
+        dist_num = row.get("거리_num")
+        rank_num = row.get("순위_num")
+        date_text = as_text(row.get("일자_정규화")) or as_text(row.get("일자"))
+        rows.append(
+            {
+                "toCd": "",
+                "대회명": as_text(row.get("대회명")),
+                "대회연도": str(int(year_num)) if pd.notna(year_num) else "",
+                "일자": date_text,
+                "종별": as_text(row.get("종별")),
+                "학령구간": as_text(row.get("학령구간")),
+                "거리": str(int(dist_num)) if pd.notna(dist_num) else "",
+                "SF여부": "Y" if bool(row.get("SF여부_bool")) else "N",
+                "라운드": as_text(row.get("라운드")),
+                "라운드종류": as_text(row.get("라운드종류")),
+                "순위": str(int(rank_num)) if pd.notna(rank_num) else "",
+                "기록_초": _format_float_text(row.get("기록_초"), digits=3),
+                "사유": "",
+                "성별": as_text(row.get("성별")),
+                "출생년도": str(as_int(row.get("출생년도")) or ""),
+                "학년": _extract_grade_text(row.get("종별")),
+                "익명키": as_text(row.get("익명키")),
+            }
+        )
+
+    out = pd.DataFrame(rows, columns=RECORDS_ANON_REQUIRED_COLUMNS)
+    if out.empty:
+        return out
+    return out.sort_values(["대회연도", "대회명", "일자", "거리", "라운드", "익명키"], na_position="last").reset_index(drop=True)
+
+
+def validate_records_anon(frame):
+    columns = list(frame.columns)
+    if columns != RECORDS_ANON_REQUIRED_COLUMNS:
+        raise ValueError(f"[error] data/records_anon.csv 컬럼이 기대값과 다릅니다: {columns}")
+    forbidden = RECORDS_ANON_FORBIDDEN_COLUMNS.intersection(columns)
+    if forbidden:
+        raise ValueError(f"[error] data/records_anon.csv에 금지 컬럼이 포함되었습니다: {', '.join(sorted(forbidden))}")
+    if frame.empty:
+        return
+    key_series = frame["익명키"].astype(str).str.strip()
+    invalid = frame[~key_series.str.fullmatch(r"[0-9a-f]{12}")]
+    if not invalid.empty:
+        first_row_no = int(invalid.index[0]) + 2
+        raise ValueError(f"[error] data/records_anon.csv {first_row_no}행 익명키 형식이 올바르지 않습니다.")
 
 
 def parse_public_figures(frame):
@@ -838,6 +956,8 @@ def main():
         payload, placements_target, public_figures, active_id_set = build_athletes_payload(frames)
         active_public_by_id = {item["idNo"]: item for item in public_figures if item.get("status") == "active"}
         meet_records, meet_placements = _load_meet_source()
+        records_anon = build_records_anon(meet_records, os.environ.get(ANON_SALT_ENV, ""))
+        validate_records_anon(records_anon)
         meets = build_meets(meet_records, meet_placements, placements_target, active_public_by_id)
         attach_meet_links(payload["athletes"], meets)
         distribution = build_distribution(frames["stats_distribution.csv"])
@@ -848,10 +968,12 @@ def main():
         print(str(exc))
         return
 
+    write_csv(RECORDS_ANON_CSV, records_anon)
     write_json(ATHLETES_JSON, athletes_doc)
     write_json(MEETS_JSON, meets)
     write_json(DISTRIBUTION_JSON, distribution)
     write_json(META_JSON, meta)
+    print(f"[ok] 생성 완료: {RECORDS_ANON_CSV}")
     print(f"[ok] 생성 완료: {ATHLETES_JSON}")
     print(f"[ok] 생성 완료: {MEETS_JSON}")
     print(f"[ok] 생성 완료: {DISTRIBUTION_JSON}")

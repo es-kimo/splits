@@ -44,3 +44,4 @@
 
 - 지정 근거, 언론보도 URL, 지정일자를 누락하지 않습니다.
 - 정책 변경 시 본 문서와 `reference/legal/privacy-request-procedure.md`를 같은 배포에서 함께 갱신합니다.
+- 데이터 커밋 범위/익명화 규칙은 `reference/legal/anonymized-data-commit-policy.md`를 기준으로 운영합니다.
