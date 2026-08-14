@@ -33,7 +33,7 @@
 
 `이름, idNo, 소속, 시도, BIB, 레인`
 
-현재 원천 데이터에 `toCd`가 없어, 컬럼은 유지하되 값은 공백을 허용합니다.
+`toCd`는 `meet_index_inf201.csv`가 있으면 자동 매핑하고, 파일이 없거나 매칭이 애매하면 공백으로 둡니다.
 
 ## 4) 익명키 규칙
 
@@ -46,12 +46,13 @@
 
 ```bash
 export SPLITS_ANON_SALT='로컬에서만 보관하는_충분히긴_무작위문자열'
+export SPLITS_MEET_INDEX_CSV='/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv'
 python3 analyze.py
 python3 build_data.py
 ```
 
 - `analyze.py`는 통계 CSV를 생성합니다.
-- `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성합니다.
+- `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
 
 ## 6) 커밋 전 검증
 

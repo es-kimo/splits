@@ -16,6 +16,8 @@ MEETS_JSON = SITE_DATA_DIR / "meets.json"
 DISTRIBUTION_JSON = SITE_DATA_DIR / "distribution.json"
 META_JSON = SITE_DATA_DIR / "meta.json"
 ANON_SALT_ENV = "SPLITS_ANON_SALT"
+MEET_INDEX_CSV_ENV = "SPLITS_MEET_INDEX_CSV"
+DEFAULT_SHARED_MEET_INDEX_CSV = Path("/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv")
 INPUT_FILES = [
     "placements.csv",
     "youth_summary.csv",
@@ -87,6 +89,8 @@ RECORDS_ANON_REQUIRED_COLUMNS = [
 ]
 RECORDS_ANON_FORBIDDEN_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
 GRADE_RE = re.compile(r"([1-6](?:\s*,\s*[1-6])?)\s*학년")
+YEAR_RE = re.compile(r"(19|20)\d{2}")
+MEET_MATCH_TEXT_RE = re.compile(r"[^0-9a-z가-힣]+")
 
 
 def as_text(value):
@@ -302,6 +306,152 @@ def _format_float_text(value, digits=3):
     return f"{round(num, digits):.{digits}f}"
 
 
+def _extract_years_from_text(*values):
+    years = set()
+    for value in values:
+        text = as_text(value)
+        for match in YEAR_RE.finditer(text):
+            year = int(match.group(0))
+            if 1900 <= year <= 2099:
+                years.add(year)
+    return years
+
+
+def _normalize_meet_match_text(value):
+    text = as_text(value).lower()
+    return MEET_MATCH_TEXT_RE.sub("", text)
+
+
+def _load_meet_index_entries():
+    candidate_paths = []
+    env_path = as_text(os.environ.get(MEET_INDEX_CSV_ENV))
+    if env_path:
+        candidate_paths.append(Path(env_path).expanduser())
+    candidate_paths.append(DATA_DIR / "meet_index_inf201.csv")
+    candidate_paths.append(DEFAULT_SHARED_MEET_INDEX_CSV)
+
+    seen = set()
+    selected = None
+    for path in candidate_paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.exists():
+            selected = path
+            break
+    if selected is None:
+        return [], None
+
+    frame = read_csv_path(selected)
+    required_columns = ["classCd", "toCd", "대회명"]
+    missing = [name for name in required_columns if name not in frame.columns]
+    if missing:
+        missing_text = ", ".join(missing)
+        raise ValueError(f"[error] {selected} 필수 컬럼이 없습니다: {missing_text}")
+
+    rows = []
+    dedup = set()
+    for _, row in frame.iterrows():
+        to_cd = as_text(row.get("toCd"))
+        event_name = as_text(row.get("대회명"))
+        if not to_cd or not event_name:
+            continue
+        class_cd = as_text(row.get("classCd"))
+        search_app_yn = as_text(row.get("searchAppYn"))
+        period = as_text(row.get("기간"))
+        norm_name = _normalize_meet_match_text(event_name)
+        if not norm_name:
+            continue
+        row_key = (class_cd, to_cd, search_app_yn, event_name, period)
+        if row_key in dedup:
+            continue
+        dedup.add(row_key)
+        rows.append(
+            {
+                "classCd": class_cd,
+                "toCd": to_cd,
+                "searchAppYn": search_app_yn,
+                "대회명": event_name,
+                "기간": period,
+                "normName": norm_name,
+                "years": _extract_years_from_text(event_name, period),
+            }
+        )
+    return rows, selected
+
+
+def _match_to_cd_for_meet(meet_year, meet_name, entries):
+    norm_target = _normalize_meet_match_text(meet_name)
+    if meet_year is None or not norm_target or not entries:
+        return "", "missing-key"
+
+    def score_name(candidate_norm):
+        if norm_target == candidate_norm:
+            return 3
+        if norm_target in candidate_norm or candidate_norm in norm_target:
+            if min(len(norm_target), len(candidate_norm)) >= 8:
+                return 2
+        return 0
+
+    year_filtered = [item for item in entries if not item["years"] or meet_year in item["years"]]
+    search_pool = year_filtered if year_filtered else entries
+    scored = []
+    for item in search_pool:
+        score = score_name(item["normName"])
+        if score > 0:
+            scored.append((score, item))
+    if not scored:
+        return "", "name-not-matched"
+
+    max_score = max(score for score, _item in scored)
+    top = [item for score, item in scored if score == max_score]
+    unique_to_cd = sorted({item["toCd"] for item in top if item["toCd"]})
+    if len(unique_to_cd) == 1:
+        return unique_to_cd[0], "matched"
+    return "", "ambiguous"
+
+
+def _build_meet_to_cd_map(clean_records):
+    entries, source_path = _load_meet_index_entries()
+    if not entries:
+        return {}, {"source_path": None, "total": 0, "matched": 0, "unmatched": 0, "ambiguous": 0}
+
+    base = clean_records.copy()
+    base["대회연도_num"] = pd.to_numeric(base.get("대회연도"), errors="coerce").astype("Int64")
+    base["대회명_text"] = base.get("대회명", "").map(as_text)
+    meet_keys = base[["대회연도_num", "대회명_text"]].drop_duplicates()
+
+    mapping = {}
+    matched = 0
+    unmatched = 0
+    ambiguous = 0
+    for _, item in meet_keys.iterrows():
+        year_value = item.get("대회연도_num")
+        meet_name = item.get("대회명_text")
+        if pd.isna(year_value) or not meet_name:
+            continue
+        year_int = int(year_value)
+        to_cd, reason = _match_to_cd_for_meet(year_int, meet_name, entries)
+        mapping[(year_int, meet_name)] = to_cd
+        if reason == "matched":
+            matched += 1
+        elif reason == "ambiguous":
+            ambiguous += 1
+            unmatched += 1
+        else:
+            unmatched += 1
+
+    stats = {
+        "source_path": str(source_path),
+        "total": int(len(mapping)),
+        "matched": int(matched),
+        "unmatched": int(unmatched),
+        "ambiguous": int(ambiguous),
+    }
+    return mapping, stats
+
+
 def build_records_anon(clean_records, salt):
     salt_text = as_text(salt)
     if not salt_text:
@@ -316,17 +466,22 @@ def build_records_anon(clean_records, salt):
     base["SF여부_bool"] = base.get("SF여부", "").map(as_bool)
     base["순위_num"] = pd.to_numeric(base.get("순위_정수"), errors="coerce").astype("Int64")
     base["익명키"] = base["idNo_text"].map(lambda value: _build_anon_key(value, salt_text))
+    meet_to_cd_map, to_cd_stats = _build_meet_to_cd_map(base)
 
     rows = []
     for _, row in base.iterrows():
         year_num = row.get("대회연도_num")
         dist_num = row.get("거리_num")
         rank_num = row.get("순위_num")
+        meet_name = as_text(row.get("대회명"))
         date_text = as_text(row.get("일자_정규화")) or as_text(row.get("일자"))
+        to_cd = ""
+        if pd.notna(year_num) and meet_name:
+            to_cd = meet_to_cd_map.get((int(year_num), meet_name), "")
         rows.append(
             {
-                "toCd": "",
-                "대회명": as_text(row.get("대회명")),
+                "toCd": to_cd,
+                "대회명": meet_name,
                 "대회연도": str(int(year_num)) if pd.notna(year_num) else "",
                 "일자": date_text,
                 "종별": as_text(row.get("종별")),
@@ -348,7 +503,9 @@ def build_records_anon(clean_records, salt):
     out = pd.DataFrame(rows, columns=RECORDS_ANON_REQUIRED_COLUMNS)
     if out.empty:
         return out
-    return out.sort_values(["대회연도", "대회명", "일자", "거리", "라운드", "익명키"], na_position="last").reset_index(drop=True)
+    out = out.sort_values(["대회연도", "대회명", "일자", "거리", "라운드", "익명키"], na_position="last").reset_index(drop=True)
+    out.attrs["to_cd_stats"] = to_cd_stats
+    return out
 
 
 def validate_records_anon(frame):
@@ -973,6 +1130,19 @@ def main():
     write_json(MEETS_JSON, meets)
     write_json(DISTRIBUTION_JSON, distribution)
     write_json(META_JSON, meta)
+    to_cd_stats = records_anon.attrs.get("to_cd_stats") or {}
+    if to_cd_stats.get("source_path"):
+        print(
+            "[ok] records_anon toCd 매핑: source={0} matched={1}/{2} (unmatched={3}, ambiguous={4})".format(
+                to_cd_stats.get("source_path"),
+                to_cd_stats.get("matched", 0),
+                to_cd_stats.get("total", 0),
+                to_cd_stats.get("unmatched", 0),
+                to_cd_stats.get("ambiguous", 0),
+            )
+        )
+    else:
+        print("[ok] records_anon toCd 매핑: meet_index_inf201.csv 미발견으로 공백 유지")
     print(f"[ok] 생성 완료: {RECORDS_ANON_CSV}")
     print(f"[ok] 생성 완료: {ATHLETES_JSON}")
     print(f"[ok] 생성 완료: {MEETS_JSON}")
