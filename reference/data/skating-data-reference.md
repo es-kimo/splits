@@ -67,15 +67,16 @@ searchStartDt, searchEndDt, searchPlaceNm, searchGmDt, pageIndex
 GATE.do  종목 선택 (64종목)
   └ /SK/  빙상
 
-INF201  대회 목록 ......................... 388건 / 39p (10건/p)
+INF201  대회 목록 ......................... 383건 / 39p (10건/p)
   └ fnEventInfo(classCd, toCd)
       │
-INF202  대회 개요 + 세부종목 목록 ......... 대회당 ~18건, 참가인원 포함
-  ├ fnEventList()      → INF201 (목록 복귀)
-  ├ fnEventVod()       → INF307 (대회 영상 허브)
-  └ fnEventSchedule(kindCd, detailClassCd)
+INF301  kindCd 드롭다운 노출 .............. 대회당 1회
+  └ <select id="searchKindCd"> = 유효 kindCd 목록
       │
-INF301  경기일정 = 실제 존재하는 라운드 목록
+selectDetailClassCdListAjax.do ............ kindCd당 1회 (JSON)
+  └ DETAIL_CLASS_CD 목록
+      │
+INF301  경기일정 = 실제 존재하는 라운드 목록 (kindCd, detailClassCd)
   ├ fnEventPlayerList()  → INF302 참가선수 명단  [사전신청 데이터, 대개 비어 있음]
   ├ fnEventStartList(…)  → INF309 스타트리스트   [대개 비어 있음]
   └ fnEventResult(useGbn, pcntGbn, detailClassCd, rhCd, rhNm, baseClassNm)
@@ -114,8 +115,9 @@ INF307  대회별 영상 허브 [미탐색]
 
 ### `toCd` — 대회 코드
 
-`YYYY` + 5자리. 예: `202614500`, `202615263`
-**VOD의 `eventCd` 와 동일 체계.** 대회 하나가 결과·영상 양쪽에서 같은 번호.
+자릿수가 고정되지 않는다. 예: `201202`(6자리), `207088`(6자리), `202600071`(9자리)
+
+`toCd` 에서 연도를 파싱하지 말고, 대회명/일자에서 연도를 복원해야 한다.
 
 ### `kindCd` — 종별
 
@@ -168,7 +170,9 @@ kindCd=31, 1000M → 23103
 
 ### `pcntGbn` — 개인/단체
 
-`I` = 개인. 단체(계주) 값 미확인.
+`I` = 개인, `T` = 단체가 관측된다. 대회에 따라 빈 문자열(`""`)도 존재한다.
+
+빈 값을 임의로 `I`로 보정하면 오탐이 생기므로 원본값을 그대로 전달한다.
 
 ---
 
@@ -181,10 +185,10 @@ POST pclassCd=SK&pageIndex=N
 → onclick="fnEventInfo('{classCd}','{toCd}')"
 ```
 
-- 총 388건 / 39페이지 (10건/p). **19년치 전체**
+- 총 383건 / 39페이지 (10건/p). 이 중 쇼트트랙(`classCd=2`)은 132건.
 - 같은 행에 대회명(`<td class="tal">`)과 개최장소
 
-### INF202 — 세부종목 목록 ★
+### INF202 — 표시용 대회 개요
 
 ```
 POST classCd={1|2}&toCd={대회코드}&pageIndex=1
@@ -199,16 +203,22 @@ POST classCd={1|2}&toCd={대회코드}&pageIndex=1
 종별 | 세부종목 | 경기방식 | 참가인원 | 참가팀
 ```
 
-**참가인원이 여기 있다.** 요청을 보내기 전에 규모를 알 수 있어
-k-익명성 사전 판정과 비용 예측에 쓸 수 있다.
+참가인원/코드 값이 실제 조회 파라미터와 자주 어긋난다.
+수집 경로/검증 기준으로 사용하지 않는다.
 
-실측(2026 교보생명컵 꿈나무, 초등부 전문):
-18개 세부종목 / 연인원 324명.
-여자초등1,2학년은 **1명** — 이런 구간은 통계에 넣으면 안 된다.
+실무 규칙: `INF202` 값은 화면 표시 참고용으로만 보고, 요청 파라미터는 `INF301` 드롭다운 + AJAX 응답으로만 확정한다.
 
 ### INF301 — 경기일정 (라운드 목록) ★
 
 ```
+POST classCd=2&toCd={대회}&pageIndex=1
+→ <select id="searchKindCd"> 옵션으로 kindCd 목록 획득
+
+POST /SK/code/selectDetailClassCdListAjax.do
+Content-Type: application/json; charset=UTF-8
+{"classCd":"2","toCd":"{대회}","kindCd":"{종별}"}
+→ DETAIL_CLASS_CD 목록 획득
+
 POST classCd=2&toCd={대회}&kindCd={종별}&detailClassCd={종별×거리}
      &searchKindCd={종별}&searchDetailClassCd={종별×거리}&pageIndex=1
 → onclick="fnEventResult('','I','{baseClassCd}','{rhCd}','{rhNm}','{baseClassNm}')"
@@ -559,12 +569,13 @@ diff <(sed 's/[0-9]\{13\}//g' a.html) <(sed 's/[0-9]\{13\}//g' b.html)
 ### 9-2. 전수 수집 비용
 
 ```
-INF201   39 요청          대회 목록
-INF202   ~200 요청        쇼트트랙 대회만 (classCd=2)
-INF301   200 × 18 = 3,600 세부종목별 라운드 목록
-INF310   실제 라운드만, 추정 6,000~8,000
-──────────────────────────────────────
-합계 약 1만 요청 / 1초 간격 = 약 3시간
+INF201   39 요청            대회 목록
+INF301   132 요청           kindCd 목록(대회당 1회)
+AJAX     132 × (6~15)       detailClass 목록
+INF301   세부종목당 1회      라운드 목록
+INF310   실제 라운드만 호출
+─────────────────────────────────────────
+합계 약 12,000~15,000 요청 / 1초 간격 = 약 3.5~4시간
 ```
 
 라운드를 1/4/5/8/9 로 고정 순회하면 헛요청이 크게 늘어난다.
@@ -575,11 +586,12 @@ INF310   실제 라운드만, 추정 6,000~8,000
 ```
 INF201 1페이지 (1 요청) → 신규 대회 없으면 종료
 신규 대회 1개당:
-  INF202  1 요청
-  INF301  18 요청
+  INF301(kind)  1 요청
+  AJAX(kind별)  6~15 요청
+  INF301(detail) 6~15 요청
   INF310  ~40 요청
-  ────────────────
-  약 60 요청 / 1분
+  ───────────────────────────
+  약 55~70 요청 / 1분
 ```
 
 **데이터가 대회 단위로 생성되므로 수집 단위와 일치한다.**

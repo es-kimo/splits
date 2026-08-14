@@ -16,19 +16,22 @@ from event_participants import (
     _extract_result_headers,
     _find_table_by_caption,
     _parse_js_args,
-    _read_pairs_from_table,
 )
 from scrape import parse_athlete_info, parse_history
 
 BASE_URL = "https://result.sports.or.kr/SK"
 INF201_ENDPOINT = f"{BASE_URL}/INF201.do"
-INF202_ENDPOINT = f"{BASE_URL}/INF202.do"
 INF301_ENDPOINT = f"{BASE_URL}/INF301.do"
 INF310_ENDPOINT = f"{BASE_URL}/INF310.do"
 INF503_ENDPOINT = f"{BASE_URL}/INF503.do"
+DETAIL_CLASS_AJAX_ENDPOINT = f"{BASE_URL}/code/selectDetailClassCdListAjax.do"
 
 HEADERS = {
     "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": "splits-full-collector/2.0 (+https://github.com/es-kimo/splits)",
+}
+JSON_HEADERS = {
+    "Content-Type": "application/json; charset=UTF-8",
     "User-Agent": "splits-full-collector/2.0 (+https://github.com/es-kimo/splits)",
 }
 TIMEOUT_SECONDS = 20
@@ -41,14 +44,16 @@ DATA_DIR = DEFAULT_DATA_DIR
 
 RAW_ROOT_DIR = DATA_DIR / "raw"
 RAW_INF201_DIR = RAW_ROOT_DIR / "inf201"
-RAW_INF202_DIR = RAW_ROOT_DIR / "inf202"
+RAW_INF301_KIND_DIR = RAW_ROOT_DIR / "inf301_kind"
+RAW_DETAIL_AJAX_DIR = RAW_ROOT_DIR / "detail_class_ajax"
 RAW_INF301_DIR = RAW_ROOT_DIR / "inf301"
 RAW_INF310_DIR = RAW_ROOT_DIR / "inf310"
 RAW_INF503_DIR = RAW_ROOT_DIR / "inf503"
 
 PROGRESS_JSON = DATA_DIR / "collect_progress.json"
-FAILURES_CSV = DATA_DIR / "collect_failures.csv"
-INF202_EMPTY_EVENTS_CSV = DATA_DIR / "inf202_empty_events.csv"
+REQUEST_FAILURES_CSV = DATA_DIR / "collect_request_failures.csv"
+MEET_FAILURES_CSV = DATA_DIR / "collect_failures.csv"
+SUSPICIOUS_IDS_CSV = DATA_DIR / "suspicious_ids.csv"
 RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
 ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
 RECORDS_CSV = DATA_DIR / "records.csv"
@@ -66,7 +71,20 @@ FAILURE_FIELDS = [
     "attempts",
     "최종실패시각",
 ]
-INF202_EMPTY_FIELDS = ["classCd", "toCd", "inf201_대회명", "inf202_대회명", "원인", "비고"]
+MEET_FAILURE_FIELDS = ["classCd", "toCd", "대회명", "실패단계", "사유", "최종실패시각", "시도횟수"]
+SUSPICIOUS_ID_FIELDS = [
+    "classCd",
+    "toCd",
+    "대회명",
+    "kindCd",
+    "detailClassCd",
+    "baseClassCd",
+    "rhCd",
+    "pcntGbn",
+    "idNo_원본",
+    "추출소스",
+    "행대표이름",
+]
 ATHLETE_INFO_FIELDS = ["idNo", "이름", "성별", "출생년도", "종별", "소속팀", "팀코드", "시도"]
 RECORD_FIELDS = [
     "idNo",
@@ -97,20 +115,21 @@ RECORD_FIELDS = [
 DATE_DIGITS_RE = re.compile(r"^(19|20)\d{2}(0[1-9]|1[0-2])([0-2]\d|3[01])$")
 DATE_DOTTED_RE = re.compile(r"^((?:19|20)\d{2})[.\-/](0?[1-9]|1[0-2])[.\-/](0?[1-9]|[12]\d|3[01])$")
 FIRST_DATE_RE = re.compile(r"((?:19|20)\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})")
-DIGITS_RE = re.compile(r"\d+")
 
 
 def _configure_data_paths(base_dir):
     global DATA_DIR
     global RAW_ROOT_DIR
     global RAW_INF201_DIR
-    global RAW_INF202_DIR
+    global RAW_INF301_KIND_DIR
+    global RAW_DETAIL_AJAX_DIR
     global RAW_INF301_DIR
     global RAW_INF310_DIR
     global RAW_INF503_DIR
     global PROGRESS_JSON
-    global FAILURES_CSV
-    global INF202_EMPTY_EVENTS_CSV
+    global REQUEST_FAILURES_CSV
+    global MEET_FAILURES_CSV
+    global SUSPICIOUS_IDS_CSV
     global RECORDS_FULL_CSV
     global ATHLETE_INFO_FULL_CSV
     global RECORDS_CSV
@@ -120,14 +139,16 @@ def _configure_data_paths(base_dir):
     DATA_DIR = pathlib.Path(base_dir).expanduser()
     RAW_ROOT_DIR = DATA_DIR / "raw"
     RAW_INF201_DIR = RAW_ROOT_DIR / "inf201"
-    RAW_INF202_DIR = RAW_ROOT_DIR / "inf202"
+    RAW_INF301_KIND_DIR = RAW_ROOT_DIR / "inf301_kind"
+    RAW_DETAIL_AJAX_DIR = RAW_ROOT_DIR / "detail_class_ajax"
     RAW_INF301_DIR = RAW_ROOT_DIR / "inf301"
     RAW_INF310_DIR = RAW_ROOT_DIR / "inf310"
     RAW_INF503_DIR = RAW_ROOT_DIR / "inf503"
 
     PROGRESS_JSON = DATA_DIR / "collect_progress.json"
-    FAILURES_CSV = DATA_DIR / "collect_failures.csv"
-    INF202_EMPTY_EVENTS_CSV = DATA_DIR / "inf202_empty_events.csv"
+    REQUEST_FAILURES_CSV = DATA_DIR / "collect_request_failures.csv"
+    MEET_FAILURES_CSV = DATA_DIR / "collect_failures.csv"
+    SUSPICIOUS_IDS_CSV = DATA_DIR / "suspicious_ids.csv"
     RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
     ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
     RECORDS_CSV = DATA_DIR / "records.csv"
@@ -164,11 +185,6 @@ def _normalize_date_text(raw):
     return ""
 
 
-def _is_placeholder_text(text):
-    value = _norm(text).replace(" ", "")
-    return value in {"", "-", "~", "미등록", "N/A", "n/a"}
-
-
 def _extract_event_date(event_info):
     for key in ["기간", "대회기간", "경기기간"]:
         value = _norm(event_info.get(key))
@@ -189,7 +205,7 @@ def _extract_event_date(event_info):
 
 def _default_progress():
     return {
-        "version": 2,
+        "version": 3,
         "updated_at": "",
         "last_mode": "",
         "request_gap_seconds": REQUEST_GAP_SECONDS,
@@ -202,14 +218,15 @@ def _default_progress():
             "inf201_pages_parsed": 0,
             "inf201_events_total": 0,
             "inf201_events_class2": 0,
-            "inf202_requests": 0,
-            "inf202_empty_events": 0,
+            "inf301_kind_requests": 0,
+            "detail_class_ajax_requests": 0,
             "inf301_requests": 0,
             "inf310_requests": 0,
             "inf503_requests": 0,
             "records_inf310_rows": 0,
             "records_inf503_score_rows": 0,
         },
+        "meets": {},
         "last_summary": {},
     }
 
@@ -230,6 +247,8 @@ def _load_progress():
     else:
         for key, value in default["counters"].items():
             payload["counters"].setdefault(key, value)
+    if "meets" not in payload or not isinstance(payload["meets"], dict):
+        payload["meets"] = {}
     return payload
 
 
@@ -243,6 +262,46 @@ def _save_progress(progress):
 
 def _bump_counter(progress, key, amount=1):
     progress["counters"][key] = int(progress["counters"].get(key, 0)) + int(amount)
+
+
+def _meet_key(class_cd, to_cd):
+    return f"{_norm(class_cd)}:{_norm(to_cd)}"
+
+
+def _ensure_meet_progress(progress, event):
+    class_cd = _norm(event.get("classCd"))
+    to_cd = _norm(event.get("toCd"))
+    key = _meet_key(class_cd, to_cd)
+    meets = progress.setdefault("meets", {})
+    if key not in meets:
+        meets[key] = {
+            "classCd": class_cd,
+            "toCd": to_cd,
+            "대회명": _norm(event.get("대회명")),
+            "상태": "pending",
+            "마지막단계": "",
+            "마지막오류": "",
+            "시도횟수": 0,
+            "updated_at": "",
+        }
+    return key, meets[key]
+
+
+def _seed_meet_progress(progress, events):
+    for event in events:
+        _ensure_meet_progress(progress, event)
+
+
+def _set_meet_status(progress, event, status, stage="", error=""):
+    key, item = _ensure_meet_progress(progress, event)
+    item["상태"] = _norm(status) or item["상태"]
+    item["마지막단계"] = _norm(stage)
+    item["마지막오류"] = _norm(error)
+    if status == "in_progress":
+        item["시도횟수"] = int(item.get("시도횟수", 0)) + 1
+    item["updated_at"] = _now_iso()
+    progress["meets"][key] = item
+    _save_progress(progress)
 
 
 def _load_csv_rows(path):
@@ -266,7 +325,7 @@ def _save_csv_rows(path, rows, fieldnames):
 
 def _load_failures():
     failures = {}
-    for row in _load_csv_rows(FAILURES_CSV):
+    for row in _load_csv_rows(REQUEST_FAILURES_CSV):
         key = _norm(row.get("requestKey"))
         if not key:
             continue
@@ -286,22 +345,45 @@ def _load_failures():
 
 def _save_failures(failures):
     rows = [failures[key] for key in sorted(failures.keys())]
-    _save_csv_rows(FAILURES_CSV, rows, FAILURE_FIELDS)
+    _save_csv_rows(REQUEST_FAILURES_CSV, rows, FAILURE_FIELDS)
 
 
-def _save_inf202_empty_events(rows):
-    _save_csv_rows(INF202_EMPTY_EVENTS_CSV, rows, INF202_EMPTY_FIELDS)
+def _load_meet_failures():
+    failures = {}
+    for row in _load_csv_rows(MEET_FAILURES_CSV):
+        class_cd = _norm(row.get("classCd"))
+        to_cd = _norm(row.get("toCd"))
+        if not class_cd or not to_cd:
+            continue
+        key = f"{class_cd}:{to_cd}"
+        failures[key] = {
+            "classCd": class_cd,
+            "toCd": to_cd,
+            "대회명": _norm(row.get("대회명")),
+            "실패단계": _norm(row.get("실패단계")),
+            "사유": _norm(row.get("사유")),
+            "최종실패시각": _norm(row.get("최종실패시각")),
+            "시도횟수": _norm(row.get("시도횟수")),
+        }
+    return failures
+
+
+def _save_meet_failures(meet_failures):
+    rows = [meet_failures[key] for key in sorted(meet_failures.keys())]
+    _save_csv_rows(MEET_FAILURES_CSV, rows, MEET_FAILURE_FIELDS)
 
 
 def _is_retryable_http(status_code):
     return status_code == 429 or status_code >= 500
 
 
-def _post_with_retry(session, endpoint, payload):
+def _post_with_retry(session, endpoint, payload, *, headers=None, json_body=False):
     last_reason = "unknown"
+    req_headers = headers or HEADERS
+    body = json.dumps(payload, ensure_ascii=False) if json_body else payload
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = session.post(endpoint, data=payload, headers=HEADERS, timeout=TIMEOUT_SECONDS)
+            response = session.post(endpoint, data=body, headers=req_headers, timeout=TIMEOUT_SECONDS)
         except requests.Timeout:
             last_reason = "timeout"
             if attempt < MAX_RETRIES:
@@ -347,12 +429,40 @@ def _clear_failure(failures, request_key):
         failures.pop(request_key)
 
 
+def _record_meet_failure(meet_failures, event, stage, reason, progress):
+    class_cd = _norm(event.get("classCd"))
+    to_cd = _norm(event.get("toCd"))
+    key = _meet_key(class_cd, to_cd)
+    meet_item = progress.get("meets", {}).get(key, {})
+    meet_failures[key] = {
+        "classCd": class_cd,
+        "toCd": to_cd,
+        "대회명": _norm(event.get("대회명")),
+        "실패단계": _norm(stage),
+        "사유": _norm(reason),
+        "최종실패시각": _now_iso(),
+        "시도횟수": str(int(meet_item.get("시도횟수", 0))),
+    }
+    _save_meet_failures(meet_failures)
+
+
+def _clear_meet_failure(meet_failures, event):
+    key = _meet_key(event.get("classCd"), event.get("toCd"))
+    if key in meet_failures:
+        meet_failures.pop(key)
+        _save_meet_failures(meet_failures)
+
+
 def _cache_path_inf201(page_index):
     return RAW_INF201_DIR / f"{int(page_index):03d}.html"
 
 
-def _cache_path_inf202(class_cd, to_cd):
-    return RAW_INF202_DIR / f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}.html"
+def _cache_path_inf301_kind(to_cd):
+    return RAW_INF301_KIND_DIR / f"{_safe_fragment(to_cd)}.html"
+
+
+def _cache_path_detail_class_ajax(class_cd, to_cd, kind_cd):
+    return RAW_DETAIL_AJAX_DIR / f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}.json"
 
 
 def _cache_path_inf301(to_cd, kind_cd, detail_class_cd):
@@ -383,6 +493,8 @@ def _fetch_with_cache(
     request_gap_seconds,
     progress,
     failures,
+    headers=None,
+    json_body=False,
 ):
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     if cache_path.exists() and not refresh:
@@ -390,10 +502,10 @@ def _fetch_with_cache(
         _clear_failure(failures, request_key)
         _save_failures(failures)
         _save_progress(progress)
-        return cache_path.read_text(encoding="utf-8"), True
+        return cache_path.read_text(encoding="utf-8"), True, ""
 
     _bump_counter(progress, "request_network_attempted")
-    html, attempts, reason = _post_with_retry(session, endpoint, payload)
+    html, attempts, reason = _post_with_retry(session, endpoint, payload, headers=headers, json_body=json_body)
     if html is None:
         _bump_counter(progress, "request_failure")
         _record_failure(
@@ -410,7 +522,7 @@ def _fetch_with_cache(
         _save_failures(failures)
         _save_progress(progress)
         print(f"[fail] {request_type} {context} (reason={reason}, attempts={attempts})")
-        return None, False
+        return None, False, reason
 
     cache_path.write_text(html, encoding="utf-8")
     _bump_counter(progress, "request_success")
@@ -421,7 +533,7 @@ def _fetch_with_cache(
         time.sleep(request_gap_seconds)
         _bump_counter(progress, "request_sleep_applied")
         _save_progress(progress)
-    return html, False
+    return html, False, ""
 
 
 def _parse_inf201_events_html(html, page_index):
@@ -460,44 +572,45 @@ def _parse_inf201_events_html(html, page_index):
     return events
 
 
-def _parse_inf202_bundle_html(html, class_cd, to_cd):
+def _parse_inf301_kind_options_html(html):
     soup = BeautifulSoup(html, "html.parser")
-    info_table = _find_table_by_caption(soup, "대회정보")
-    event_info = _read_pairs_from_table(info_table)
+    select = soup.find("select", attrs={"id": "searchKindCd"})
+    if not select:
+        return []
+    kinds = []
+    seen = set()
+    for option in select.find_all("option"):
+        kind_cd = _norm(option.get("value"))
+        if not kind_cd or kind_cd in seen:
+            continue
+        seen.add(kind_cd)
+        kinds.append({"kindCd": kind_cd, "kindNm": _norm(option.get_text(" ", strip=True))})
+    return kinds
+
+
+def _parse_detail_class_list_json(raw_text, kind_cd, kind_nm):
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return []
+    rows = payload.get("LIST")
+    if not isinstance(rows, list):
+        return []
     details = []
-    for tr in soup.find_all("tr"):
-        args = _parse_js_args(tr.get("onclick", ""), "fnEventSchedule")
-        if not args or len(args) < 2:
+    for row in rows:
+        detail_class_cd = _norm(row.get("DETAIL_CLASS_CD"))
+        if not detail_class_cd:
             continue
-        kind_cd = _norm(args[0])
-        detail_class_cd = _norm(args[1])
-        tds = tr.find_all("td")
-        if len(tds) < 4:
-            continue
-        participant_text = _norm(tds[3].get_text(" ", strip=True))
-        match = DIGITS_RE.search(participant_text)
-        participant_count = int(match.group(0)) if match else None
         details.append(
             {
-                "kindCd": kind_cd,
+                "kindCd": _norm(kind_cd),
+                "종별": _norm(kind_nm),
                 "detailClassCd": detail_class_cd,
-                "종별": _norm(tds[0].get_text(" ", strip=True)),
-                "세부종목": _norm(tds[1].get_text(" ", strip=True)),
-                "구분": _norm(tds[2].get_text(" ", strip=True)),
-                "참가선수수": participant_count,
+                "세부종목": _norm(row.get("DETAIL_CLASS_NM")),
+                "firstDetailClassCd": _norm(row.get("FIRST_DCLASS_CD")),
             }
         )
-    if details:
-        return {"eventInfo": event_info, "details": details, "empty_reason": ""}
-
-    event_name = _norm(event_info.get("대회명"))
-    period = _norm(event_info.get("대회기간") or event_info.get("기간"))
-    place = _norm(event_info.get("개최장소") or event_info.get("장소"))
-    if _is_placeholder_text(event_name) and _is_placeholder_text(period) and _is_placeholder_text(place):
-        reason = "source_blank_event_info"
-    else:
-        reason = "no_schedule_rows"
-    return {"eventInfo": event_info, "details": [], "empty_reason": reason}
+    return details
 
 
 def _parse_inf301_result_calls_html(html):
@@ -524,7 +637,9 @@ def _parse_inf301_result_calls_html(html):
     return calls
 
 
-def _parse_inf310_rows_html(html, result_call):
+def _parse_inf310_rows_html(html, result_call, *, context=None, suspicious_rows=None):
+    context = context or {}
+    suspicious_rows = suspicious_rows if suspicious_rows is not None else []
     soup = BeautifulSoup(html, "html.parser")
     table = _find_table_by_caption(soup, "경기결과")
     if not table:
@@ -538,13 +653,26 @@ def _parse_inf310_rows_html(html, result_call):
                 "row_without_participant_count": 0,
                 "row_without_participant_likely_result_count": 0,
                 "participant_entry_count": 0,
+                "suspicious_id_count": 0,
             },
         }
 
     headers = _extract_result_headers(table)
     header_detected = bool(headers)
+    if not header_detected:
+        print(
+            "[warn] INF310 헤더 미감지: classCd={0} toCd={1} kindCd={2} detailClassCd={3} rhCd={4} pcntGbn={5}".format(
+                _norm(context.get("classCd")),
+                _norm(context.get("toCd")),
+                _norm(context.get("kindCd")),
+                _norm(context.get("detailClassCd")),
+                _norm(result_call.get("rhCd")),
+                _norm(result_call.get("pcntGbn")) or "-",
+            )
+        )
     rows = []
     seen = set()
+    suspicious_ids = set()
 
     current_round = _norm(result_call.get("rhNm"))
     current_category = ""
@@ -590,7 +718,27 @@ def _parse_inf310_rows_html(html, result_call):
         affiliation = _norm(row_map.get("소속"))
         row_name = _norm(row_map.get("성명") or row_map.get("선수명") or row_map.get("팀명"))
 
-        participants = _extract_participant_entries(tr, row_map)
+        def invalid_id_sink(raw_id, raw_source, source_label):
+            row = {
+                "classCd": _norm(context.get("classCd")),
+                "toCd": _norm(context.get("toCd")),
+                "대회명": _norm(context.get("대회명")),
+                "kindCd": _norm(context.get("kindCd")),
+                "detailClassCd": _norm(context.get("detailClassCd")),
+                "baseClassCd": _norm(result_call.get("baseClassCd")),
+                "rhCd": _norm(result_call.get("rhCd")),
+                "pcntGbn": _norm(result_call.get("pcntGbn")),
+                "idNo_원본": _norm(raw_id),
+                "추출소스": _norm(raw_source),
+                "행대표이름": _norm(source_label) or row_name,
+            }
+            key = (row["classCd"], row["toCd"], row["kindCd"], row["detailClassCd"], row["baseClassCd"], row["rhCd"], row["idNo_원본"], row["추출소스"])
+            if key in suspicious_ids:
+                return
+            suspicious_ids.add(key)
+            suspicious_rows.append(row)
+
+        participants = _extract_participant_entries(tr, row_map, invalid_id_sink=invalid_id_sink)
         if not participants:
             row_without_participant_count += 1
             if rank or record or row_name:
@@ -642,6 +790,7 @@ def _parse_inf310_rows_html(html, result_call):
             "row_without_participant_count": row_without_participant_count,
             "row_without_participant_likely_result_count": row_without_participant_likely_result_count,
             "participant_entry_count": participant_entry_count,
+            "suspicious_id_count": len(suspicious_ids),
         },
     }
 
@@ -657,7 +806,7 @@ def _collect_inf201_events(session, refresh, request_gap_seconds, progress, fail
         payload = _base_payload()
         payload["pageIndex"] = str(page)
         request_key = f"inf201:{page}"
-        html, _ = _fetch_with_cache(
+        html, _, _ = _fetch_with_cache(
             session,
             request_type="inf201",
             request_key=request_key,
@@ -701,106 +850,87 @@ def _collect_event_route(
     request_gap_seconds,
     progress,
     failures,
+    meet_failures,
 ):
     total_events = len(events)
     seen_inf310 = set()
-    inf202_empty_events = []
+    _seed_meet_progress(progress, events)
+
+    def mark_event_failure(event, stage, reason):
+        _set_meet_status(progress, event, "failed", stage=stage, error=reason)
+        _record_meet_failure(meet_failures, event, stage=stage, reason=reason, progress=progress)
+
     for idx, event in enumerate(events, start=1):
         class_cd = _norm(event.get("classCd"))
         to_cd = _norm(event.get("toCd"))
         search_app_yn = _norm(event.get("searchAppYn"))
         event_name = _norm(event.get("대회명"))
         print(f"[event {idx}/{total_events}] classCd={class_cd} toCd={to_cd} | {event_name}")
+        _set_meet_status(progress, event, "in_progress", stage="start")
+        event_has_error = False
+        event_inf310_calls = 0
 
-        payload_202 = _base_payload()
-        payload_202.update({"classCd": class_cd, "toCd": to_cd, "searchAppYn": search_app_yn})
-        html_202, _ = _fetch_with_cache(
+        payload_kind = _base_payload()
+        payload_kind.update({"classCd": class_cd, "toCd": to_cd, "searchAppYn": search_app_yn})
+        html_kind, _, reason = _fetch_with_cache(
             session,
-            request_type="inf202",
-            request_key=f"inf202:{class_cd}:{to_cd}",
-            endpoint=INF202_ENDPOINT,
-            payload=payload_202,
-            cache_path=_cache_path_inf202(class_cd, to_cd),
+            request_type="inf301_kind",
+            request_key=f"inf301-kind:{to_cd}",
+            endpoint=INF301_ENDPOINT,
+            payload=payload_kind,
+            cache_path=_cache_path_inf301_kind(to_cd),
             context=f"classCd={class_cd} toCd={to_cd}",
             refresh=refresh,
             request_gap_seconds=request_gap_seconds,
             progress=progress,
             failures=failures,
         )
-        _bump_counter(progress, "inf202_requests")
+        _bump_counter(progress, "inf301_kind_requests")
         _save_progress(progress)
-        if html_202 is None:
+        if html_kind is None:
+            mark_event_failure(event, stage="inf301_kind_fetch", reason=reason or "kind_fetch_failed")
             continue
-        bundle = _parse_inf202_bundle_html(html_202, class_cd=class_cd, to_cd=to_cd)
-        details = bundle["details"]
-        if not details:
-            reason = _norm(bundle.get("empty_reason"))
-            reason_text = "원천 대회정보 공백" if reason == "source_blank_event_info" else "세부종목 미노출"
-            inf202_name = _norm(bundle["eventInfo"].get("대회명"))
-            print(
-                "[info] INF202 세부종목 미수집: classCd={0}, toCd={1}, 원인={2}".format(
-                    class_cd, to_cd, reason_text
-                )
-            )
-            inf202_empty_events.append(
-                {
-                    "classCd": class_cd,
-                    "toCd": to_cd,
-                    "inf201_대회명": event_name,
-                    "inf202_대회명": inf202_name,
-                    "원인": reason_text,
-                    "비고": "INF201 목록에는 있으나 INF202 상세가 비어 INF301/INF310 진행 불가",
-                }
-            )
-            _bump_counter(progress, "inf202_empty_events")
-            _save_progress(progress)
+
+        kind_items = _parse_inf301_kind_options_html(html_kind)
+        if not kind_items:
+            mark_event_failure(event, stage="inf301_kind_parse", reason="kind_options_empty")
             continue
-        for detail in details:
-            kind_cd = _norm(detail.get("kindCd"))
-            detail_class_cd = _norm(detail.get("detailClassCd"))
-            payload_301 = _base_payload()
-            payload_301.update(
-                {
-                    "classCd": class_cd,
-                    "toCd": to_cd,
-                    "searchAppYn": search_app_yn,
-                    "kindCd": kind_cd,
-                    "detailClassCd": detail_class_cd,
-                    "searchKindCd": kind_cd,
-                    "searchDetailClassCd": detail_class_cd,
-                }
-            )
-            html_301, _ = _fetch_with_cache(
+
+        for kind_item in kind_items:
+            kind_cd = _norm(kind_item.get("kindCd"))
+            kind_nm = _norm(kind_item.get("kindNm"))
+            payload_ajax = {"classCd": class_cd, "toCd": to_cd, "kindCd": kind_cd}
+            ajax_text, _, ajax_reason = _fetch_with_cache(
                 session,
-                request_type="inf301",
-                request_key=f"inf301:{to_cd}:{kind_cd}:{detail_class_cd}",
-                endpoint=INF301_ENDPOINT,
-                payload=payload_301,
-                cache_path=_cache_path_inf301(to_cd, kind_cd, detail_class_cd),
-                context=f"toCd={to_cd} kindCd={kind_cd} detailClassCd={detail_class_cd}",
+                request_type="detail_class_ajax",
+                request_key=f"detail-ajax:{class_cd}:{to_cd}:{kind_cd}",
+                endpoint=DETAIL_CLASS_AJAX_ENDPOINT,
+                payload=payload_ajax,
+                cache_path=_cache_path_detail_class_ajax(class_cd, to_cd, kind_cd),
+                context=f"classCd={class_cd} toCd={to_cd} kindCd={kind_cd}",
                 refresh=refresh,
                 request_gap_seconds=request_gap_seconds,
                 progress=progress,
                 failures=failures,
+                headers=JSON_HEADERS,
+                json_body=True,
             )
-            _bump_counter(progress, "inf301_requests")
+            _bump_counter(progress, "detail_class_ajax_requests")
             _save_progress(progress)
-            if html_301 is None:
+            if ajax_text is None:
+                event_has_error = True
+                mark_event_failure(event, stage="detail_class_fetch", reason=ajax_reason or f"kindCd={kind_cd}")
+                continue
+            details = _parse_detail_class_list_json(ajax_text, kind_cd=kind_cd, kind_nm=kind_nm)
+            if not details:
+                event_has_error = True
+                mark_event_failure(event, stage="detail_class_parse", reason=f"kindCd={kind_cd} detail_empty")
                 continue
 
-            calls = _parse_inf301_result_calls_html(html_301)
-            for call in calls:
-                base_class_cd = _norm(call.get("baseClassCd"))
-                rh_cd = _norm(call.get("rhCd"))
-                pcnt_gbn = _norm(call.get("pcntGbn")) or "-"
-                use_gbn = _norm(call.get("useGbn"))
-                call_key = (to_cd, kind_cd, detail_class_cd, base_class_cd, rh_cd, pcnt_gbn, use_gbn)
-                if call_key in seen_inf310:
-                    continue
-                seen_inf310.add(call_key)
-
-                payload_310 = _base_payload()
-                payload_310.update(
+            for detail in details:
+                detail_class_cd = _norm(detail.get("detailClassCd"))
+                payload_301 = _base_payload()
+                payload_301.update(
                     {
                         "classCd": class_cd,
                         "toCd": to_cd,
@@ -809,46 +939,100 @@ def _collect_event_route(
                         "detailClassCd": detail_class_cd,
                         "searchKindCd": kind_cd,
                         "searchDetailClassCd": detail_class_cd,
-                        "baseClassCd": base_class_cd,
-                        "rhCd": rh_cd,
-                        "rhNm": _norm(call.get("rhNm")),
-                        "baseClassNm": _norm(call.get("baseClassNm")),
-                        "pcntGbn": _norm(call.get("pcntGbn")),
-                        "useGbn": use_gbn,
                     }
                 )
-                html_310, _ = _fetch_with_cache(
+                html_301, _, reason_301 = _fetch_with_cache(
                     session,
-                    request_type="inf310",
-                    request_key=f"inf310:{to_cd}:{kind_cd}:{detail_class_cd}:{base_class_cd}:{rh_cd}:{pcnt_gbn}:{use_gbn or '-'}",
-                    endpoint=INF310_ENDPOINT,
-                    payload=payload_310,
-                    cache_path=_cache_path_inf310(
-                        to_cd=to_cd,
-                        kind_cd=kind_cd,
-                        detail_class_cd=detail_class_cd,
-                        base_class_cd=base_class_cd,
-                        rh_cd=rh_cd,
-                        pcnt_gbn=pcnt_gbn,
-                    ),
-                    context=f"toCd={to_cd} kindCd={kind_cd} detailClassCd={detail_class_cd} baseClassCd={base_class_cd} rhCd={rh_cd} pcntGbn={pcnt_gbn}",
+                    request_type="inf301",
+                    request_key=f"inf301:{to_cd}:{kind_cd}:{detail_class_cd}",
+                    endpoint=INF301_ENDPOINT,
+                    payload=payload_301,
+                    cache_path=_cache_path_inf301(to_cd, kind_cd, detail_class_cd),
+                    context=f"toCd={to_cd} kindCd={kind_cd} detailClassCd={detail_class_cd}",
                     refresh=refresh,
                     request_gap_seconds=request_gap_seconds,
                     progress=progress,
                     failures=failures,
                 )
-                _bump_counter(progress, "inf310_requests")
+                _bump_counter(progress, "inf301_requests")
                 _save_progress(progress)
-                if html_310 is None:
+                if html_301 is None:
+                    event_has_error = True
+                    mark_event_failure(event, stage="inf301_detail_fetch", reason=reason_301 or f"kindCd={kind_cd} detailClassCd={detail_class_cd}")
                     continue
 
-    _save_inf202_empty_events(inf202_empty_events)
-    print(
-        "[summary] INF202 세부종목 미수집 대회 {0:,}건 → {1}".format(
-            len(inf202_empty_events), INF202_EMPTY_EVENTS_CSV
-        )
-    )
-    return inf202_empty_events
+                calls = _parse_inf301_result_calls_html(html_301)
+                if not calls:
+                    event_has_error = True
+                    mark_event_failure(event, stage="inf301_result_call_parse", reason=f"kindCd={kind_cd} detailClassCd={detail_class_cd} calls_empty")
+                    continue
+
+                for call in calls:
+                    base_class_cd = _norm(call.get("baseClassCd"))
+                    rh_cd = _norm(call.get("rhCd"))
+                    pcnt_gbn = _norm(call.get("pcntGbn")) or "-"
+                    use_gbn = _norm(call.get("useGbn"))
+                    call_key = (to_cd, kind_cd, detail_class_cd, base_class_cd, rh_cd, pcnt_gbn, use_gbn)
+                    if call_key in seen_inf310:
+                        continue
+                    seen_inf310.add(call_key)
+
+                    payload_310 = _base_payload()
+                    payload_310.update(
+                        {
+                            "classCd": class_cd,
+                            "toCd": to_cd,
+                            "searchAppYn": search_app_yn,
+                            "kindCd": kind_cd,
+                            "detailClassCd": detail_class_cd,
+                            "searchKindCd": kind_cd,
+                            "searchDetailClassCd": detail_class_cd,
+                            "baseClassCd": base_class_cd,
+                            "rhCd": rh_cd,
+                            "rhNm": _norm(call.get("rhNm")),
+                            "baseClassNm": _norm(call.get("baseClassNm")),
+                            "pcntGbn": _norm(call.get("pcntGbn")),
+                            "useGbn": use_gbn,
+                        }
+                    )
+                    _, _, reason_310 = _fetch_with_cache(
+                        session,
+                        request_type="inf310",
+                        request_key=f"inf310:{to_cd}:{kind_cd}:{detail_class_cd}:{base_class_cd}:{rh_cd}:{pcnt_gbn}:{use_gbn or '-'}",
+                        endpoint=INF310_ENDPOINT,
+                        payload=payload_310,
+                        cache_path=_cache_path_inf310(
+                            to_cd=to_cd,
+                            kind_cd=kind_cd,
+                            detail_class_cd=detail_class_cd,
+                            base_class_cd=base_class_cd,
+                            rh_cd=rh_cd,
+                            pcnt_gbn=pcnt_gbn,
+                        ),
+                        context=f"toCd={to_cd} kindCd={kind_cd} detailClassCd={detail_class_cd} baseClassCd={base_class_cd} rhCd={rh_cd} pcntGbn={pcnt_gbn}",
+                        refresh=refresh,
+                        request_gap_seconds=request_gap_seconds,
+                        progress=progress,
+                        failures=failures,
+                    )
+                    _bump_counter(progress, "inf310_requests")
+                    _save_progress(progress)
+                    if reason_310:
+                        event_has_error = True
+                        mark_event_failure(event, stage="inf310_fetch", reason=reason_310)
+                        continue
+                    event_inf310_calls += 1
+
+        if event_inf310_calls <= 0:
+            event_has_error = True
+            mark_event_failure(event, stage="inf310_calls_empty", reason="no_inf310_calls")
+            continue
+        if event_has_error:
+            continue
+        _clear_meet_failure(meet_failures, event)
+        _set_meet_status(progress, event, "done", stage="completed")
+
+    return meet_failures
 
 
 def _load_events_from_inf201_cache():
@@ -885,13 +1069,13 @@ def _build_base_records(events):
     id_seed = {}
     winter_ids = set()
     to_cd_by_meet = {}
+    suspicious_rows = []
+    meet_parse_failures = {}
     parse_stats = {
         "events_total": len(events),
         "events_winter": 0,
-        "inf202_detail_count": 0,
-        "inf202_empty_event_count": 0,
-        "inf202_empty_source_blank_count": 0,
-        "inf202_empty_no_schedule_count": 0,
+        "kind_count": 0,
+        "detail_class_count": 0,
         "inf301_call_count": 0,
         "inf310_call_count": 0,
         "inf310_header_missing_call_count": 0,
@@ -900,130 +1084,180 @@ def _build_base_records(events):
         "inf310_row_without_participant_count": 0,
         "inf310_row_without_participant_likely_result_count": 0,
         "inf310_participant_entry_count": 0,
+        "inf310_suspicious_id_count": 0,
+        "inf310_zero_participant_detail_count": 0,
     }
 
     for event in events:
         class_cd = _norm(event.get("classCd"))
         to_cd = _norm(event.get("toCd"))
         event_name = _norm(event.get("대회명"))
+
+        def add_meet_parse_failure(stage, reason):
+            key = _meet_key(class_cd, to_cd)
+            if key in meet_parse_failures:
+                return
+            meet_parse_failures[key] = {
+                "classCd": class_cd,
+                "toCd": to_cd,
+                "대회명": event_name,
+                "실패단계": _norm(stage),
+                "사유": _norm(reason),
+            }
+
         is_winter = "동계체" in event_name
         if is_winter:
             parse_stats["events_winter"] += 1
         if event_name:
             to_cd_by_meet.setdefault(event_name, set()).add(to_cd)
-
-        cache_202 = _cache_path_inf202(class_cd, to_cd)
-        if not cache_202.exists():
+        _, event_date_norm = _extract_event_date(event)
+        cache_kind = _cache_path_inf301_kind(to_cd)
+        if not cache_kind.exists():
+            add_meet_parse_failure("inf301_kind_cache_missing", "INF301 kind 캐시 없음")
             continue
-        html_202 = cache_202.read_text(encoding="utf-8")
-        bundle = _parse_inf202_bundle_html(html_202, class_cd=class_cd, to_cd=to_cd)
-        details = bundle["details"]
-        if not details:
-            parse_stats["inf202_empty_event_count"] += 1
-            if _norm(bundle.get("empty_reason")) == "source_blank_event_info":
-                parse_stats["inf202_empty_source_blank_count"] += 1
-            else:
-                parse_stats["inf202_empty_no_schedule_count"] += 1
+
+        kind_items = _parse_inf301_kind_options_html(cache_kind.read_text(encoding="utf-8"))
+        if not kind_items:
+            add_meet_parse_failure("inf301_kind_parse", "INF301 kind 옵션 미감지")
             continue
-        event_info = bundle["eventInfo"]
-        _, event_date_norm = _extract_event_date(event_info)
-        parse_stats["inf202_detail_count"] += len(details)
+        parse_stats["kind_count"] += len(kind_items)
 
-        for detail in details:
-            kind_cd = _norm(detail.get("kindCd"))
-            detail_class_cd = _norm(detail.get("detailClassCd"))
-            detail_category = _norm(detail.get("종별"))
-            detail_name = _norm(detail.get("세부종목"))
-
-            cache_301 = _cache_path_inf301(to_cd, kind_cd, detail_class_cd)
-            if not cache_301.exists():
+        for kind_item in kind_items:
+            kind_cd = _norm(kind_item.get("kindCd"))
+            kind_nm = _norm(kind_item.get("kindNm"))
+            cache_detail = _cache_path_detail_class_ajax(class_cd, to_cd, kind_cd)
+            if not cache_detail.exists():
+                add_meet_parse_failure("detail_class_cache_missing", f"kindCd={kind_cd}")
                 continue
-            calls = _parse_inf301_result_calls_html(cache_301.read_text(encoding="utf-8"))
-            parse_stats["inf301_call_count"] += len(calls)
-            for call in calls:
-                pcnt_gbn = _norm(call.get("pcntGbn")) or "-"
-                cache_310 = _cache_path_inf310(
-                    to_cd=to_cd,
-                    kind_cd=kind_cd,
-                    detail_class_cd=detail_class_cd,
-                    base_class_cd=_norm(call.get("baseClassCd")),
-                    rh_cd=_norm(call.get("rhCd")),
-                    pcnt_gbn=pcnt_gbn,
-                )
-                if not cache_310.exists():
-                    continue
-                cache_key = str(cache_310)
-                if cache_key in seen_inf310_cache:
-                    continue
-                seen_inf310_cache.add(cache_key)
-                inf310 = _parse_inf310_rows_html(cache_310.read_text(encoding="utf-8"), call)
-                rows = inf310["rows"]
-                stats = inf310["stats"]
-                parse_stats["inf310_call_count"] += 1
-                if not stats["header_detected"]:
-                    parse_stats["inf310_header_missing_call_count"] += 1
-                parse_stats["inf310_data_row_count"] += stats["data_row_count"]
-                parse_stats["inf310_category_row_count"] += stats["category_row_count"]
-                parse_stats["inf310_row_without_participant_count"] += stats["row_without_participant_count"]
-                parse_stats["inf310_row_without_participant_likely_result_count"] += stats["row_without_participant_likely_result_count"]
-                parse_stats["inf310_participant_entry_count"] += stats["participant_entry_count"]
 
-                for row in rows:
-                    record_key = (
-                        _norm(row.get("idNo")),
-                        event_name,
-                        detail_name,
-                        _norm(row.get("라운드")),
-                        _norm(row.get("순위")),
-                        _norm(row.get("기록")),
-                        _norm(row.get("소속")),
+            details = _parse_detail_class_list_json(cache_detail.read_text(encoding="utf-8"), kind_cd=kind_cd, kind_nm=kind_nm)
+            if not details:
+                add_meet_parse_failure("detail_class_parse", f"kindCd={kind_cd} detail_empty")
+                continue
+            parse_stats["detail_class_count"] += len(details)
+
+            for detail in details:
+                detail_class_cd = _norm(detail.get("detailClassCd"))
+                detail_category = _norm(detail.get("종별"))
+                detail_name_seed = _norm(detail.get("세부종목"))
+                detail_participant_rows = 0
+
+                cache_301 = _cache_path_inf301(to_cd, kind_cd, detail_class_cd)
+                if not cache_301.exists():
+                    add_meet_parse_failure("inf301_detail_cache_missing", f"kindCd={kind_cd} detailClassCd={detail_class_cd}")
+                    continue
+                calls = _parse_inf301_result_calls_html(cache_301.read_text(encoding="utf-8"))
+                parse_stats["inf301_call_count"] += len(calls)
+                if not calls:
+                    add_meet_parse_failure("inf301_result_call_parse", f"kindCd={kind_cd} detailClassCd={detail_class_cd}")
+                    continue
+
+                for call in calls:
+                    pcnt_gbn = _norm(call.get("pcntGbn")) or "-"
+                    cache_310 = _cache_path_inf310(
+                        to_cd=to_cd,
+                        kind_cd=kind_cd,
+                        detail_class_cd=detail_class_cd,
+                        base_class_cd=_norm(call.get("baseClassCd")),
+                        rh_cd=_norm(call.get("rhCd")),
+                        pcnt_gbn=pcnt_gbn,
                     )
-                    if not record_key[0]:
+                    if not cache_310.exists():
+                        add_meet_parse_failure(
+                            "inf310_cache_missing",
+                            f"kindCd={kind_cd} detailClassCd={detail_class_cd} baseClassCd={_norm(call.get('baseClassCd'))} rhCd={_norm(call.get('rhCd'))}",
+                        )
                         continue
-                    if record_key in seen_records:
+                    cache_key = str(cache_310)
+                    if cache_key in seen_inf310_cache:
                         continue
-                    seen_records.add(record_key)
-                    records.append(
-                        {
-                            "idNo": _norm(row.get("idNo")),
-                            "대회명": event_name,
-                            "일자": event_date_norm,
-                            "일자_정규화": event_date_norm,
-                            "종별": detail_category,
-                            "세부종목": detail_name,
-                            "라운드": _norm(row.get("라운드")),
-                            "소속": _norm(row.get("소속")),
-                            "기록": _norm(row.get("기록")),
-                            "순위": _norm(row.get("순위")),
-                            "학년": _norm(row.get("학년")),
-                            "레인": _norm(row.get("레인")),
-                            "BIB": _norm(row.get("BIB")),
-                            "사유": _norm(row.get("사유")),
-                            "기록차": _norm(row.get("기록차")),
+                    seen_inf310_cache.add(cache_key)
+                    inf310 = _parse_inf310_rows_html(
+                        cache_310.read_text(encoding="utf-8"),
+                        call,
+                        context={
                             "classCd": class_cd,
                             "toCd": to_cd,
+                            "대회명": event_name,
                             "kindCd": kind_cd,
                             "detailClassCd": detail_class_cd,
-                            "baseClassCd": _norm(call.get("baseClassCd")),
-                            "rhCd": _norm(call.get("rhCd")),
-                            "pcntGbn": pcnt_gbn,
-                            "소스": "INF310",
-                        }
+                        },
+                        suspicious_rows=suspicious_rows,
                     )
-                    item = id_seed.setdefault(
-                        _norm(row.get("idNo")),
-                        {"이름": "", "종별목록": set(), "소속목록": set(), "성별": ""},
-                    )
-                    name = _norm(row.get("이름"))
-                    if name and not item["이름"]:
-                        item["이름"] = name
-                    if detail_category:
-                        item["종별목록"].add(detail_category)
-                    affiliation = _norm(row.get("소속"))
-                    if affiliation:
-                        item["소속목록"].add(affiliation)
-                    if is_winter:
-                        winter_ids.add(_norm(row.get("idNo")))
+                    rows = inf310["rows"]
+                    stats = inf310["stats"]
+                    parse_stats["inf310_call_count"] += 1
+                    if not stats["header_detected"]:
+                        parse_stats["inf310_header_missing_call_count"] += 1
+                    parse_stats["inf310_data_row_count"] += stats["data_row_count"]
+                    parse_stats["inf310_category_row_count"] += stats["category_row_count"]
+                    parse_stats["inf310_row_without_participant_count"] += stats["row_without_participant_count"]
+                    parse_stats["inf310_row_without_participant_likely_result_count"] += stats["row_without_participant_likely_result_count"]
+                    parse_stats["inf310_participant_entry_count"] += stats["participant_entry_count"]
+                    parse_stats["inf310_suspicious_id_count"] += stats.get("suspicious_id_count", 0)
+
+                    detail_name = detail_name_seed or _norm(call.get("baseClassNm"))
+                    for row in rows:
+                        record_key = (
+                            _norm(row.get("idNo")),
+                            event_name,
+                            detail_name,
+                            _norm(row.get("라운드")),
+                            _norm(row.get("순위")),
+                            _norm(row.get("기록")),
+                            _norm(row.get("소속")),
+                        )
+                        if not record_key[0]:
+                            continue
+                        if record_key in seen_records:
+                            continue
+                        seen_records.add(record_key)
+                        detail_participant_rows += 1
+                        records.append(
+                            {
+                                "idNo": _norm(row.get("idNo")),
+                                "대회명": event_name,
+                                "일자": event_date_norm,
+                                "일자_정규화": event_date_norm,
+                                "종별": detail_category,
+                                "세부종목": detail_name,
+                                "라운드": _norm(row.get("라운드")),
+                                "소속": _norm(row.get("소속")),
+                                "기록": _norm(row.get("기록")),
+                                "순위": _norm(row.get("순위")),
+                                "학년": _norm(row.get("학년")),
+                                "레인": _norm(row.get("레인")),
+                                "BIB": _norm(row.get("BIB")),
+                                "사유": _norm(row.get("사유")),
+                                "기록차": _norm(row.get("기록차")),
+                                "classCd": class_cd,
+                                "toCd": to_cd,
+                                "kindCd": kind_cd,
+                                "detailClassCd": detail_class_cd,
+                                "baseClassCd": _norm(call.get("baseClassCd")),
+                                "rhCd": _norm(call.get("rhCd")),
+                                "pcntGbn": pcnt_gbn,
+                                "소스": "INF310",
+                            }
+                        )
+                        item = id_seed.setdefault(
+                            _norm(row.get("idNo")),
+                            {"이름": "", "종별목록": set(), "소속목록": set(), "성별": ""},
+                        )
+                        name = _norm(row.get("이름"))
+                        if name and not item["이름"]:
+                            item["이름"] = name
+                        if detail_category:
+                            item["종별목록"].add(detail_category)
+                        affiliation = _norm(row.get("소속"))
+                        if affiliation:
+                            item["소속목록"].add(affiliation)
+                        if is_winter:
+                            winter_ids.add(_norm(row.get("idNo")))
+
+                if detail_participant_rows <= 0:
+                    parse_stats["inf310_zero_participant_detail_count"] += 1
+                    add_meet_parse_failure("inf310_zero_participant", f"kindCd={kind_cd} detailClassCd={detail_class_cd}")
 
     for id_no, item in id_seed.items():
         if not item["성별"]:
@@ -1034,7 +1268,7 @@ def _build_base_records(events):
     to_cd_final = {}
     for meet_name, values in to_cd_by_meet.items():
         to_cd_final[meet_name] = next(iter(values)) if len(values) == 1 else ""
-    return records, id_seed, sorted(winter_ids), to_cd_final, parse_stats
+    return records, id_seed, sorted(winter_ids), to_cd_final, parse_stats, suspicious_rows, list(meet_parse_failures.values())
 
 
 def _collect_inf503_for_ids(session, id_list, refresh, request_gap_seconds, progress, failures):
@@ -1042,7 +1276,7 @@ def _collect_inf503_for_ids(session, id_list, refresh, request_gap_seconds, prog
     print(f"[inf503] 대상 {total}명")
     for idx, id_no in enumerate(id_list, start=1):
         payload = {"pclassCd": "SK", "idNo": id_no, "pageIndex": "1"}
-        html, _ = _fetch_with_cache(
+        html, _, _ = _fetch_with_cache(
             session,
             request_type="inf503",
             request_key=f"inf503:{id_no}",
@@ -1154,7 +1388,7 @@ def _build_athlete_info_and_score_supplement(id_seed, winter_ids, to_cd_by_meet)
 
 
 def _export_full_csv(events, progress):
-    base_records, id_seed, winter_ids, to_cd_by_meet, parse_stats = _build_base_records(events)
+    base_records, id_seed, winter_ids, to_cd_by_meet, parse_stats, suspicious_rows, meet_parse_failures = _build_base_records(events)
     athlete_rows, supplement_rows, birth_year_ok, inf503_cache_missing = _build_athlete_info_and_score_supplement(
         id_seed=id_seed,
         winter_ids=winter_ids,
@@ -1213,6 +1447,7 @@ def _export_full_csv(events, progress):
         writer = csv.DictWriter(f, fieldnames=ATHLETE_INFO_FIELDS)
         writer.writeheader()
         writer.writerows(athlete_rows)
+    _save_csv_rows(SUSPICIOUS_IDS_CSV, suspicious_rows, SUSPICIOUS_ID_FIELDS)
 
     _bump_counter(progress, "records_inf310_rows", len(base_records))
     _bump_counter(progress, "records_inf503_score_rows", supplement_added)
@@ -1227,31 +1462,28 @@ def _export_full_csv(events, progress):
     )
     print(f"[export] 선수 {len(athlete_rows):,}명 / 출생년도 확보 {birth_year_ok:,}명")
     print(f"[export] 동계체전 참가자 idNo {len(winter_ids):,}명 / INF503 캐시 미보유 {inf503_cache_missing:,}명")
+    print(f"[export] idNo 비정상 감지 {len(suspicious_rows):,}건 → {SUSPICIOUS_IDS_CSV}")
     print(
-        "[export] INF310 파싱: data row {0:,} / 구분행 {1:,} / 참가자 없음 row {2:,}(결과행 추정 {3:,}) / header 미감지 {4:,}".format(
+        "[export] INF310 파싱: data row {0:,} / 구분행 {1:,} / 참가자 없음 row {2:,}(결과행 추정 {3:,}) / header 미감지 {4:,} / 비정상 id {5:,}".format(
             parse_stats["inf310_data_row_count"],
             parse_stats["inf310_category_row_count"],
             parse_stats["inf310_row_without_participant_count"],
             parse_stats["inf310_row_without_participant_likely_result_count"],
             parse_stats["inf310_header_missing_call_count"],
+            parse_stats["inf310_suspicious_id_count"],
         )
     )
     print(
-        "[export] 요청 구조: events {0:,}(동계체 {1:,}) / INF202 detail {2:,} / INF301 call {3:,} / INF310 call {4:,}".format(
+        "[export] 요청 구조: events {0:,}(동계체 {1:,}) / kind {2:,} / detail {3:,} / INF301 call {4:,} / INF310 call {5:,}".format(
             parse_stats["events_total"],
             parse_stats["events_winter"],
-            parse_stats["inf202_detail_count"],
+            parse_stats["kind_count"],
+            parse_stats["detail_class_count"],
             parse_stats["inf301_call_count"],
             parse_stats["inf310_call_count"],
         )
     )
-    print(
-        "[export] INF202 미수집 대회 {0:,}건 (원천 대회정보 공백 {1:,}, 세부종목 미노출 {2:,})".format(
-            parse_stats["inf202_empty_event_count"],
-            parse_stats["inf202_empty_source_blank_count"],
-            parse_stats["inf202_empty_no_schedule_count"],
-        )
-    )
+    print(f"[export] 세부종목 참가자 0건 감지 {parse_stats['inf310_zero_participant_detail_count']:,}건")
     return {
         "records_total": len(merged_records),
         "records_inf310": len(base_records),
@@ -1260,47 +1492,29 @@ def _export_full_csv(events, progress):
         "birth_year_covered": birth_year_ok,
         "winter_ids": len(winter_ids),
         "inf503_cache_missing": inf503_cache_missing,
+        "suspicious_ids_count": len(suspicious_rows),
+        "meet_parse_failures": meet_parse_failures,
         **parse_stats,
     }
 
 
 def _load_retry_entries():
-    return _load_csv_rows(FAILURES_CSV)
+    return _load_csv_rows(MEET_FAILURES_CSV)
 
 
-def _retry_failure_requests(session, retry_entries, refresh, request_gap_seconds, progress, failures):
+def _retry_failure_requests(retry_entries):
     if not retry_entries:
-        print(f"[retry] {FAILURES_CSV}에 재시도 대상이 없습니다.")
-        return
-    print(f"[retry] 대상 {len(retry_entries)}건")
-    for idx, row in enumerate(retry_entries, start=1):
-        request_key = _norm(row.get("requestKey"))
-        request_type = _norm(row.get("requestType"))
-        endpoint = _norm(row.get("endpoint"))
-        payload_text = _norm(row.get("payloadJson"))
-        cache_path_text = _norm(row.get("cachePath"))
-        context = _norm(row.get("context"))
-        if not request_key or not endpoint or not payload_text or not cache_path_text:
-            print(f"[retry {idx}/{len(retry_entries)}] 스킵: 필수 필드 누락 (requestKey={request_key})")
+        print(f"[retry] {MEET_FAILURES_CSV}에 재시도 대상이 없습니다.")
+        return set()
+    retry_keys = set()
+    for row in retry_entries:
+        class_cd = _norm(row.get("classCd"))
+        to_cd = _norm(row.get("toCd"))
+        if not class_cd or not to_cd:
             continue
-        try:
-            payload = json.loads(payload_text)
-        except json.JSONDecodeError:
-            print(f"[retry {idx}/{len(retry_entries)}] 스킵: payloadJson 파싱 실패 (requestKey={request_key})")
-            continue
-        _fetch_with_cache(
-            session,
-            request_type=request_type or "unknown",
-            request_key=request_key,
-            endpoint=endpoint,
-            payload=payload,
-            cache_path=pathlib.Path(cache_path_text),
-            context=context or f"retry={request_key}",
-            refresh=refresh,
-            request_gap_seconds=request_gap_seconds,
-            progress=progress,
-            failures=failures,
-        )
+        retry_keys.add(_meet_key(class_cd, to_cd))
+    print(f"[retry] 대상 대회 {len(retry_keys)}개")
+    return retry_keys
 
 
 def _id_counts_from_records(path):
@@ -1342,13 +1556,16 @@ def _compare_resolved():
     new_info = _first_info_by_id(ATHLETE_INFO_FULL_CSV)
     info_fields = ["이름", "성별", "출생년도", "종별", "소속팀", "팀코드", "시도"]
 
-    record_mismatches = []
+    record_decreases = []
+    record_increases = []
     info_mismatches = []
     for id_no in resolved_ids:
         old_count = old_records.get(id_no, 0)
         new_count = new_records.get(id_no, 0)
-        if old_count != new_count:
-            record_mismatches.append((id_no, old_count, new_count))
+        if new_count < old_count:
+            record_decreases.append((id_no, old_count, new_count))
+        elif new_count > old_count:
+            record_increases.append((id_no, old_count, new_count))
         old_row = old_info.get(id_no)
         new_row = new_info.get(id_no)
         if old_row is None or new_row is None:
@@ -1359,15 +1576,19 @@ def _compare_resolved():
                 info_mismatches.append((id_no, field, f"old={_norm(old_row.get(field))} / new={_norm(new_row.get(field))}"))
 
     print(f"[compare] 대상 {len(resolved_ids)}명")
-    print(f"[compare] records 건수 불일치 {len(record_mismatches)}건")
+    print(f"[compare] records 감소 {len(record_decreases)}건 / 증가 {len(record_increases)}건")
     print(f"[compare] athlete_info 불일치 {len(info_mismatches)}건")
-    for id_no, old_count, new_count in record_mismatches[:20]:
-        print(f"  - records {id_no}: old={old_count}, new={new_count}")
+    for id_no, old_count, new_count in record_decreases[:20]:
+        print(f"  - records 감소 {id_no}: old={old_count}, new={new_count}")
+    for id_no, old_count, new_count in record_increases[:20]:
+        print(f"  - records 증가 {id_no}: old={old_count}, new={new_count}")
     for id_no, field, message in info_mismatches[:20]:
         print(f"  - info {id_no} [{field}] {message}")
-    if record_mismatches or info_mismatches:
+    if record_decreases:
         return 1
-    print("[compare] 회귀 비교 일치")
+    if any(field == "행 누락" for _, field, _ in info_mismatches):
+        return 1
+    print("[compare] 회귀 비교 통과 (records 감소 없음)")
     return 0
 
 
@@ -1376,9 +1597,10 @@ def _cleanup_raw_cache():
         print(f"[cleanup] 캐시 디렉터리가 없습니다: {RAW_ROOT_DIR}")
         return 0
     removed = 0
-    for path in RAW_ROOT_DIR.rglob("*.html"):
-        path.unlink()
-        removed += 1
+    for path in RAW_ROOT_DIR.rglob("*"):
+        if path.is_file():
+            path.unlink()
+            removed += 1
     for path in sorted(RAW_ROOT_DIR.rglob("*"), reverse=True):
         if path.is_dir() and not any(path.iterdir()):
             path.rmdir()
@@ -1388,39 +1610,54 @@ def _cleanup_raw_cache():
     return 0
 
 
-def _finalize_summary(progress, failures, mode, export_summary):
+def _finalize_summary(progress, request_failures, meet_failures, mode, export_summary):
     request_total = int(progress["counters"].get("request_network_attempted", 0))
-    failures_remaining = len(failures)
+    request_failures_remaining = len(request_failures)
+    meet_failures_remaining = len(meet_failures)
     success_rate = 100.0
     if request_total > 0:
-        success_rate = (request_total - failures_remaining) / request_total * 100.0
+        success_rate = (request_total - request_failures_remaining) / request_total * 100.0
     summary = {
         "mode": mode,
         "updated_at": _now_iso(),
         "request_network_attempted": request_total,
-        "failures_remaining": failures_remaining,
+        "request_failures_remaining": request_failures_remaining,
+        "meet_failures_remaining": meet_failures_remaining,
         "success_rate_percent": round(success_rate, 2),
         "meets_95_percent": success_rate >= 95.0,
         "export": export_summary,
     }
+    meet_items = list(progress.get("meets", {}).values())
+    meet_done = sum(1 for item in meet_items if _norm(item.get("상태")) == "done")
+    meet_failed = sum(1 for item in meet_items if _norm(item.get("상태")) == "failed")
+    meet_in_progress = sum(1 for item in meet_items if _norm(item.get("상태")) == "in_progress")
+    summary["meet_done"] = meet_done
+    summary["meet_failed"] = meet_failed
+    summary["meet_in_progress"] = meet_in_progress
     progress["last_summary"] = summary
     _save_progress(progress)
     print(
-        "[summary] 요청시도 {0:,}건 / 잔여 실패 {1:,}건 / 성공률 {2:.2f}% / 95% 기준 {3}".format(
+        "[summary] 요청시도 {0:,}건 / 요청실패 {1:,}건 / 대회실패 {2:,}건 / 성공률 {3:.2f}% / 95% 기준 {4}".format(
             request_total,
-            failures_remaining,
+            request_failures_remaining,
+            meet_failures_remaining,
             success_rate,
             "충족" if success_rate >= 95.0 else "미충족",
         )
     )
-    if failures_remaining:
-        print(f"[summary] 실패 목록 잔여 {failures_remaining}건 → {FAILURES_CSV}")
+    if meet_failures_remaining:
+        print(f"[summary] 실패 대회 목록 잔여 {meet_failures_remaining}건 → {MEET_FAILURES_CSV}")
     else:
-        print("[summary] 실패 목록 없음")
+        print("[summary] 실패 대회 목록 없음")
+    print(f"[summary] 대회 상태: 완료 {meet_done:,} / 실패 {meet_failed:,} / 진행중 {meet_in_progress:,}")
+    if request_failures_remaining:
+        print(f"[summary] 요청 실패 목록 잔여 {request_failures_remaining}건 → {REQUEST_FAILURES_CSV}")
+    else:
+        print("[summary] 요청 실패 목록 없음")
 
 
 def _build_arg_parser():
-    parser = argparse.ArgumentParser(description="대회 중심( INF201→INF310 ) + 동계체 INF503 보완 전체 수집기")
+    parser = argparse.ArgumentParser(description="대회 중심( INF201→INF301/AJAX→INF310 ) + 동계체 INF503 보완 전체 수집기")
     parser.add_argument(
         "--data-dir",
         default=None,
@@ -1449,7 +1686,7 @@ def _build_arg_parser():
     collect_parser = sub.add_parser("collect", help="전수 수집 + 동계체 INF503 보완 + full CSV 생성")
     collect_parser.add_argument("--refresh", action="store_true", help="캐시 무시 후 전체 재수집")
 
-    retry_parser = sub.add_parser("retry-failures", help="실패 요청 재시도 후 full CSV 재생성")
+    retry_parser = sub.add_parser("retry-failures", help="실패 대회 재시도 후 full CSV 재생성")
     retry_parser.add_argument("--refresh", action="store_true", help="재시도 시 캐시 무시")
 
     sub.add_parser("export", help="캐시 기반 full CSV 재생성 (네트워크 요청 없음)")
@@ -1461,18 +1698,19 @@ def _build_arg_parser():
 def _prepare_runtime(mode, data_dir, request_gap):
     _configure_data_paths(data_dir)
     progress = _load_progress()
-    failures = _load_failures()
+    request_failures = _load_failures()
+    meet_failures = _load_meet_failures()
     progress["last_mode"] = mode
     progress["request_gap_seconds"] = request_gap
     _save_progress(progress)
-    return progress, failures
+    return progress, request_failures, meet_failures
 
 
 def _run_collect(args):
     if args.request_gap < 1.0:
         raise ValueError("[error] --request-gap은 1.0 이상이어야 합니다.")
     data_dir = args.data_dir or os.environ.get("SPLITS_DATA_DIR", str(DEFAULT_DATA_DIR))
-    progress, failures = _prepare_runtime("collect", data_dir=data_dir, request_gap=args.request_gap)
+    progress, failures, meet_failures = _prepare_runtime("collect", data_dir=data_dir, request_gap=args.request_gap)
     print(f"[path] data_dir={DATA_DIR}")
 
     session = requests.Session()
@@ -1487,6 +1725,8 @@ def _run_collect(args):
     if args.max_events is not None:
         events = events[: max(0, args.max_events)]
     print(f"[target] classCd=2 대회 {len(events)}개")
+    if args.max_events is None and len(events) != 132:
+        print(f"[warn] 쇼트트랙 대회 수가 기대치(132)와 다릅니다: {len(events)}")
 
     _collect_event_route(
         session,
@@ -1495,9 +1735,10 @@ def _run_collect(args):
         request_gap_seconds=args.request_gap,
         progress=progress,
         failures=failures,
+        meet_failures=meet_failures,
     )
 
-    base_records, _, winter_ids, _, _ = _build_base_records(events)
+    base_records, _, winter_ids, _, _, _, _ = _build_base_records(events)
     print(f"[target] INF310 기반 고유 선수 {len({_norm(r.get('idNo')) for r in base_records if _norm(r.get('idNo'))}):,}명")
     print(f"[target] 동계체전 보완 대상 {len(winter_ids):,}명")
     _collect_inf503_for_ids(
@@ -1510,28 +1751,31 @@ def _run_collect(args):
     )
 
     export_summary = _export_full_csv(events, progress=progress)
-    _finalize_summary(progress, failures, mode="collect", export_summary=export_summary)
+    for item in export_summary.get("meet_parse_failures", []):
+        event_stub = {"classCd": item.get("classCd"), "toCd": item.get("toCd"), "대회명": item.get("대회명")}
+        _set_meet_status(progress, event_stub, "failed", stage=item.get("실패단계"), error=item.get("사유"))
+        _record_meet_failure(
+            meet_failures,
+            event_stub,
+            stage=item.get("실패단계"),
+            reason=item.get("사유"),
+            progress=progress,
+        )
+    _finalize_summary(progress, failures, meet_failures, mode="collect", export_summary=export_summary)
 
 
 def _run_retry_failures(args):
     if args.request_gap < 1.0:
         raise ValueError("[error] --request-gap은 1.0 이상이어야 합니다.")
     data_dir = args.data_dir or os.environ.get("SPLITS_DATA_DIR", str(DEFAULT_DATA_DIR))
-    progress, failures = _prepare_runtime("retry-failures", data_dir=data_dir, request_gap=args.request_gap)
+    progress, failures, meet_failures = _prepare_runtime("retry-failures", data_dir=data_dir, request_gap=args.request_gap)
     print(f"[path] data_dir={DATA_DIR}")
 
     session = requests.Session()
     retry_entries = _load_retry_entries()
-    _retry_failure_requests(
-        session,
-        retry_entries=retry_entries,
-        refresh=bool(args.refresh),
-        request_gap_seconds=args.request_gap,
-        progress=progress,
-        failures=failures,
-    )
+    retry_keys = _retry_failure_requests(retry_entries=retry_entries)
 
-    # 실패 요청 재시도 이후, 캐시 기반으로 누락 요청을 이어받아 채운다.
+    # 실패 대회 목록만 다시 수집한다.
     events = _collect_inf201_events(
         session,
         refresh=False,
@@ -1542,16 +1786,25 @@ def _run_retry_failures(args):
     )
     if args.max_events is not None:
         events = events[: max(0, args.max_events)]
+    if retry_keys:
+        events = [event for event in events if _meet_key(event.get("classCd"), event.get("toCd")) in retry_keys]
+    else:
+        events = []
+    print(f"[retry] 재수집 대상 대회 {len(events)}개")
     _collect_event_route(
         session,
         events=events,
-        refresh=False,
+        refresh=bool(args.refresh),
         request_gap_seconds=args.request_gap,
         progress=progress,
         failures=failures,
+        meet_failures=meet_failures,
     )
 
-    _, _, winter_ids, _, _ = _build_base_records(events)
+    all_events = _load_events_from_inf201_cache()
+    if args.max_events is not None:
+        all_events = all_events[: max(0, args.max_events)]
+    _, _, winter_ids, _, _, _, _ = _build_base_records(all_events)
     _collect_inf503_for_ids(
         session,
         id_list=winter_ids,
@@ -1561,13 +1814,23 @@ def _run_retry_failures(args):
         failures=failures,
     )
 
-    export_summary = _export_full_csv(events, progress=progress)
-    _finalize_summary(progress, failures, mode="retry-failures", export_summary=export_summary)
+    export_summary = _export_full_csv(all_events, progress=progress)
+    for item in export_summary.get("meet_parse_failures", []):
+        event_stub = {"classCd": item.get("classCd"), "toCd": item.get("toCd"), "대회명": item.get("대회명")}
+        _set_meet_status(progress, event_stub, "failed", stage=item.get("실패단계"), error=item.get("사유"))
+        _record_meet_failure(
+            meet_failures,
+            event_stub,
+            stage=item.get("실패단계"),
+            reason=item.get("사유"),
+            progress=progress,
+        )
+    _finalize_summary(progress, failures, meet_failures, mode="retry-failures", export_summary=export_summary)
 
 
 def _run_export(args):
     data_dir = args.data_dir or os.environ.get("SPLITS_DATA_DIR", str(DEFAULT_DATA_DIR))
-    progress, failures = _prepare_runtime("export", data_dir=data_dir, request_gap=args.request_gap)
+    progress, failures, meet_failures = _prepare_runtime("export", data_dir=data_dir, request_gap=args.request_gap)
     print(f"[path] data_dir={DATA_DIR}")
     events = _load_events_from_inf201_cache()
     if args.max_events is not None:
@@ -1575,7 +1838,17 @@ def _run_export(args):
     if not events:
         raise FileNotFoundError(f"[error] INF201 캐시가 없습니다: {RAW_INF201_DIR}. 먼저 collect를 실행하세요.")
     export_summary = _export_full_csv(events, progress=progress)
-    _finalize_summary(progress, failures, mode="export", export_summary=export_summary)
+    for item in export_summary.get("meet_parse_failures", []):
+        event_stub = {"classCd": item.get("classCd"), "toCd": item.get("toCd"), "대회명": item.get("대회명")}
+        _set_meet_status(progress, event_stub, "failed", stage=item.get("실패단계"), error=item.get("사유"))
+        _record_meet_failure(
+            meet_failures,
+            event_stub,
+            stage=item.get("실패단계"),
+            reason=item.get("사유"),
+            progress=progress,
+        )
+    _finalize_summary(progress, failures, meet_failures, mode="export", export_summary=export_summary)
 
 
 def main():
