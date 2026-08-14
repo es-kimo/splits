@@ -48,6 +48,7 @@ RAW_INF503_DIR = RAW_ROOT_DIR / "inf503"
 
 PROGRESS_JSON = DATA_DIR / "collect_progress.json"
 FAILURES_CSV = DATA_DIR / "collect_failures.csv"
+INF202_EMPTY_EVENTS_CSV = DATA_DIR / "inf202_empty_events.csv"
 RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
 ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
 RECORDS_CSV = DATA_DIR / "records.csv"
@@ -65,6 +66,7 @@ FAILURE_FIELDS = [
     "attempts",
     "최종실패시각",
 ]
+INF202_EMPTY_FIELDS = ["classCd", "toCd", "inf201_대회명", "inf202_대회명", "원인", "비고"]
 ATHLETE_INFO_FIELDS = ["idNo", "이름", "성별", "출생년도", "종별", "소속팀", "팀코드", "시도"]
 RECORD_FIELDS = [
     "idNo",
@@ -108,6 +110,7 @@ def _configure_data_paths(base_dir):
     global RAW_INF503_DIR
     global PROGRESS_JSON
     global FAILURES_CSV
+    global INF202_EMPTY_EVENTS_CSV
     global RECORDS_FULL_CSV
     global ATHLETE_INFO_FULL_CSV
     global RECORDS_CSV
@@ -124,6 +127,7 @@ def _configure_data_paths(base_dir):
 
     PROGRESS_JSON = DATA_DIR / "collect_progress.json"
     FAILURES_CSV = DATA_DIR / "collect_failures.csv"
+    INF202_EMPTY_EVENTS_CSV = DATA_DIR / "inf202_empty_events.csv"
     RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
     ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
     RECORDS_CSV = DATA_DIR / "records.csv"
@@ -160,6 +164,11 @@ def _normalize_date_text(raw):
     return ""
 
 
+def _is_placeholder_text(text):
+    value = _norm(text).replace(" ", "")
+    return value in {"", "-", "~", "미등록", "N/A", "n/a"}
+
+
 def _extract_event_date(event_info):
     for key in ["기간", "대회기간", "경기기간"]:
         value = _norm(event_info.get(key))
@@ -194,6 +203,7 @@ def _default_progress():
             "inf201_events_total": 0,
             "inf201_events_class2": 0,
             "inf202_requests": 0,
+            "inf202_empty_events": 0,
             "inf301_requests": 0,
             "inf310_requests": 0,
             "inf503_requests": 0,
@@ -277,6 +287,10 @@ def _load_failures():
 def _save_failures(failures):
     rows = [failures[key] for key in sorted(failures.keys())]
     _save_csv_rows(FAILURES_CSV, rows, FAILURE_FIELDS)
+
+
+def _save_inf202_empty_events(rows):
+    _save_csv_rows(INF202_EMPTY_EVENTS_CSV, rows, INF202_EMPTY_FIELDS)
 
 
 def _is_retryable_http(status_code):
@@ -473,9 +487,17 @@ def _parse_inf202_bundle_html(html, class_cd, to_cd):
                 "참가선수수": participant_count,
             }
         )
-    if not details:
-        raise RuntimeError(f"INF202 세부종목 파싱 실패: classCd={class_cd}, toCd={to_cd}")
-    return {"eventInfo": event_info, "details": details}
+    if details:
+        return {"eventInfo": event_info, "details": details, "empty_reason": ""}
+
+    event_name = _norm(event_info.get("대회명"))
+    period = _norm(event_info.get("대회기간") or event_info.get("기간"))
+    place = _norm(event_info.get("개최장소") or event_info.get("장소"))
+    if _is_placeholder_text(event_name) and _is_placeholder_text(period) and _is_placeholder_text(place):
+        reason = "source_blank_event_info"
+    else:
+        reason = "no_schedule_rows"
+    return {"eventInfo": event_info, "details": [], "empty_reason": reason}
 
 
 def _parse_inf301_result_calls_html(html):
@@ -682,6 +704,7 @@ def _collect_event_route(
 ):
     total_events = len(events)
     seen_inf310 = set()
+    inf202_empty_events = []
     for idx, event in enumerate(events, start=1):
         class_cd = _norm(event.get("classCd"))
         to_cd = _norm(event.get("toCd"))
@@ -708,13 +731,31 @@ def _collect_event_route(
         _save_progress(progress)
         if html_202 is None:
             continue
-        try:
-            bundle = _parse_inf202_bundle_html(html_202, class_cd=class_cd, to_cd=to_cd)
-        except RuntimeError as exc:
-            print(f"[warn] {exc}")
+        bundle = _parse_inf202_bundle_html(html_202, class_cd=class_cd, to_cd=to_cd)
+        details = bundle["details"]
+        if not details:
+            reason = _norm(bundle.get("empty_reason"))
+            reason_text = "원천 대회정보 공백" if reason == "source_blank_event_info" else "세부종목 미노출"
+            inf202_name = _norm(bundle["eventInfo"].get("대회명"))
+            print(
+                "[info] INF202 세부종목 미수집: classCd={0}, toCd={1}, 원인={2}".format(
+                    class_cd, to_cd, reason_text
+                )
+            )
+            inf202_empty_events.append(
+                {
+                    "classCd": class_cd,
+                    "toCd": to_cd,
+                    "inf201_대회명": event_name,
+                    "inf202_대회명": inf202_name,
+                    "원인": reason_text,
+                    "비고": "INF201 목록에는 있으나 INF202 상세가 비어 INF301/INF310 진행 불가",
+                }
+            )
+            _bump_counter(progress, "inf202_empty_events")
+            _save_progress(progress)
             continue
-
-        for detail in bundle["details"]:
+        for detail in details:
             kind_cd = _norm(detail.get("kindCd"))
             detail_class_cd = _norm(detail.get("detailClassCd"))
             payload_301 = _base_payload()
@@ -801,6 +842,14 @@ def _collect_event_route(
                 if html_310 is None:
                     continue
 
+    _save_inf202_empty_events(inf202_empty_events)
+    print(
+        "[summary] INF202 세부종목 미수집 대회 {0:,}건 → {1}".format(
+            len(inf202_empty_events), INF202_EMPTY_EVENTS_CSV
+        )
+    )
+    return inf202_empty_events
+
 
 def _load_events_from_inf201_cache():
     events = []
@@ -840,6 +889,9 @@ def _build_base_records(events):
         "events_total": len(events),
         "events_winter": 0,
         "inf202_detail_count": 0,
+        "inf202_empty_event_count": 0,
+        "inf202_empty_source_blank_count": 0,
+        "inf202_empty_no_schedule_count": 0,
         "inf301_call_count": 0,
         "inf310_call_count": 0,
         "inf310_header_missing_call_count": 0,
@@ -864,11 +916,15 @@ def _build_base_records(events):
         if not cache_202.exists():
             continue
         html_202 = cache_202.read_text(encoding="utf-8")
-        try:
-            bundle = _parse_inf202_bundle_html(html_202, class_cd=class_cd, to_cd=to_cd)
-        except RuntimeError:
-            continue
+        bundle = _parse_inf202_bundle_html(html_202, class_cd=class_cd, to_cd=to_cd)
         details = bundle["details"]
+        if not details:
+            parse_stats["inf202_empty_event_count"] += 1
+            if _norm(bundle.get("empty_reason")) == "source_blank_event_info":
+                parse_stats["inf202_empty_source_blank_count"] += 1
+            else:
+                parse_stats["inf202_empty_no_schedule_count"] += 1
+            continue
         event_info = bundle["eventInfo"]
         _, event_date_norm = _extract_event_date(event_info)
         parse_stats["inf202_detail_count"] += len(details)
@@ -1187,6 +1243,13 @@ def _export_full_csv(events, progress):
             parse_stats["inf202_detail_count"],
             parse_stats["inf301_call_count"],
             parse_stats["inf310_call_count"],
+        )
+    )
+    print(
+        "[export] INF202 미수집 대회 {0:,}건 (원천 대회정보 공백 {1:,}, 세부종목 미노출 {2:,})".format(
+            parse_stats["inf202_empty_event_count"],
+            parse_stats["inf202_empty_source_blank_count"],
+            parse_stats["inf202_empty_no_schedule_count"],
         )
     )
     return {
