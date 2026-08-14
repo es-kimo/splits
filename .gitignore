@@ -10,7 +10,7 @@
 /data/collect_failures.csv
 /data/records_full.csv
 /data/athlete_info_full.csv
-/data/raw/history/
+/data/raw/
 __pycache__/
 .env
 .env.*
