@@ -1,6 +1,5 @@
 ---
 import DistributionTool from "../components/DistributionTool";
-import DistributionToolStyles from "../components/DistributionToolStyles.astro";
 import Base from "../layouts/Base.astro";
 import { withBase } from "../lib/base";
 import { loadDistributionDoc, loadMetaDoc } from "../lib/data";
@@ -9,24 +8,20 @@ const distribution = loadDistributionDoc();
 const meta = loadMetaDoc();
 
 const placementCount = `${(meta.placementCount || 0).toLocaleString("ko-KR")}개`;
-const top2Count = `${meta.elemTop2Count || 0}명`;
 const yearSpan =
   meta.yearStart !== null && meta.yearEnd !== null ? `${meta.yearStart}년 ~ ${meta.yearEnd}년` : "연도 정보 없음";
 ---
 
 <Base
-  title="또래 기록 분포 조회"
-  description="우리 아이 기록이 또래 중 어디쯤인지 30초 안에 확인할 수 있습니다. 조건을 고르고 기록 또는 등수를 입력하면 상위 위치를 바로 보여줍니다."
-  ogTitle="또래 기록 분포 조회"
-  ogImage="og/distribution.png"
+  title="우리 아이 기록, 또래 중 어디쯤일까요 — 스플릿"
+  description="비교할 조건을 고르고 기록이나 등수를 넣으면, 또래 중 어디쯤인지 한 줄로 알려드립니다. 국내 쇼트트랙 공개 경기 기록을 정리했습니다."
+  ogTitle="우리 아이 기록, 또래 중 어디쯤일까요"
+  ogImage="og-default.png"
   generatedAt={meta.generatedAt}
-  contentWidth="narrow"
-  pageBottomPadding="72px"
 >
-  <header class="home-hero">
-    <span class="home-badge">답부터 확인</span>
-    <h1>우리 아이 기록, 또래 중 어디쯤인지 바로 확인해요</h1>
-    <p class="home-intro">비교 조건을 고르고 기록이나 등수를 넣으면 상위 몇 %인지 한 줄로 보여드려요.</p>
+  <header class="page-head">
+    <h1>우리 아이 기록,<br />또래 중에 어디쯤일까요?</h1>
+    <p class="lead">비교할 조건을 고르고 기록이나 등수를 넣으면, 또래 중 어디쯤인지 한 줄로 알려드려요.</p>
   </header>
 
   <DistributionTool
@@ -40,119 +35,35 @@ const yearSpan =
     rows={distribution.rows}
   />
 
-  <section class="evidence-card">
-    <h2>이 숫자를 왜 믿을 수 있나요?</h2>
-    <p class="evidence-intro">집계 기준과 원자료를 함께 공개하고, 데이터 부족 구간은 공개하지 않습니다.</p>
-    <div class="evidence-metrics">
-      <article class="evidence-metric">
-        <b>{meta.athleteCount || 0}명</b>
-        <span>국가대표 유년기 데이터 공개</span>
-      </article>
-      <article class="evidence-metric">
-        <b>{placementCount}</b>
-        <span>분석에 사용된 경기 성적</span>
-      </article>
-      <article class="evidence-metric">
-        <b>{top2Count}</b>
-        <span>초등부 기록이 남은 선수 중 1~2등 경험</span>
-      </article>
+  <section class="card">
+    <div class="card-head">
+      <h2>이 숫자는 어디서 왔나요?</h2>
+      <p>대한체육회가 공개한 경기 결과를 그대로 모았어요. 나온 선수가 적어 개인이 짐작될 수 있는 구간은 보여드리지 않아요.</p>
     </div>
-    <p class="evidence-footnote">자료 범위: {yearSpan}. 계산 기준과 선수별 원자료는 분석 페이지에서 확인할 수 있습니다.</p>
-    <a class="analysis-link" href={withBase("analysis/")}>국가대표 14명 원자료·해석 보기 →</a>
+    <div class="metric-grid is-2">
+      <div class="metric">
+        <b>{placementCount}</b>
+        <span>모아둔 경기 성적</span>
+      </div>
+      <div class="metric">
+        <b>{meta.athleteCount || 0}명</b>
+        <span>기록을 볼 수 있는 국가대표</span>
+      </div>
+    </div>
+    <p class="hint">자료 범위: {yearSpan}</p>
+    <a class="chip analysis-link" href={withBase("analysis/")}>국가대표는 어릴 때 몇 등이었을까요 →</a>
   </section>
 
   <style>
-    .home-hero {
-      padding: 18px 4px 6px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .home-badge {
-      align-self: flex-start;
-      background: #e4ebff;
-      color: #2e63f6;
-      font-size: 12px;
-      font-weight: 700;
-      padding: 6px 11px;
-      border-radius: 999px;
-    }
-    .home-hero h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.34;
-      letter-spacing: -0.025em;
-      font-weight: 800;
-    }
-    .home-intro {
-      margin: 0;
-      font-size: 14.5px;
-      color: #5b5f68;
-    }
-    .evidence-card {
-      margin-top: 14px;
-      background: #ffffff;
-      border-radius: 22px;
-      padding: 22px 20px;
-    }
-    .evidence-card h2 {
-      margin: 0 0 8px;
-      font-size: 20px;
-      line-height: 1.34;
-      letter-spacing: -0.02em;
-    }
-    .evidence-intro {
-      margin: 0;
-      font-size: 14.5px;
-      color: #5b5f68;
-    }
-    .evidence-metrics {
-      margin-top: 14px;
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 8px;
-    }
-    .evidence-metric {
-      background: #fafbfc;
-      border-radius: 14px;
-      padding: 14px 14px 13px;
-      display: grid;
-      gap: 2px;
-    }
-    .evidence-metric b {
-      font-size: 22px;
-      letter-spacing: -0.02em;
-      line-height: 1.25;
-    }
-    .evidence-metric span {
-      font-size: 13px;
-      color: #6b6f78;
-    }
-    .evidence-footnote {
-      margin: 12px 0 0;
-      font-size: 13px;
-      color: #8a8f99;
-    }
     .analysis-link {
-      display: inline-flex;
       margin-top: 14px;
-      font-size: 14px;
+      background: var(--point-bg);
+      color: var(--point);
       font-weight: 700;
-      color: #2e63f6;
     }
-    @media (min-width: 641px) {
-      .evidence-metrics {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-    }
-    @media (max-width: 640px) {
-      .home-hero {
-        padding-top: 14px;
-      }
-      .home-hero h1 {
-        font-size: 25px;
-      }
+    .analysis-link:hover {
+      background: var(--point-bg-2);
+      color: var(--point);
     }
   </style>
-  <DistributionToolStyles />
 </Base>

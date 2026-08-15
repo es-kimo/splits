@@ -29,25 +29,24 @@ const ageMin = ages[0] ?? 7;
 const ageMid = ages[Math.floor(ages.length / 2)] ?? 12;
 const ageMax = ages[ages.length - 1] ?? 18;
 const birthText = athlete.birth !== null ? `${athlete.birth}년생` : "출생연도 미상";
-const pageTitle = `${athlete.name} 경기 기록 — splits`;
+const pageTitle = `${athlete.name} 경기 기록 — 스플릿`;
 const pageDescription = `${athlete.name}(${birthText}, ${athlete.team}) 쇼트트랙 경기 기록`;
 const canonicalUrl = `athlete/${athlete.slug}/`;
 const ogTitle = `${athlete.name} 경기 기록`;
 
 const missingNote =
   athlete.birth !== null && minYear !== null
-    ? `${minYear - athlete.birth}살(${minYear}년) 이전 기록은 시스템에 남아 있지 않습니다. 대회에 나가지 않았다는 뜻은 아닙니다.`
-    : "초기 시즌 기록은 시스템에 남아 있지 않습니다. 대회에 나가지 않았다는 뜻은 아닙니다.";
+    ? `${minYear - athlete.birth}살(${minYear}년) 이전 기록은 시스템에 남아 있지 않아요. 대회에 나가지 않았다는 뜻은 아니에요.`
+    : "초기 시즌 기록은 시스템에 남아 있지 않아요. 대회에 나가지 않았다는 뜻은 아니에요.";
 
-const yearBest = new Map<number, number>();
-for (const item of athlete.history) {
-  if (item.sf || item.year === null || item.rank === null) continue;
-  const current = yearBest.get(item.year);
-  if (current === undefined || item.rank < current) {
-    yearBest.set(item.year, item.rank);
-  }
-}
-const yearBestRows = [...yearBest.entries()].sort((a, b) => b[0] - a[0]);
+const bestRank = athlete.history.reduce<number | null>((best, item) => {
+  if (item.sf || item.rank === null) return best;
+  return best === null || item.rank < best ? item.rank : best;
+}, null);
+const bestYear =
+  bestRank === null
+    ? null
+    : athlete.history.find((item) => !item.sf && item.rank === bestRank)?.year ?? null;
 
 function normalizeGroupLabel(text: string): "종합" | "A" | "B" {
   const value = String(text || "").trim();
@@ -99,6 +98,13 @@ const yearCards = [...groupedYears.values()]
       }),
     })),
   }));
+
+const glossary = [
+  { term: "A그룹", body: "상위 선수들이 겨루는 결승이에요. 같은 등수라도 A그룹이 더 높은 순위입니다." },
+  { term: "B그룹", body: "A그룹에 들지 못한 선수들의 결승이에요." },
+  { term: "종합", body: "전국동계체육대회처럼 그룹을 나누지 않고 매긴 순위예요." },
+  { term: "준결승", body: "결승 전 단계예요. 조 안에서 매긴 등수라 전체 순위와 다릅니다." },
+];
 ---
 
 <Base
@@ -106,86 +112,81 @@ const yearCards = [...groupedYears.values()]
   description={pageDescription}
   canonical={canonicalUrl}
   ogTitle={ogTitle}
-  ogImage="og/athlete.png"
+  ogImage="og-player.png"
   generatedAt={meta.generatedAt}
-  contentWidth="narrow"
-  contentLineHeight="compact"
-  pageBottomPadding="60px"
-  footerVariant="none"
+  back={{ href: withBase("athlete/"), label: "공개 선수 목록" }}
 >
-  <div class="top-link"><a href={withBase("athlete/")} onclick="if(window.history.length>1){window.history.back();return false;}">← 공개 선수 목록</a></div>
-  <header class="card">
-    <div>
-      <h1>{athlete.name}</h1>
-      <p class="subtitle">{subtitle}</p>
-    </div>
-    <div class="metrics">
-      <div><div class="metric-main">{totalRaces}회</div><div class="metric-sub">전체 경기</div></div>
-      <div class="highlight"><div class="metric-main">{goldCount}회</div><div class="metric-sub">1등</div></div>
-      <div><div class="metric-main">{seasonSpan}</div><div class="metric-sub">{yearRange}</div></div>
-    </div>
+  <header class="page-head is-tight">
+    <h1>{athlete.name}</h1>
+    <p class="lead">{subtitle}</p>
   </header>
 
   <section class="card">
-    <h2>나이별 성적 궤적</h2>
-    <p class="section-note">메인 페이지에서 쓰는 같은 그래프로, 나이별 최고 성적 흐름을 보여줘요.</p>
-    <div class="trajectory-wrap">
+    <div class="metric-grid">
+      <div class="metric"><b>{totalRaces}회</b><span>전체 경기</span></div>
+      <div class="metric is-point"><b>{goldCount}회</b><span>1등</span></div>
+      <div class="metric"><b>{seasonSpan}</b><span>{yearRange}</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>어릴 때부터 지금까지</h2>
+      <p>나이마다 <b>가장 잘했던 등수</b>를 찍었어요. 파란 점이 위에 붙을수록 1등에 가까워요.</p>
+    </div>
+    <div class="tile">
       <Trajectory ages={ages} ageRanks={athlete.ages} />
+      <div class="age-axis">
+        <span>{ageMin}살</span><span>{ageMid}살</span><span>{ageMax}살</span>
+      </div>
     </div>
-    <div class="age-axis">
-      <span>{ageMin}살</span><span>{ageMid}살</span><span>{ageMax}살</span>
-    </div>
-    <p class="hint">비어 있는 구간은 해당 나이의 기록이 시스템에 없다는 뜻이에요.</p>
+    {
+      bestRank !== null && (
+        <p class="best-line">
+          가장 좋았던 성적은 <b>{bestRank}등</b>
+          {bestYear !== null && `, ${bestYear}년`}
+          {bestYear !== null && athlete.birth !== null && ` (${bestYear - athlete.birth}살)`}이에요.
+        </p>
+      )
+    }
+    <p class="hint">
+      비어 있는 구간은 성적이 나빴다는 뜻이 아니라, 그 나이의 기록이 시스템에 없다는 뜻이에요. {missingNote}
+    </p>
   </section>
 
   <section class="card">
-    <h2>해마다 가장 잘한 등수</h2>
-    <p class="section-note">막대가 길수록 좋은 성적이에요. 진한 막대는 1등을 한 해예요.</p>
-    <div class="year-best">
-      {
-        yearBestRows.map(([year, best]) => {
-          const width = Math.max(((11 - Math.min(best, 10)) / 10) * 100, 6);
-          const isGold = best === 1;
-          return (
-            <div class="year-best-row">
-              <span class="year">{year}</span>
-              <span class="age">{athlete.birth !== null ? `${year - athlete.birth}살` : "-"}</span>
-              <div class="bar-wrap">
-                <span class="bar" style={`width:${width}%;background:${isGold ? "#2E63F6" : best <= 3 ? "#A9C3FA" : "#D3D8E0"}`}></span>
-              </div>
-              <span class="rank" style={`color:${isGold ? "#2E63F6" : "#5B5F68"}`}>{best}등</span>
-            </div>
-          );
-        })
-      }
+    <div class="card-head">
+      <h2>전체 대회 기록</h2>
+      <p>대회 하나가 카드 하나예요. 종목별 등수는 오른쪽에 나와요.</p>
     </div>
-    <p class="hint">{missingNote}</p>
-  </section>
-
-  <section class="card">
-    <h2>전체 대회 기록</h2>
-    <p class="section-note">대회 하나가 카드 하나예요. 종목별 등수는 오른쪽에 나와요.</p>
     <div class="year-groups">
       {
         yearCards.map((yearGroup) => (
           <article class="year-group">
-            <div class="sticky">
+            <div class="year-group-head">
               <b>{yearGroup.year}년</b>
-              <span>{athlete.birth !== null ? `${yearGroup.year - athlete.birth}살 · ` : ""}{yearGroup.meets.reduce((acc, meet) => acc + meet.results.length, 0)}경기</span>
+              <span>
+                {athlete.birth !== null ? `${yearGroup.year - athlete.birth}살 · ` : ""}
+                {yearGroup.meets.reduce((acc, meet) => acc + meet.results.length, 0)}경기
+              </span>
             </div>
-            <div class="meet-list">
+            <div class="list">
               {yearGroup.meets.map((meet) => (
-                <div class="meet-card">
-                  <b>{meet.meetUrl ? <a href={withBase(meet.meetUrl)}>{meet.name}</a> : meet.name}</b>
+                <div class="tile meet-card">
+                  <b class="meet-name">{meet.meetUrl ? <a href={withBase(meet.meetUrl)}>{meet.name}</a> : meet.name}</b>
                   <div class="results">
                     {meet.results.map((result) => {
                       const groupLabel = normalizeGroupLabel(result.round);
                       const note = result.sf ? "준결승" : groupLabel === "종합" ? "종합 순위" : `${groupLabel}그룹 결승`;
+                      let tone = "";
+                      if (result.sf) tone = "is-mute";
+                      else if (result.rank === 1) tone = "is-gold";
+                      else if (result.rank === 2 || result.rank === 3) tone = "is-podium";
                       return (
                         <div class="result-row">
                           <span class="distance">{result.distance ?? "-"}m</span>
-                          <span class="note">{note}</span>
-                          <span class={`badge ${result.sf ? "semi" : result.rank === 1 ? "gold" : result.rank <= 3 ? "podium" : "normal"}`}>{result.rank}등</span>
+                          <span class="round-note">{note}</span>
+                          <span class={`rank-badge ${tone}`}>{result.rank}등</span>
                         </div>
                       );
                     })}
@@ -200,194 +201,84 @@ const yearCards = [...groupedYears.values()]
   </section>
 
   <section class="card">
-    <h2>용어 안내</h2>
+    <div class="card-head">
+      <h2>이 말은 무슨 뜻인가요?</h2>
+      <p>기록에 나오는 표기를 풀어서 적어둘게요.</p>
+    </div>
     <div class="glossary">
-      <div><span>A그룹</span><p>상위 선수들이 겨루는 결승입니다. 같은 등수라도 A그룹이 더 높은 순위입니다.</p></div>
-      <div><span>B그룹</span><p>A그룹에 들지 못한 선수들의 결승입니다.</p></div>
-      <div><span>종합</span><p>전국동계체육대회처럼 그룹을 나누지 않고 매긴 순위입니다.</p></div>
-      <div><span>준결승</span><p>결승 전 단계입니다. 조 안에서 매긴 등수라 전체 순위와 다릅니다.</p></div>
+      {
+        glossary.map((entry) => (
+          <div class="glossary-row">
+            <span class="badge glossary-term">{entry.term}</span>
+            <p>{entry.body}</p>
+          </div>
+        ))
+      }
     </div>
   </section>
 
   <section class="card">
-    <h2>개인정보 삭제/처리정지 요청</h2>
-    <p class="section-note">
-      선수 정보 열람·정정·삭제·처리정지를 요청하실 수 있어요. 요청 방법과 처리 기준은 개인정보 처리방침 페이지에 안내돼 있어요.
-    </p>
-    <div class="request-row">
+    <div class="card-head">
+      <h2>기록을 내려달라고 요청할 수 있나요?</h2>
+      <p>선수 정보의 열람·정정·삭제·처리정지를 요청하실 수 있어요.</p>
+    </div>
+    <div class="tile request-tile">
       <span>요청 접수 메일(예시): privacy@example.com</span>
-      <a href={withBase("privacy/#request")}>요청 안내 보기</a>
+      <a class="chip request-link" href={withBase("privacy/#request")}>요청 안내 보기</a>
     </div>
   </section>
 
-  <footer class="legacy-footer">
-    공개된 경기 결과를 정리한 페이지입니다. 출처: 대한체육회 경기결과 시스템<br />
-    <a href={withBase("privacy/")}>개인정보 처리방침 · 삭제/처리정지 요청</a>
-  </footer>
-
   <style>
-    .top-link {
-      padding: 16px 2px 4px;
-    }
-    .top-link a {
-      font-size: 14px;
-      font-weight: 600;
-      color: #6b6f78;
-    }
-    .card {
-      background: #ffffff;
-      border-radius: 20px;
-      padding: 22px 20px;
-      margin-bottom: 12px;
-    }
-    h1 {
-      margin: 0;
-      font-size: 30px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-    }
-    .subtitle {
-      margin: 5px 0 0;
-      font-size: 15px;
-      color: #6b6f78;
-    }
-    .metrics {
-      margin-top: 16px;
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-    }
-    .metrics > div {
-      background: #f5f7fa;
-      border-radius: 14px;
-      padding: 12px 12px 11px;
-    }
-    .metrics > .highlight {
-      background: #e9f0ff;
-    }
-    .metric-main {
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-    .metric-sub {
-      font-size: 12.5px;
-      color: #8a8f99;
-      margin-top: 1px;
-    }
-    h2 {
-      margin: 0 0 4px;
-      font-size: 18px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-    .section-note {
-      margin: 0 0 14px;
-      font-size: 14px;
-      color: #6b6f78;
-    }
-    .trajectory-wrap {
-      background: #fafbfc;
-      border-radius: 14px;
-      padding: 10px 10px 8px;
-    }
     .age-axis {
       margin-top: 6px;
       display: flex;
       justify-content: space-between;
       font-size: 11.5px;
-      color: #a0a5af;
+      color: var(--faint-2);
       padding: 0 4px;
     }
-    .year-best {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
+    .best-line {
+      margin: 12px 0 0;
+      font-size: 14.5px;
+      color: var(--sub);
     }
-    .year-best-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .year {
-      font-size: 13px;
-      color: #8a8f99;
-      width: 38px;
-      flex: none;
-      font-variant-numeric: tabular-nums;
-    }
-    .age {
-      font-size: 12px;
-      color: #c6cbd4;
-      width: 36px;
-      flex: none;
-    }
-    .bar-wrap {
-      flex: 1;
-      height: 20px;
-      background: #f2f4f7;
-      border-radius: 6px;
-      position: relative;
-    }
-    .bar {
-      position: absolute;
-      left: 0;
-      top: 0;
-      height: 20px;
-      border-radius: 6px;
-    }
-    .rank {
-      font-size: 13.5px;
+    .best-line b {
+      color: var(--point);
       font-weight: 700;
-      width: 34px;
-      text-align: right;
-      flex: none;
-    }
-    .hint {
-      margin: 16px 0 0;
-      font-size: 13px;
-      color: #9ba0aa;
     }
     .year-groups {
       display: flex;
       flex-direction: column;
-      gap: 22px;
+      gap: var(--gap-section);
     }
-    .sticky {
-      padding: 6px 4px 10px;
+    .year-group-head {
+      padding: 0 2px 10px;
       display: flex;
       align-items: baseline;
       gap: 8px;
     }
-    .sticky b {
+    .year-group-head b {
       font-size: 17px;
       font-weight: 800;
       letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
     }
-    .sticky span {
+    .year-group-head span {
       font-size: 13px;
-      color: #9ba0aa;
-    }
-    .meet-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      color: var(--faint);
     }
     .meet-card {
-      background: #fafbfc;
-      border-radius: 16px;
-      padding: 14px 14px 12px;
       display: flex;
       flex-direction: column;
       gap: 10px;
     }
-    .meet-card b {
+    .meet-name {
       font-size: 15px;
       font-weight: 700;
       line-height: 1.4;
       letter-spacing: -0.01em;
     }
-    .meet-card b a {
+    .meet-name a {
       color: inherit;
       text-decoration: underline;
       text-decoration-color: #d3d8e0;
@@ -396,116 +287,71 @@ const yearCards = [...groupedYears.values()]
     .results {
       display: flex;
       flex-direction: column;
-      gap: 1px;
     }
     .result-row {
       display: flex;
       align-items: center;
       gap: 10px;
       padding: 7px 2px;
-      border-top: 1px solid #f0f2f5;
+      border-top: 1px solid var(--line);
     }
     .distance {
+      flex: none;
+      width: 62px;
       font-size: 14.5px;
       font-weight: 600;
-      color: #3a3d45;
-      width: 62px;
-      flex: none;
+      color: var(--text);
       font-variant-numeric: tabular-nums;
     }
-    .note {
+    .round-note {
       font-size: 12.5px;
-      color: #a9aeb8;
+      color: var(--faint-2);
     }
-    .badge {
+    .result-row .rank-badge {
       margin-left: auto;
-      flex: none;
-      min-width: 46px;
-      text-align: center;
-      font-size: 14px;
-      font-weight: 700;
-      border-radius: 10px;
-      padding: 5px 10px;
-      font-variant-numeric: tabular-nums;
-    }
-    .badge.gold {
-      background: #2e63f6;
-      color: #ffffff;
-    }
-    .badge.podium {
-      background: #e9f0ff;
-      color: #2e63f6;
-    }
-    .badge.normal {
-      background: #f2f4f7;
-      color: #5b5f68;
-    }
-    .badge.semi {
-      background: #f2f4f7;
-      color: #9ba0aa;
     }
     .glossary {
       display: flex;
       flex-direction: column;
       gap: 12px;
     }
-    .glossary div {
+    .glossary-row {
       display: flex;
       gap: 10px;
       align-items: flex-start;
     }
-    .glossary span {
-      flex: none;
-      min-width: 46px;
+    .glossary-term {
+      min-width: 50px;
       text-align: center;
       font-size: 12px;
-      font-weight: 700;
-      color: #5b5f68;
-      background: #f2f4f7;
-      border-radius: 8px;
-      padding: 4px 8px;
+      color: var(--sub);
+      padding: 5px 8px;
     }
-    .glossary p {
+    .glossary-row p {
       margin: 0;
       font-size: 14px;
-      color: #5b5f68;
+      color: var(--sub);
     }
-    .request-row {
+    .request-tile {
+      background: var(--surface-3);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      background: #f5f7fa;
-      border-radius: 14px;
-      padding: 12px 14px;
+      flex-wrap: wrap;
     }
-    .request-row span {
+    .request-tile > span {
       font-size: 13.5px;
-      color: #5b5f68;
+      color: var(--sub);
     }
-    .request-row a {
-      font-size: 13.5px;
+    .request-link {
+      background: var(--surface);
+      color: var(--point);
       font-weight: 700;
-      color: #2e63f6;
-      white-space: nowrap;
-      text-decoration: none;
+      min-height: 40px;
     }
-    .request-row a:hover {
-      text-decoration: underline;
-    }
-    .legacy-footer {
-      padding: 8px 6px 0;
-      font-size: 13px;
-      color: #9ba0aa;
-    }
-    @media (max-width: 640px) {
-      .metrics {
-        grid-template-columns: 1fr;
-      }
-      .request-row {
-        align-items: flex-start;
-        flex-direction: column;
-      }
+    .request-link:hover {
+      color: var(--point-hover);
     }
   </style>
 </Base>

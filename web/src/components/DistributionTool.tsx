@@ -49,46 +49,40 @@ const GRADE_OPTIONS: GradeOption[] = [
 
 const NOTES = [
   {
-    q: "학년 입력은 어떻게 계산하나요?",
-    a: "학년은 현재연도 기준의 근사 출생연도로 바꿔 계산합니다. 필요하면 출생연도를 직접 입력해서 비교할 수 있습니다.",
+    q: "학년은 어떻게 계산하나요?",
+    a: "지금 학년을 올해 기준의 출생연도로 바꿔서 비교해요. 학년이 또래와 다르면 아래에서 출생연도를 직접 넣어주세요.",
   },
   {
     q: "어떤 경기의 기록인가요?",
-    a: "기록은 예선 기준입니다. 결승은 경기 운영 영향이 커서 실력 비교에는 예선 기록이 더 안정적입니다.",
+    a: "예선 기록이에요. 결승은 순위 싸움 때문에 일부러 천천히 타는 경우가 많아서, 실력을 견주기에는 예선이 더 안정적이에요.",
   },
   {
-    q: "어떤 종목의 기록인가요?",
-    a: "쇼트트랙 기록만 집계합니다. 함께 열리는 스피드스케이팅 경기 기록은 제외했습니다.",
+    q: "쇼트트랙 기록만 있나요?",
+    a: "네. 같은 날 함께 열리는 스피드스케이팅 경기 기록은 빼고 모았어요.",
   },
   {
-    q: "기록과 등수의 비교 인원이 다른 이유는 무엇인가요?",
-    a: "기록은 예선 기록을 모두 사용하고, 등수는 학령 경기의 결승·채점종합만 사용합니다. 두 통계의 대상 경기가 달라 비교 인원도 다릅니다.",
+    q: "기록과 등수의 비교 인원이 왜 다른가요?",
+    a: "기록은 예선에 나온 모든 선수를 쓰고, 등수는 학령별 결승과 채점종합만 써요. 대상이 되는 경기가 달라서 인원도 달라집니다.",
   },
   {
-    q: "이 데이터로 알 수 없는 것은 무엇인가요?",
-    a: "훈련량, 부상, 성장 시기, 지도 환경처럼 실제 경기력에 큰 영향을 주는 요소는 포함하지 않습니다.",
+    q: "이 숫자로 알 수 없는 건 무엇인가요?",
+    a: "훈련량, 부상, 성장 시기, 지도 환경처럼 실제 경기력을 크게 좌우하는 것들은 여기에 담겨 있지 않아요.",
   },
 ];
 
 export default function DistributionTool(props: Props) {
   const allRows = props.rows;
-  const showTopLink = props.showTopLink ?? true;
   const showHero = props.showHero ?? true;
   const initialRow = allRows.find((row) => !row.timeInsufficient || !row.rankInsufficient) ?? allRows[0];
 
-  const defaultGradeId = useMemo(
-    () => pickClosestGradeId(initialRow?.birthYear ?? null),
-    [initialRow?.birthYear],
-  );
+  const defaultGradeId = useMemo(() => pickClosestGradeId(initialRow?.birthYear ?? null), [initialRow?.birthYear]);
 
   const [gender, setGender] = useState(initialRow?.gender ?? "");
   const [distance, setDistance] = useState<number | null>(initialRow?.distance ?? null);
   const [mode, setMode] = useState<InputMode>("time");
   const [ageInputMode, setAgeInputMode] = useState<AgeInputMode>("grade");
   const [gradeId, setGradeId] = useState(defaultGradeId);
-  const [manualBirthYearInput, setManualBirthYearInput] = useState(
-    initialRow?.birthYear ? String(initialRow.birthYear) : "",
-  );
+  const [manualBirthYearInput, setManualBirthYearInput] = useState(initialRow?.birthYear ? String(initialRow.birthYear) : "");
   const [input, setInput] = useState("");
 
   const availableGenders = useMemo(
@@ -96,25 +90,16 @@ export default function DistributionTool(props: Props) {
     [allRows, props.filters.genders],
   );
 
-  const selectedGrade = useMemo(
-    () => GRADE_OPTIONS.find((option) => option.id === gradeId) ?? GRADE_OPTIONS[0],
-    [gradeId],
-  );
+  const selectedGrade = useMemo(() => GRADE_OPTIONS.find((option) => option.id === gradeId) ?? GRADE_OPTIONS[0], [gradeId]);
 
   const manualBirthYear = useMemo(() => parseBirthYear(manualBirthYearInput), [manualBirthYearInput]);
 
   const hasBirthYearError =
-    ageInputMode === "birth-year" &&
-    manualBirthYearInput.trim().length > 0 &&
-    !Number.isFinite(manualBirthYear);
+    ageInputMode === "birth-year" && manualBirthYearInput.trim().length > 0 && !Number.isFinite(manualBirthYear);
 
   const targetBirthYear = useMemo(() => {
-    if (ageInputMode === "grade") {
-      return CURRENT_YEAR - selectedGrade.approxAge;
-    }
-    if (Number.isFinite(manualBirthYear)) {
-      return manualBirthYear;
-    }
+    if (ageInputMode === "grade") return CURRENT_YEAR - selectedGrade.approxAge;
+    if (Number.isFinite(manualBirthYear)) return manualBirthYear;
     return null;
   }, [ageInputMode, manualBirthYear, selectedGrade.approxAge]);
 
@@ -127,6 +112,7 @@ export default function DistributionTool(props: Props) {
     [allRows, gender, targetBirthYear],
   );
   const availableDistances = exactDistanceOptions.length > 0 ? exactDistanceOptions : nearbyDistanceOptions;
+
   useEffect(() => {
     if (availableGenders.length > 0 && !availableGenders.includes(gender)) {
       setGender(availableGenders[0]);
@@ -145,13 +131,7 @@ export default function DistributionTool(props: Props) {
 
   const selectedResolution = useMemo(() => {
     if (!gender || distance === null || targetBirthYear === null) return null;
-    return resolveDistributionRow({
-      rows: allRows,
-      gender,
-      distance,
-      targetBirthYear,
-      mode,
-    });
+    return resolveDistributionRow({ rows: allRows, gender, distance, targetBirthYear, mode });
   }, [allRows, distance, gender, mode, targetBirthYear]);
 
   const selectedRow = selectedResolution?.row;
@@ -159,23 +139,23 @@ export default function DistributionTool(props: Props) {
   const groupCountText = selectedCount ? `${selectedCount}명` : `${props.kAnonymityMin}명 미만`;
 
   const groupYear = selectedResolution?.resolvedYear ?? targetBirthYear;
-  const groupLabel = `${groupYear ?? "-"}년생 기준 · ${gender}자 · ${distance ?? "-"}m · 같은 조건 선수 ${groupCountText}`;
+  const groupLabel = `${groupYear ?? "-"}년생 ${gender}자 ${distance ?? "-"}m · 함께 비교한 선수 ${groupCountText}`;
 
   const fallbackNotice = useMemo(() => {
     if (!selectedResolution || !selectedResolution.usedFallback || targetBirthYear === null) return null;
     const countText = selectedCount ? `${selectedCount}명` : `${props.kAnonymityMin}명 미만`;
     const startYear = targetBirthYear - selectedResolution.delta;
     const endYear = targetBirthYear + selectedResolution.delta;
-    return `${targetBirthYear}년생 데이터가 부족해 ${startYear}~${endYear}년생 기준으로 표시합니다 (${countText}).`;
+    return `${targetBirthYear}년생만으로는 비교할 선수가 부족해서, ${startYear}~${endYear}년생을 함께 묶어 보여드려요 (${countText}).`;
   }, [props.kAnonymityMin, selectedCount, selectedResolution, targetBirthYear]);
 
   const distanceGuide = useMemo(() => {
     if (targetBirthYear === null) return null;
     if (exactDistanceOptions.length > 0) return null;
     if (nearbyDistanceOptions.length > 0) {
-      return `${targetBirthYear}년생 기준으로 공개 가능한 거리가 적어 ±2년 범위에서 선택 가능한 거리를 보여드려요.`;
+      return `${targetBirthYear}년생만으로는 보여드릴 수 있는 종목이 적어서, 앞뒤 2년까지 넓혀 고를 수 있게 했어요.`;
     }
-    return `${targetBirthYear}년생은 ±2년 범위에도 공개 가능한 거리가 없습니다.`;
+    return `${targetBirthYear}년생은 앞뒤 2년까지 넓혀도 보여드릴 수 있는 종목이 없어요.`;
   }, [exactDistanceOptions.length, nearbyDistanceOptions.length, targetBirthYear]);
 
   const edges = useMemo(() => buildEdges(selectedRow, mode), [mode, selectedRow]);
@@ -199,11 +179,11 @@ export default function DistributionTool(props: Props) {
     if (!hasParsed) {
       return {
         showResult: true,
-        conclusion: `같은 조건 ${countText}의 분포예요`,
+        conclusion: `또래 ${countText}은 이 정도였어요`,
         detail:
           mode === "time"
-            ? `빠른 쪽 10%는 ${formatSeconds(edges[0])} 안쪽, 가운데 구간은 ${formatSeconds(edges[2])} 전후입니다.`
-            : `앞선 쪽 10%는 ${formatRank(edges[0])}등 안쪽, 가운데 구간은 ${formatRank(edges[2])}등 전후입니다.`,
+            ? `빠른 쪽 10명 중 1명은 ${formatSeconds(edges[0])} 안쪽이고, 한가운데는 ${formatSeconds(edges[2])} 전후예요.`
+            : `앞선 쪽 10명 중 1명은 ${formatRank(edges[0])}등 안쪽이고, 한가운데는 ${formatRank(edges[2])}등 전후예요.`,
         markerPos: null as number | null,
       };
     }
@@ -211,23 +191,23 @@ export default function DistributionTool(props: Props) {
     const percentile = Math.max(1, Math.min(99, Math.round(percentOf(edges, parsed, mode))));
     const markerPos = bandPos(edges, parsed);
 
-    let detail = "";
     const mid = edges[2];
+    let detail = "";
     if (mode === "time") {
       const gap = mid - parsed;
-      detail = `${formatSeconds(parsed)} · 같은 조건 중앙값(${formatSeconds(mid)})보다 ${Math.abs(gap).toFixed(2)}초 ${gap >= 0 ? "빠릅니다" : "느립니다"}.`;
+      detail = `${formatSeconds(parsed)} · 또래 한가운데(${formatSeconds(mid)})보다 ${Math.abs(gap).toFixed(2)}초 ${gap >= 0 ? "빨라요" : "느려요"}.`;
     } else {
       const gap = mid - parsed;
       const gapText = Number.isInteger(gap) ? `${Math.abs(gap)}` : `${Math.abs(gap).toFixed(1)}`;
       detail =
         gap === 0
-          ? `${parsed}등 · 같은 조건 중앙값(${formatRank(mid)}등)과 비슷합니다.`
-          : `${parsed}등 · 같은 조건 중앙값(${formatRank(mid)}등)보다 ${gapText}계단 ${gap > 0 ? "앞섭니다" : "뒤에 있습니다"}.`;
+          ? `${parsed}등 · 또래 한가운데(${formatRank(mid)}등)와 비슷해요.`
+          : `${parsed}등 · 또래 한가운데(${formatRank(mid)}등)보다 ${gapText}계단 ${gap > 0 ? "앞서 있어요" : "뒤에 있어요"}.`;
     }
 
     return {
       showResult: true,
-      conclusion: `같은 조건 ${countText} 중 상위 ${percentile}%예요`,
+      conclusion: `또래 ${countText} 중 상위 ${percentile}%예요`,
       detail,
       markerPos,
     };
@@ -235,8 +215,8 @@ export default function DistributionTool(props: Props) {
 
   const readingGuide =
     mode === "time"
-      ? "왼쪽으로 갈수록 빠른 기록입니다. 숫자는 같은 조건에서의 구간 경계 기록입니다."
-      : "왼쪽으로 갈수록 앞선 등수입니다. 숫자는 같은 조건에서의 구간 경계 등수입니다.";
+      ? "왼쪽으로 갈수록 빠른 기록이에요. 아래 숫자는 각 구간이 갈리는 지점의 기록이에요."
+      : "왼쪽으로 갈수록 앞선 등수예요. 아래 숫자는 각 구간이 갈리는 지점의 등수예요.";
   const leftLabel = mode === "time" ? "빠른 기록" : "앞선 등수";
   const rightLabel = mode === "time" ? "느린 기록" : "뒤쪽 등수";
   const edgeLabels = edges?.map((value) => (mode === "time" ? formatSeconds(value) : `${formatRank(value)}등`)) ?? [];
@@ -255,51 +235,31 @@ export default function DistributionTool(props: Props) {
 
     if (targetBirthYear !== null && gender && distance !== null) {
       const altDistance = availableDistances.find(
-        (item) =>
-          item !== distance &&
-          hasUsableRow({
-            rows: allRows,
-            gender,
-            distance: item,
-            targetBirthYear,
-            mode,
-          }),
+        (item) => item !== distance && hasUsableRow({ rows: allRows, gender, distance: item, targetBirthYear, mode }),
       );
       if (typeof altDistance === "number") {
-        actions.push({
-          label: `${altDistance}m로 바꿔서 보기`,
-          onClick: () => setDistance(altDistance),
-        });
+        actions.push({ label: `${altDistance}m로 바꿔서 보기`, onClick: () => setDistance(altDistance) });
       }
     }
 
-    if (ageInputMode === "grade") {
-      actions.push({
-        label: "출생연도로 직접 입력하기",
-        onClick: () => setAgeInputMode("birth-year"),
-      });
-    } else {
-      actions.push({
-        label: "학년 입력으로 돌아가기",
-        onClick: () => setAgeInputMode("grade"),
-      });
-    }
+    actions.push(
+      mode === "time"
+        ? { label: "등수로 바꿔서 보기", onClick: () => { setMode("rank"); setInput(""); } }
+        : { label: "기록으로 바꿔서 보기", onClick: () => { setMode("time"); setInput(""); } },
+    );
 
     return actions.slice(0, 2);
-  }, [ageInputMode, allRows, availableDistances, distance, gender, mode, targetBirthYear]);
+  }, [allRows, availableDistances, distance, gender, mode, targetBirthYear]);
 
   return (
     <div className="dist-tool">
-      {showTopLink && (
-        <div className="dist-top-link">
-          <a href={props.homeUrl ?? "../"}>← 메인으로</a>
-        </div>
-      )}
-
       {showHero && (
         <header className="dist-hero">
-          <h1>우리 아이 기록, 또래 중에 어디쯤일까요?</h1>
-          <p>비교 조건을 먼저 고르고, 기록이나 등수를 넣으면 한 줄 결론으로 위치를 바로 확인할 수 있어요.</p>
+          <h1>우리 아이 기록,
+            <br />
+            또래 중에 어디쯤일까요?
+          </h1>
+          <p>비교할 조건을 고르고 기록이나 등수를 넣으면, 또래 중 어디쯤인지 한 줄로 알려드려요.</p>
         </header>
       )}
 
@@ -307,7 +267,7 @@ export default function DistributionTool(props: Props) {
         <div>
           <div className="dist-stage-title">
             <span className="dist-stage-badge">1단계</span>
-            <b>비교 조건을 고르세요</b>
+            <b>누구와 견줄지 골라주세요</b>
           </div>
 
           <div className="dist-seg-wrap" role="tablist" aria-label="성별">
@@ -323,55 +283,53 @@ export default function DistributionTool(props: Props) {
             ))}
           </div>
 
-          <div className="dist-group-label">나이 입력 방식</div>
-          <div className="dist-seg-wrap" role="tablist" aria-label="나이 입력 방식">
+          <div className="dist-field-head">
+            <div className="dist-group-label">학년</div>
             <button
               type="button"
-              className={`dist-seg-button${ageInputMode === "grade" ? " is-active" : ""}`}
-              onClick={() => setAgeInputMode("grade")}
+              className="dist-text-button"
+              onClick={() => setAgeInputMode(ageInputMode === "grade" ? "birth-year" : "grade")}
             >
-              학년으로 입력
-            </button>
-            <button
-              type="button"
-              className={`dist-seg-button${ageInputMode === "birth-year" ? " is-active" : ""}`}
-              onClick={() => setAgeInputMode("birth-year")}
-            >
-              출생연도로 입력
+              {ageInputMode === "grade" ? "출생연도로 넣기" : "학년으로 넣기"}
             </button>
           </div>
 
           {ageInputMode === "grade" ? (
-            <label className="dist-year-select">
-              <span>학년</span>
-              <select value={gradeId} onChange={(event) => setGradeId(event.target.value)}>
+            <>
+              <div className="dist-chip-row">
                 {GRADE_OPTIONS.map((item) => (
-                  <option key={item.id} value={item.id}>
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`dist-chip${item.id === gradeId ? " is-active" : ""}`}
+                    onClick={() => setGradeId(item.id)}
+                  >
                     {item.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
-              <p className="dist-age-mode-note">
-                현재연도 기준으로 {targetBirthYear ?? "-"}년생에 가깝다고 보고 계산합니다.
-              </p>
-            </label>
+              </div>
+              <p className="dist-age-mode-note">{targetBirthYear ?? "-"}년생과 비슷한 또래로 보고 견줘요.</p>
+            </>
           ) : (
             <label className="dist-year-select">
-              <span>출생연도</span>
               <input
-                type="number"
+                type="text"
                 inputMode="numeric"
+                maxLength={4}
                 value={manualBirthYearInput}
-                onChange={(event) => setManualBirthYearInput(event.target.value)}
+                onChange={(event) => setManualBirthYearInput(event.target.value.replace(/[^\d]/g, ""))}
                 placeholder="예: 2013"
+                aria-label="출생연도"
               />
-              {hasBirthYearError && (
-                <div className="dist-error-text">출생연도는 4자리 숫자로 입력해주세요. 예: 2013</div>
+              {hasBirthYearError ? (
+                <div className="dist-error-text">태어난 해를 네 자리로 적어주세요. 2013년생이면 2013처럼요.</div>
+              ) : (
+                <p className="dist-age-mode-note">태어난 해를 네 자리로 적어주세요.</p>
               )}
             </label>
           )}
 
-          <div className="dist-group-label">거리</div>
+          <div className="dist-group-label dist-group-label-spaced">종목</div>
           <div className="dist-chip-row">
             {availableDistances.map((item) => (
               <button
@@ -390,15 +348,10 @@ export default function DistributionTool(props: Props) {
         <div className="dist-step-divider">
           <div className="dist-stage-title">
             <span className="dist-stage-badge">2단계</span>
-            <b>기록이나 등수를 넣어보세요</b>
+            <b>아이 기록을 넣어주세요</b>
           </div>
-          <p className="dist-input-guide">
-            {mode === "time"
-              ? "예선 기록을 적어주세요. 2분 29초 15는 2:29.15, 45초 8은 45.8처럼 입력하면 됩니다."
-              : "결승에서 받은 등수를 숫자로 적어주세요."}
-          </p>
 
-          <div className="dist-seg-wrap" role="tablist" aria-label="입력 모드">
+          <div className="dist-seg-wrap" role="tablist" aria-label="무엇으로 견줄까요">
             <button
               type="button"
               className={`dist-seg-button${mode === "time" ? " is-active" : ""}`}
@@ -407,7 +360,7 @@ export default function DistributionTool(props: Props) {
                 setInput("");
               }}
             >
-              기록(시간)
+              기록으로
             </button>
             <button
               type="button"
@@ -417,7 +370,7 @@ export default function DistributionTool(props: Props) {
                 setInput("");
               }}
             >
-              등수
+              등수로
             </button>
           </div>
 
@@ -429,6 +382,7 @@ export default function DistributionTool(props: Props) {
                 onChange={(event) => setInput(event.target.value)}
                 placeholder={mode === "time" ? (distance === 500 ? "예: 52.4" : "예: 1:49.20") : "예: 12"}
                 inputMode="decimal"
+                aria-label={mode === "time" ? "예선 기록" : "결승 등수"}
               />
               <span>{mode === "time" ? "분:초" : "등"}</span>
             </label>
@@ -439,12 +393,18 @@ export default function DistributionTool(props: Props) {
             )}
           </div>
 
-          {hasInputError && (
+          {hasInputError ? (
             <div className="dist-error-text">
               {mode === "time"
-                ? "시간 형식을 확인해주세요. 2분 29초 15는 2:29.15, 45초 8은 45.8로 입력해주세요."
-                : "등수는 숫자만 입력해주세요. 12등이면 12처럼 입력하면 됩니다."}
+                ? "2분 29초 15는 2:29.15, 45초 8은 45.8처럼 적어주세요."
+                : "숫자만 적어주세요. 12등이면 12처럼요."}
             </div>
+          ) : (
+            <p className="dist-input-guide">
+              {mode === "time"
+                ? "예선 기록을 적어주세요. 2분 29초 15는 2:29.15, 45초 8은 45.8이에요."
+                : "결승에서 받은 등수를 숫자로 적어주세요."}
+            </p>
           )}
         </div>
       </section>
@@ -457,7 +417,7 @@ export default function DistributionTool(props: Props) {
           <div className="dist-verdict-detail">{calc.detail}</div>
 
           <details className="dist-evidence">
-            <summary className="dist-evidence-summary">근거 보기</summary>
+            <summary className="dist-evidence-summary">어떻게 나온 숫자인가요?</summary>
             <div className="dist-evidence-inner">
               <div className="dist-band-wrap">
                 <div className="dist-band-labels">
@@ -467,7 +427,7 @@ export default function DistributionTool(props: Props) {
                 <div className="dist-band-marker-wrap">
                   {calc.markerPos !== null && (
                     <div className="dist-marker" style={{ left: `${calc.markerPos}%` }}>
-                      <div className="dist-marker-tag">내 기록</div>
+                      <div className="dist-marker-tag">우리 아이</div>
                       <div className="dist-marker-line" />
                     </div>
                   )}
@@ -505,12 +465,12 @@ export default function DistributionTool(props: Props) {
         <section className="dist-card dist-thin-card">
           {fallbackNotice && <div className="dist-fallback-note">{fallbackNotice}</div>}
           <div className="dist-thin-title">
-            {noRowForSelection ? "가까운 연도에도 공개 가능한 데이터가 없습니다" : "이 조건은 공개하지 않습니다"}
+            {noRowForSelection ? "견줄 또래를 찾지 못했어요" : "이 조건은 보여드릴 수 없어요"}
           </div>
           <div className="dist-thin-body">
             {noRowForSelection
-              ? "현재 선택한 조건은 ±2년 범위에서도 공개 기준을 충족한 데이터가 없습니다. 다른 거리나 나이 입력 방식으로 확인해주세요."
-              : "이 조건은 참가 선수가 적어 개인 기록이 짐작될 수 있어서 공개하지 않습니다. 기록이 없거나 실력이 낮다는 뜻은 아닙니다."}
+              ? "앞뒤 2년까지 넓혀봐도 견줄 만한 기록이 모이지 않았어요. 종목을 바꾸거나 출생연도를 직접 넣어보세요."
+              : "이 조건은 나온 선수가 적어서, 보여드리면 특정 아이의 기록이 짐작될 수 있어요. 기록이 없거나 실력이 낮다는 뜻은 아니에요."}
           </div>
           {thinActions.length > 0 && (
             <div className="dist-thin-actions">
@@ -528,7 +488,7 @@ export default function DistributionTool(props: Props) {
         <div className="dist-caution-title">이 숫자로 아이의 앞날을 알 수는 없어요</div>
         <div className="dist-caution-body">
           지금 어디쯤인지를 보여주는 참고 정보예요. 같은 나이에 뒤에 있던 선수가 몇 년 뒤 앞서는 일은 흔합니다. 진로를 정하는
-          근거로 사용하지 말아주세요.
+          근거로는 쓰지 말아주세요.
         </div>
       </section>
 

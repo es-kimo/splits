@@ -2,7 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import { withBase } from "../../lib/base";
 import { loadMeetsDoc, loadMetaDoc } from "../../lib/data";
-import { classifyMeetKind, formatMeetDateRange, isNationalMeetKind, meetSlug } from "../../lib/meet";
+import { classifyMeetKind, formatMeetDateRange, isNationalMeetKind, meetSlug, shortenMeetTitle } from "../../lib/meet";
 import type { MeetItem, MeetPublicFigurePlacement } from "../../lib/types";
 
 export function getStaticPaths() {
@@ -20,7 +20,8 @@ const isNational = isNationalMeetKind(kind);
 const dateRange = formatMeetDateRange(item.dateStart ?? null, item.dateEnd ?? null);
 const locationTextRaw = String(item.location ?? "").trim();
 const hasLocation = locationTextRaw.length > 0;
-const locationText = hasLocation ? locationTextRaw : null;
+const shortTitle = shortenMeetTitle(item.meet) || item.meet;
+const hasLongTitle = shortTitle !== item.meet;
 const categoryBreakdown = (item.categoryBreakdown ?? []).slice().sort((a, b) => b.athleteCount - a.athleteCount);
 const maxCategoryCount = categoryBreakdown.length > 0 ? Math.max(...categoryBreakdown.map((row) => row.athleteCount)) : 1;
 const distributionRows = (item.distanceDistribution?.items ?? []).slice().sort((a, b) => a.distance - b.distance);
@@ -39,24 +40,16 @@ const seriesRows = [{ year: item.year, meet: item.meet, url: item.url || `meet/$
   .concat((item.seriesLinks ?? []).map((row) => ({ ...row, current: false })))
   .sort((a, b) => b.year - a.year);
 const ogTitle = `${item.meet} 결과`;
-const infoRows = [
-  ...(hasLocation ? [{ label: "장소", value: locationTextRaw }] : []),
-  ...(item.distanceSet.length > 0 ? [{ label: "종목", value: item.distanceSet.map((distance) => `${distance}m`).join(", ") }] : []),
-  ...(item.roundTypes.length > 0 ? [{ label: "경기 방식", value: item.roundTypes.join(", ") }] : []),
-  { label: "준결승 기록", value: item.hasSemifinal ? "있음" : "없음" },
-  { label: "집계 기준", value: "예선 기록 분포, 결승/채점종합 성적" },
-];
-const showInfoSection = infoRows.length > 2;
 
 function formatPlacementChip(placement: MeetPublicFigurePlacement): string {
   const distance = placement.distance !== null ? `${placement.distance}m` : "-";
   return `${distance} ${placement.rank}등`;
 }
 
-function placementChipClass(placement: MeetPublicFigurePlacement): string {
-  if (placement.sf) return "chip-semi";
-  if (placement.rank === 1) return "chip-gold";
-  return "chip-normal";
+function placementTone(placement: MeetPublicFigurePlacement): string {
+  if (placement.sf) return "is-mute";
+  if (placement.rank === 1) return "is-gold";
+  return "is-podium";
 }
 ---
 
@@ -64,63 +57,56 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
   title={`${item.meet} (${item.year})`}
   description={`${item.year}년 ${item.meet} 대회 상세 데이터`}
   ogTitle={ogTitle}
-  ogImage="og/meet.png"
+  ogImage="og-competition.png"
   generatedAt={meta.generatedAt}
-  contentWidth="narrow"
-  contentLineHeight="compact"
-  pageBottomPadding="60px"
-  footerVariant="none"
+  back={{ href: withBase("meet/"), label: "대회 목록" }}
 >
-  <div class="top-link"><a href={withBase("meet/")}>← 대회 목록</a></div>
-
-  <header class="card header-card">
+  <header class="page-head is-tight">
     <div class="badge-row">
-      <span class="kind-badge">{kind}</span>
-      {isNational && <span class="national-badge">전국 규모</span>}
+      <span class="badge">{kind}</span>
+      {isNational && <span class="badge is-point">전국 규모</span>}
     </div>
-    <div>
-      <h1>{item.meet}</h1>
-      <p>
-        {dateRange}
-        {hasLocation && (
-          <>
-            <br />
-            {locationTextRaw}
-          </>
-        )}
-      </p>
-    </div>
-    <div class="metrics">
-      <div>
-        <div class="metric-main">{item.raceCount}건</div>
-        <div class="metric-sub">치러진 경기</div>
-      </div>
-      <div>
-        <div class="metric-main">{item.athleteCount}명</div>
-        <div class="metric-sub">참가 선수</div>
-      </div>
-      <div>
-        <div class="metric-main">{item.distanceSet.length}종목</div>
-        <div class="metric-sub">{item.distanceSet.length > 0 ? `${Math.min(...item.distanceSet)}~${Math.max(...item.distanceSet)}m` : "종목 정보 없음"}</div>
-      </div>
-    </div>
+    <h1>{shortTitle}</h1>
+    {hasLongTitle && <p class="official-name">{item.meet}</p>}
+    <p class="lead">
+      {dateRange}
+      {hasLocation && (
+        <>
+          <br />
+          {locationTextRaw}
+        </>
+      )}
+    </p>
   </header>
 
   <section class="card">
-    <h2>기록이 어디쯤이면 잘한 걸까요?</h2>
-    <p class="section-note">이 대회 예선 기록을 빠른 순서대로 정리했습니다. 종목을 고르고 기록을 넣으면 대략적인 위치를 확인할 수 있어요.</p>
+    <div class="metric-grid">
+      <div class="metric"><b>{item.raceCount}건</b><span>치러진 경기</span></div>
+      <div class="metric"><b>{item.athleteCount}명</b><span>참가 선수</span></div>
+      <div class="metric">
+        <b>{item.distanceSet.length}종목</b>
+        <span>{item.distanceSet.length > 0 ? `${Math.min(...item.distanceSet)}~${Math.max(...item.distanceSet)}m` : "종목 정보 없음"}</span>
+      </div>
+    </div>
+  </section>
 
-    <div id="distTabs" class="tab-row">
+  <section class="card">
+    <div class="card-head">
+      <h2>기록이 어디쯤이면 잘한 걸까요?</h2>
+      <p>이 대회 예선 기록을 빠른 순서대로 정리했어요. 종목을 고르고 기록을 넣으면 대략적인 위치를 확인할 수 있어요.</p>
+    </div>
+
+    <div id="distTabs" class="chip-row is-wrap tab-row">
       {
         distributionRows.map((row) => (
-          <button type="button" class={`tab-btn ${row.distance === defaultDistance ? "active" : ""}`} data-distance={row.distance}>
+          <button type="button" class={`chip ${row.distance === defaultDistance ? "is-active" : ""}`} data-distance={row.distance}>
             {row.distance}m
           </button>
         ))
       }
     </div>
 
-    <div class="distribution-box">
+    <div class="tile distribution-box">
       <div class="scale-header"><span>빠른 기록</span><span>느린 기록</span></div>
       <div class="scale-bar">
         <div></div><div></div><div></div><div></div>
@@ -131,40 +117,42 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
       </div>
 
       <div id="distUnavailable" class="dist-unavailable" hidden>
-        이 종목은 공개 가능한 표본이 부족해서 분포 비교를 제공하지 않습니다.
+        참가 선수가 적어 개인이 특정될 수 있는 종목이라, 분포를 공개하지 않아요.
       </div>
 
       <div id="timeCheckBox" class="time-check-box">
         <div class="time-check-title">내 기록으로 확인해보기</div>
         <div class="time-input-row">
-          <label class="time-input-wrap">
+          <label class="field">
             <input id="myTimeInput" type="text" placeholder="예: 2:29.15" autocomplete="off" />
-            <span>분:초</span>
+            <span class="unit">분:초</span>
           </label>
-          <button id="clearTimeButton" type="button" class="clear-time-btn" hidden>지우기</button>
+          <button id="clearTimeButton" type="button" class="btn is-ghost clear-time-btn" hidden>지우기</button>
         </div>
         <div id="timeResultBox" class="time-result" hidden>
           <div id="timeResultTitle"></div>
           <div id="timeResultDetail"></div>
         </div>
-        <div id="timeErrorText" class="time-error" hidden>
+        <div id="timeErrorText" class="error-text" hidden>
           시간 형식을 확인해주세요. 2분 29초 15는 <b>2:29.15</b>, 45초 8은 <b>45.8</b>로 적어주세요.
         </div>
       </div>
     </div>
 
-    <p class="note-text">참가 인원이 적은 종목은 개인이 특정될 수 있어 분포를 공개하지 않습니다. 결승은 순위 운영 영향이 커서 예선 기록만 사용했습니다.</p>
+    <p class="hint">참가 인원이 적은 종목은 개인이 특정될 수 있어 공개하지 않아요. 결승은 순위 운영 영향이 커서 예선 기록만 썼습니다.</p>
   </section>
 
   <section class="card">
-    <h2>누가 나왔나요</h2>
-    <p class="section-note">종별로 참가 인원을 집계했습니다.</p>
+    <div class="card-head">
+      <h2>누가 나왔나요</h2>
+      <p>종별로 참가 인원을 세어봤어요.</p>
+    </div>
     <div class="category-list">
       {
         categoryBreakdown.map((row) => (
           <div class="category-row">
             <span class="category-name">{row.category}</span>
-            <div class="category-bar-bg"><span class="category-bar" style={`width:${(row.athleteCount / maxCategoryCount) * 100}%`}></span></div>
+            <div class="bar-track"><span class="bar-fill" style={`width:${(row.athleteCount / maxCategoryCount) * 100}%`}></span></div>
             <span class="category-count">{row.athleteCount}명</span>
           </div>
         ))
@@ -173,26 +161,29 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
   </section>
 
   <section class="card">
-    <h2>이 대회에 나온 공개 선수</h2>
-    <p class="section-note">이 사이트에서 공개 중인 선수의 기록만 표시합니다.</p>
+    <div class="card-head">
+      <h2>이 대회에 나온 공개 선수</h2>
+      <p>이 사이트에서 공개 중인 선수의 기록만 보여드려요.</p>
+    </div>
     {
       figures.length === 0 ? (
-        <p class="empty-text">이 대회에 공개 선수 기록이 없습니다.</p>
+        <div class="empty">
+          <b>공개 선수 기록이 없습니다</b>
+          <span>이 대회에 공개 대상 선수가 출전하지 않았거나, 기록이 남아 있지 않아요.</span>
+        </div>
       ) : (
-        <div class="figure-list">
+        <div class="list">
           {figures.map((figure) => (
-            <article class="figure-card">
+            <article class="tile figure-card">
               <div class="figure-head">
                 <b>{figure.name}</b>
                 <span>최고 {figure.bestRank}등 · {figure.raceCount}경기</span>
                 <a href={withBase(figure.url)}>기록 보기 ›</a>
               </div>
-              <div class="placement-row">
-                {
-                  figure.placements.map((placement) => (
-                    <span class={placementChipClass(placement)}>{formatPlacementChip(placement)}</span>
-                  ))
-                }
+              <div class="badge-row">
+                {figure.placements.map((placement) => (
+                  <span class={`badge ${placementTone(placement)}`}>{formatPlacementChip(placement)}</span>
+                ))}
               </div>
             </article>
           ))}
@@ -202,42 +193,18 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
   </section>
 
   <section class="card">
-    <h2>같은 대회, 다른 해</h2>
-    <p class="section-note">해마다 기록이 어떻게 달라졌는지 이어서 볼 수 있어요.</p>
-    <div class="series-row">
+    <div class="card-head">
+      <h2>같은 대회, 다른 해</h2>
+      <p>해마다 기록이 어떻게 달라졌는지 이어서 볼 수 있어요.</p>
+    </div>
+    <div class="chip-row">
       {
         seriesRows.map((row) =>
-          row.current ? (
-            <span class="series-chip active">{row.year}년</span>
-          ) : (
-            <a class="series-chip" href={withBase(row.url)}>{row.year}년</a>
-          )
+          row.current ? <span class="chip is-active">{row.year}년</span> : <a class="chip" href={withBase(row.url)}>{row.year}년</a>
         )
       }
     </div>
   </section>
-
-  {
-    showInfoSection && (
-      <section class="card">
-        <h2>대회 정보</h2>
-        <p class="section-note">상단 요약 외 기준 정보를 정리했습니다.</p>
-        <div class="info-body compact">
-          {infoRows.map((row) => (
-            <div class="info-row">
-              <span>{row.label}</span>
-              <span>{row.value}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-    )
-  }
-
-  <footer class="legacy-footer">
-    공개된 경기 결과를 정리한 페이지입니다. 개인이 특정될 수 있는 집계는 공개하지 않습니다.<br />
-    출처: 대한체육회 경기결과 시스템
-  </footer>
 
   <script type="application/json" id="meetDistData" set:html={JSON.stringify(distributionPayload)}></script>
   <script is:inline>
@@ -296,20 +263,16 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
       const selectedRow = () => rows.find((row) => Number(row.distance) === Number(state.distance)) || rows[0];
 
       const renderTabs = () => {
-        const buttons = distTabs.querySelectorAll("button[data-distance]");
-        buttons.forEach((button) => {
+        distTabs.querySelectorAll("button[data-distance]").forEach((button) => {
           if (!(button instanceof HTMLButtonElement)) return;
-          const distance = Number(button.dataset.distance || "0");
-          button.classList.toggle("active", distance === Number(state.distance));
+          button.classList.toggle("is-active", Number(button.dataset.distance || "0") === Number(state.distance));
         });
       };
 
       const renderBands = () => {
         const row = selectedRow();
         if (!row || row.insufficient || row.p10 == null) {
-          bandValues.innerHTML = `
-            <span>-</span><span>-</span><span>-</span><span>-</span><span>-</span>
-          `;
+          bandValues.innerHTML = "<span>-</span><span>-</span><span>-</span><span>-</span><span>-</span>";
           distUnavailable.hidden = false;
           timeCheckBox.style.display = "none";
           return;
@@ -400,114 +363,16 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
   </script>
 
   <style>
-    .top-link {
-      padding: 16px 2px 4px;
-    }
-    .top-link a {
-      font-size: 14px;
-      font-weight: 600;
-      color: #6b6f78;
-    }
-    .card {
-      background: #fff;
-      border-radius: 20px;
-      padding: 22px 20px;
-      margin-bottom: 12px;
-    }
-    .header-card {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    .badge-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-    }
-    .kind-badge,
-    .national-badge {
-      font-size: 11.5px;
-      font-weight: 700;
-      border-radius: 7px;
-      padding: 3px 7px;
-    }
-    .kind-badge {
-      color: #2e63f6;
-      background: #e9f0ff;
-    }
-    .national-badge {
-      color: #0e7a5f;
-      background: #e1f5ee;
-    }
-    h1 {
-      margin: 0;
-      font-size: 26px;
-      line-height: 1.35;
-      font-weight: 800;
-      letter-spacing: -0.025em;
-    }
-    h2 {
-      margin: 0 0 4px;
-      font-size: 19px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-    p {
-      margin: 8px 0 0;
-      font-size: 15px;
-      color: #5b5f68;
-      line-height: 1.55;
-    }
-    .section-note {
-      margin: 0 0 14px;
-      font-size: 14.5px;
-      color: #6b6f78;
-    }
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
-    }
-    .metrics > div {
-      background: #f5f7fa;
-      border-radius: 14px;
-      padding: 12px 12px 11px;
-    }
-    .metric-main {
-      font-size: 21px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-    .metric-sub {
+    .official-name {
+      margin: -4px 0 0;
       font-size: 12.5px;
-      color: #8a8f99;
+      color: var(--faint);
+      line-height: 1.5;
     }
     .tab-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 16px;
-    }
-    .tab-btn {
-      border: 0;
-      background: #f2f4f7;
-      color: #5b5f68;
-      border-radius: 12px;
-      padding: 0 15px;
-      min-height: 44px;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .tab-btn.active {
-      background: #17181c;
-      color: #fff;
+      margin-bottom: 14px;
     }
     .distribution-box {
-      background: #fafbfc;
-      border-radius: 18px;
       padding: 18px 16px 16px;
     }
     .scale-header {
@@ -515,32 +380,30 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
       justify-content: space-between;
       font-size: 12.5px;
       font-weight: 700;
-      color: #8a8f99;
+      color: var(--soft);
       margin-bottom: 8px;
     }
     .scale-bar {
-      position: relative;
-      height: 34px;
+      display: flex;
+      height: 32px;
       border-radius: 10px;
       overflow: hidden;
-      background: #edf0f4;
-      display: flex;
+      background: var(--line);
+    }
+    .scale-bar div {
+      flex: 1;
     }
     .scale-bar div:nth-child(1) {
-      flex: 1;
-      background: #2e63f6;
+      background: var(--point);
     }
     .scale-bar div:nth-child(2) {
-      flex: 1;
-      background: #6d95f9;
+      background: var(--point-2);
     }
     .scale-bar div:nth-child(3) {
-      flex: 1;
-      background: #a9c3fa;
+      background: var(--point-3);
     }
     .scale-bar div:nth-child(4) {
-      flex: 1;
-      background: #cfdcfc;
+      background: var(--point-4);
     }
     .band-values,
     .band-names {
@@ -548,17 +411,17 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
       grid-template-columns: repeat(5, minmax(0, 1fr));
       margin-top: 7px;
     }
-    .band-values span {
+    .band-values :global(span) {
       font-size: 11.5px;
-      color: #8a8f99;
+      color: var(--soft);
       font-variant-numeric: tabular-nums;
       text-align: center;
     }
-    .band-values span:first-child,
+    .band-values :global(span:first-child),
     .band-names span:first-child {
       text-align: left;
     }
-    .band-values span:last-child,
+    .band-values :global(span:last-child),
     .band-names span:last-child {
       text-align: right;
     }
@@ -568,21 +431,20 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
     .band-names span {
       font-size: 11.5px;
       font-weight: 700;
-      color: #c6cbd4;
+      color: var(--faint-2);
       text-align: center;
     }
     .dist-unavailable {
       margin-top: 14px;
-      background: #f2f4f7;
-      border-radius: 12px;
+      background: var(--fill);
+      border-radius: var(--r-ctl);
       padding: 12px;
       font-size: 13px;
-      color: #6b6f78;
-      line-height: 1.5;
+      color: var(--sub-2);
     }
     .time-check-box {
       margin-top: 18px;
-      border-top: 1px solid #edf0f4;
+      border-top: 1px solid var(--line);
       padding-top: 16px;
     }
     .time-check-title {
@@ -594,74 +456,30 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
       display: flex;
       gap: 8px;
     }
-    .time-input-wrap {
+    .time-input-row .field {
       flex: 1;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: #fff;
-      border: 1.5px solid #e3e7ed;
-      border-radius: 14px;
-      padding: 0 14px;
-      min-height: 52px;
-    }
-    .time-input-wrap input {
-      flex: 1;
-      border: 0;
-      outline: none;
-      background: transparent;
-      font-size: 16.5px;
-      font-weight: 600;
-      min-width: 0;
-      font-family: inherit;
-    }
-    .time-input-wrap span {
-      font-size: 13px;
-      color: #a9aeb8;
-      flex: none;
     }
     .clear-time-btn {
-      flex: none;
       min-height: 52px;
-      padding: 0 16px;
-      border: 0;
       border-radius: 14px;
-      background: #f2f4f7;
-      color: #5b5f68;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
     }
     .time-result {
       margin-top: 12px;
-      background: #e9f0ff;
+      background: var(--point-bg);
       border-radius: 14px;
       padding: 16px;
     }
     .time-result > :first-child {
       font-size: 19px;
       font-weight: 800;
-      color: #2e63f6;
+      color: var(--point);
       letter-spacing: -0.02em;
+      line-height: 1.35;
     }
     .time-result > :last-child {
       font-size: 14px;
       color: #3f5fa8;
       margin-top: 4px;
-      line-height: 1.5;
-    }
-    .time-error {
-      margin-top: 10px;
-      font-size: 13.5px;
-      color: #c2453b;
-      line-height: 1.5;
-    }
-    .note-text {
-      margin: 14px 0 0;
-      font-size: 13px;
-      color: #9ba0aa;
-      line-height: 1.55;
     }
     .category-list {
       display: flex;
@@ -674,50 +492,28 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
       gap: 10px;
     }
     .category-name {
+      flex: none;
+      width: 84px;
       font-size: 14.5px;
       font-weight: 600;
-      width: 88px;
-      flex: none;
-    }
-    .category-bar-bg {
-      flex: 1;
-      height: 22px;
-      background: #f2f4f7;
-      border-radius: 7px;
-      position: relative;
-      overflow: hidden;
-    }
-    .category-bar {
-      position: absolute;
-      left: 0;
-      top: 0;
-      height: 22px;
-      border-radius: 7px;
-      background: #a9c3fa;
     }
     .category-count {
+      flex: none;
+      width: 52px;
+      text-align: right;
       font-size: 14px;
       font-weight: 700;
-      width: 56px;
-      text-align: right;
-      flex: none;
       font-variant-numeric: tabular-nums;
     }
-    .figure-list {
+    .figure-card {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-    }
-    .figure-card {
-      background: #fafbfc;
-      border-radius: 16px;
-      padding: 14px 14px 12px;
+      gap: 9px;
     }
     .figure-head {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 9px;
       flex-wrap: wrap;
     }
     .figure-head b {
@@ -726,109 +522,28 @@ function placementChipClass(placement: MeetPublicFigurePlacement): string {
     }
     .figure-head span {
       font-size: 12.5px;
-      color: #8a8f99;
+      color: var(--soft);
     }
     .figure-head a {
       margin-left: auto;
       font-size: 13px;
-      font-weight: 600;
-      color: #2e63f6;
-      text-decoration: none;
-    }
-    .placement-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-    .placement-row span {
-      font-size: 12.5px;
-      font-weight: 600;
-      border-radius: 999px;
-      padding: 4px 10px;
-    }
-    .chip-gold {
-      background: #2e63f6;
-      color: #fff;
-    }
-    .chip-normal {
-      background: #e9f0ff;
-      color: #2e63f6;
-    }
-    .chip-semi {
-      background: #f2f4f7;
-      color: #9ba0aa;
-    }
-    .empty-text {
-      margin: 0;
-      font-size: 14px;
-      color: #8a8f99;
-    }
-    .series-row {
-      display: flex;
-      gap: 7px;
-      overflow-x: auto;
-      padding-bottom: 4px;
-      -webkit-overflow-scrolling: touch;
-    }
-    .series-chip {
-      flex: none;
-      min-height: 44px;
-      padding: 0 15px;
-      border: 0;
-      border-radius: 12px;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: inherit;
+      font-weight: 700;
       white-space: nowrap;
-      background: #f2f4f7;
-      color: #5b5f68;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .series-chip.active {
-      background: #17181c;
-      color: #fff;
-    }
-    .info-body {
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-      margin-top: 14px;
-    }
-    .info-body.compact {
-      margin-top: 0;
-    }
-    .info-row {
-      display: flex;
-      gap: 12px;
-      padding: 11px 2px;
-      border-top: 1px solid #f0f2f5;
-    }
-    .info-row > span:first-child {
-      font-size: 14px;
-      color: #8a8f99;
-      width: 88px;
-      flex: none;
-    }
-    .info-row > span:last-child {
-      font-size: 14px;
-      color: #3a3d45;
-      flex: 1;
-      line-height: 1.5;
-    }
-    .legacy-footer {
-      padding: 8px 6px 0;
-      font-size: 13px;
-      color: #9ba0aa;
     }
     @media (max-width: 640px) {
-      .metrics {
-        grid-template-columns: 1fr;
-      }
       .figure-head a {
         margin-left: 0;
+      }
+      /* 5칸 눈금은 360px에서 값이 겹친다. 양 끝과 한가운데만 남긴다. */
+      .band-values :global(span:nth-child(2)),
+      .band-values :global(span:nth-child(4)),
+      .band-names span:nth-child(2),
+      .band-names span:nth-child(4) {
+        display: none;
+      }
+      .band-values,
+      .band-names {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
   </style>
