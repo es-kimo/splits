@@ -3,7 +3,7 @@
 대한체육회 경기결과 데이터를 수집·정제해 쇼트트랙 선수 이력을 공개하는 프로젝트입니다.  
 핵심은 **명령어별 산출물(CSV/JSON)과 다음 단계 의존 관계**를 명확히 유지하는 것입니다.
 
-- 배포 URL: https://es-kimo.github.io/splits/
+- 배포 URL: https://splits.kr/
 - 공개 대상 명단(수동 관리): `data/public_figures.csv`
 - Python 파이프라인은 데이터 생성, Astro(`web/`)는 사이트 렌더링 담당
 

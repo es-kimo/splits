@@ -3,7 +3,7 @@ export function withBase(path = ""): string {
   return `${import.meta.env.BASE_URL}${cleaned}`;
 }
 
-const SITE_ORIGIN = import.meta.env.SITE || "https://es-kimo.github.io";
+const SITE_ORIGIN = import.meta.env.SITE || "https://splits.kr";
 
 function isAbsoluteUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);

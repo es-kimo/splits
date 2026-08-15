@@ -3,7 +3,7 @@ import type { APIRoute } from "astro";
 import { loadAthletesDoc, loadMeetsDoc } from "../lib/data";
 import { meetSlug } from "../lib/meet";
 
-const BASE_URL = "https://es-kimo.github.io/splits/";
+const BASE_URL = "https://splits.kr/";
 
 function absoluteUrl(path: string): string {
   return new URL(path, BASE_URL).toString();
