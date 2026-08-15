@@ -23,7 +23,19 @@ const meta = loadMetaDoc();
   </header>
   <section class="card list">
     {
-      athletes.map((athlete) => {
+      athletes.length === 0 ? (
+        <div class="empty-box">
+          <div class="empty-box-title">공개 중인 선수가 없습니다</div>
+          <p class="empty-box-body">
+            지금은 공개 대상으로 정리된 선수가 없습니다. 대회 기록과 또래 분포는 그대로 볼 수 있어요.
+          </p>
+          <div class="empty-box-actions">
+            <a href={withBase()}>또래 기록 분포 보기</a>
+            <a href={withBase("meet/")}>대회 목록 보기</a>
+          </div>
+        </div>
+      ) : (
+        athletes.map((athlete) => {
         const raceCount = athlete.history.length;
         const goldCount = athlete.history.filter((item) => item.rank === 1 && !item.sf).length;
         const metaText = `${athlete.birth ?? "출생년도 미상"}${athlete.birth ? "년생" : ""} · ${athlete.team}${athlete.gender ? ` · ${athlete.gender}` : ""}`;
@@ -41,6 +53,7 @@ const meta = loadMetaDoc();
           </a>
         );
       })
+      )
     }
   </section>
   <footer class="legacy-footer">
@@ -123,6 +136,38 @@ const meta = loadMetaDoc();
     .row-stats .highlight {
       color: #5b7bd4;
       background: #e9f0ff;
+    }
+    .empty-box {
+      background: #fafbfc;
+      border-radius: 16px;
+      padding: 18px 16px;
+    }
+    .empty-box-title {
+      margin-bottom: 6px;
+      font-size: 15.5px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .empty-box-body {
+      margin: 0;
+      font-size: 13.5px;
+      color: #6b6f78;
+    }
+    .empty-box-actions {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .empty-box-actions a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 0 13px;
+      border-radius: 12px;
+      background: #ffffff;
+      font-size: 13.5px;
+      font-weight: 700;
     }
     .legacy-footer {
       padding: 8px 6px 0;
