@@ -2,8 +2,8 @@ import { defineConfig } from "astro/config";
 import react from "@astrojs/react";
 
 export default defineConfig({
-  site: "https://es-kimo.github.io",
-  base: "/splits",
+  site: "https://splits.kr",
+  base: "/",
   output: "static",
   trailingSlash: "always",
   build: {

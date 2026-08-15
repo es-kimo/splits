@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://es-kimo.github.io/splits/sitemap.xml
+Sitemap: https://splits.kr/sitemap.xml
