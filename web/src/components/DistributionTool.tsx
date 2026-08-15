@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import type { DistributionDoc, PeerDistributionRow } from "../lib/types";
 
@@ -84,6 +84,10 @@ export default function DistributionTool(props: Props) {
   const [gradeId, setGradeId] = useState(defaultGradeId);
   const [manualBirthYearInput, setManualBirthYearInput] = useState(initialRow?.birthYear ? String(initialRow.birthYear) : "");
   const [input, setInput] = useState("");
+  const birthYearFieldId = useId();
+  const birthYearMessageId = `${birthYearFieldId}-message`;
+  const performanceInputId = useId();
+  const performanceMessageId = `${performanceInputId}-message`;
 
   const availableGenders = useMemo(
     () => props.filters.genders.filter((item) => allRows.some((row) => row.gender === item)),
@@ -285,13 +289,14 @@ export default function DistributionTool(props: Props) {
             <b>누구와 견줄지 골라주세요</b>
           </div>
 
-          <div className="dist-seg-wrap" role="tablist" aria-label="성별">
+          <div className="dist-seg-wrap" role="group" aria-label="성별">
             {availableGenders.map((item) => (
               <button
                 key={item}
                 type="button"
                 className={`dist-seg-button${item === gender ? " is-active" : ""}`}
                 onClick={() => setGender(item)}
+                aria-pressed={item === gender}
               >
                 {item}자
               </button>
@@ -311,13 +316,14 @@ export default function DistributionTool(props: Props) {
 
           {ageInputMode === "grade" ? (
             <>
-              <div className="dist-chip-row">
+              <div className="dist-chip-row" role="group" aria-label="학년">
                 {GRADE_OPTIONS.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     className={`dist-chip${item.id === gradeId ? " is-active" : ""}`}
                     onClick={() => setGradeId(item.id)}
+                    aria-pressed={item.id === gradeId}
                   >
                     {item.label}
                   </button>
@@ -328,6 +334,7 @@ export default function DistributionTool(props: Props) {
           ) : (
             <label className="dist-year-select">
               <input
+                id={birthYearFieldId}
                 type="text"
                 inputMode="numeric"
                 maxLength={4}
@@ -335,23 +342,30 @@ export default function DistributionTool(props: Props) {
                 onChange={(event) => setManualBirthYearInput(event.target.value.replace(/[^\d]/g, ""))}
                 placeholder="예: 2013"
                 aria-label="출생연도"
+                aria-invalid={hasBirthYearError || undefined}
+                aria-describedby={birthYearMessageId}
               />
               {hasBirthYearError ? (
-                <div className="dist-error-text">태어난 해를 네 자리로 적어주세요. 2013년생이면 2013처럼요.</div>
+                <div id={birthYearMessageId} className="dist-error-text">
+                  태어난 해를 네 자리로 적어주세요. 2013년생이면 2013처럼요.
+                </div>
               ) : (
-                <p className="dist-age-mode-note">태어난 해를 네 자리로 적어주세요.</p>
+                <p id={birthYearMessageId} className="dist-age-mode-note">
+                  태어난 해를 네 자리로 적어주세요.
+                </p>
               )}
             </label>
           )}
 
           <div className="dist-group-label dist-group-label-spaced">종목</div>
-          <div className="dist-chip-row">
+          <div className="dist-chip-row" role="group" aria-label="종목">
             {availableDistances.map((item) => (
               <button
                 key={item}
                 type="button"
                 className={`dist-chip${item === distance ? " is-active" : ""}`}
                 onClick={() => setDistance(item)}
+                aria-pressed={item === distance}
               >
                 {item}m
               </button>
@@ -366,7 +380,7 @@ export default function DistributionTool(props: Props) {
             <b>아이 기록을 넣어주세요</b>
           </div>
 
-          <div className="dist-seg-wrap" role="tablist" aria-label="무엇으로 견줄까요">
+          <div className="dist-seg-wrap" role="group" aria-label="무엇으로 견줄까요">
             <button
               type="button"
               className={`dist-seg-button${mode === "time" ? " is-active" : ""}`}
@@ -374,6 +388,7 @@ export default function DistributionTool(props: Props) {
                 setMode("time");
                 setInput("");
               }}
+              aria-pressed={mode === "time"}
             >
               기록으로
             </button>
@@ -384,6 +399,7 @@ export default function DistributionTool(props: Props) {
                 setMode("rank");
                 setInput("");
               }}
+              aria-pressed={mode === "rank"}
             >
               등수로
             </button>
@@ -392,12 +408,15 @@ export default function DistributionTool(props: Props) {
           <div className="dist-input-row">
             <label className="dist-input-box">
               <input
+                id={performanceInputId}
                 type="text"
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder={mode === "time" ? (distance === 500 ? "예: 52.4" : "예: 1:49.20") : "예: 12"}
-                inputMode="decimal"
+                inputMode={mode === "time" ? "decimal" : "numeric"}
                 aria-label={mode === "time" ? "예선 기록" : "결승 등수"}
+                aria-invalid={hasInputError || undefined}
+                aria-describedby={performanceMessageId}
               />
               <span>{mode === "time" ? "분:초" : "등"}</span>
             </label>
@@ -409,13 +428,13 @@ export default function DistributionTool(props: Props) {
           </div>
 
           {hasInputError ? (
-            <div className="dist-error-text">
+            <div id={performanceMessageId} className="dist-error-text" role="alert">
               {mode === "time"
                 ? "2분 29초 15는 2:29.15, 45초 8은 45.8처럼 적어주세요."
                 : "숫자만 적어주세요. 12등이면 12처럼요."}
             </div>
           ) : (
-            <p className="dist-input-guide">
+            <p id={performanceMessageId} className="dist-input-guide">
               {mode === "time"
                 ? "예선 기록을 적어주세요. 2분 29초 15는 2:29.15, 45초 8은 45.8이에요."
                 : "결승에서 받은 등수를 숫자로 적어주세요."}
@@ -425,7 +444,7 @@ export default function DistributionTool(props: Props) {
       </section>
 
       {calc?.showResult && selectedRow && edges && (
-        <section className="dist-card">
+        <section className="dist-card" aria-live="polite" aria-atomic="true">
           <div className="dist-group-label">{groupLabel}</div>
           {fallbackNotice && <div className="dist-fallback-note">{fallbackNotice}</div>}
           <div className="dist-verdict">{calc.conclusion}</div>
@@ -478,7 +497,7 @@ export default function DistributionTool(props: Props) {
       )}
 
       {(noRowForSelection || rowInsufficient) && (
-        <section className="dist-card dist-thin-card">
+        <section className="dist-card dist-thin-card" role="status" aria-live="polite">
           {fallbackNotice && <div className="dist-fallback-note">{fallbackNotice}</div>}
           <div className="dist-thin-title">
             {noRowForSelection ? "견줄 또래를 찾지 못했어요" : "이 조건은 보여드릴 수 없어요"}

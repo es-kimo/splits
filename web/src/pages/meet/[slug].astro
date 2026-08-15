@@ -128,11 +128,16 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       <p>이 대회 예선 기록을 빠른 순서대로 정리했어요. 종목을 고르고 기록을 넣으면 대략적인 위치를 확인할 수 있어요.</p>
     </div>
 
-    <div id="distTabs" class="chip-row is-wrap tab-row">
+    <div id="distTabs" class="chip-row is-wrap tab-row" role="group" aria-label="종목 선택">
       {
         distributionRows.length > 0 ? (
           distributionRows.map((row) => (
-            <button type="button" class={`chip ${row.distance === defaultDistance ? "is-active" : ""}`} data-distance={row.distance}>
+            <button
+              type="button"
+              class={`chip ${row.distance === defaultDistance ? "is-active" : ""}`}
+              data-distance={row.distance}
+              aria-pressed={row.distance === defaultDistance}
+            >
               {row.distance}m
             </button>
           ))
@@ -168,7 +173,7 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
         <span>상위 10%</span><span>상위 25%</span><span>중간</span><span>하위 25%</span><span>하위 10%</span>
       </div>
 
-      <div id="distUnavailable" class="dist-unavailable" hidden={hasUsableDefaultDistribution}>
+      <div id="distUnavailable" class="dist-unavailable" role="status" aria-live="polite" hidden={hasUsableDefaultDistribution}>
         <div>{unavailableMessage}</div>
         <div class="dist-unavailable-next">
           {fallbackSeriesLink ? (
@@ -189,16 +194,16 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
         <div class="time-check-title">내 기록으로 확인해보기</div>
         <div class="time-input-row">
           <label class="field">
-            <input id="myTimeInput" type="text" placeholder="예: 2:29.15" autocomplete="off" />
+            <input id="myTimeInput" type="text" placeholder="예: 2:29.15" autocomplete="off" aria-label="내 예선 기록" />
             <span class="unit">분:초</span>
           </label>
           <button id="clearTimeButton" type="button" class="btn is-ghost clear-time-btn" hidden>지우기</button>
         </div>
-        <div id="timeResultBox" class="time-result" hidden>
+        <div id="timeResultBox" class="time-result" role="status" aria-live="polite" aria-atomic="true" hidden>
           <div id="timeResultTitle"></div>
           <div id="timeResultDetail"></div>
         </div>
-        <div id="timeErrorText" class="error-text" hidden>
+        <div id="timeErrorText" class="error-text" role="alert" hidden>
           시간 형식을 확인해주세요. 2분 29초 15는 <b>2:29.15</b>, 45초 8은 <b>45.8</b>로 적어주세요.
         </div>
       </div>
@@ -346,7 +351,9 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       const renderTabs = () => {
         distTabs.querySelectorAll("button[data-distance]").forEach((button) => {
           if (!(button instanceof HTMLButtonElement)) return;
-          button.classList.toggle("is-active", Number(button.dataset.distance || "0") === Number(state.distance));
+          const active = Number(button.dataset.distance || "0") === Number(state.distance);
+          button.classList.toggle("is-active", active);
+          button.setAttribute("aria-pressed", String(active));
         });
       };
 
