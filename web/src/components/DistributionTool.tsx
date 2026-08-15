@@ -185,6 +185,7 @@ export default function DistributionTool(props: Props) {
             ? `빠른 쪽 10명 중 1명은 ${formatSeconds(edges[0])} 안쪽이고, 한가운데는 ${formatSeconds(edges[2])} 전후예요.`
             : `앞선 쪽 10명 중 1명은 ${formatRank(edges[0])}등 안쪽이고, 한가운데는 ${formatRank(edges[2])}등 전후예요.`,
         markerPos: null as number | null,
+        rangeNote: null as string | null,
       };
     }
 
@@ -205,11 +206,25 @@ export default function DistributionTool(props: Props) {
           : `${parsed}등 · 또래 한가운데(${formatRank(mid)}등)보다 ${gapText}계단 ${gap > 0 ? "앞서 있어요" : "뒤에 있어요"}.`;
     }
 
+    let rangeNote: string | null = null;
+    if (parsed < edges[0]) {
+      rangeNote =
+        mode === "time"
+          ? `입력한 기록이 이 구간의 빠른 기준(${formatSeconds(edges[0])})보다 더 빨라요. 같은 학년·다른 종목도 함께 보면 현재 위치를 더 안정적으로 읽을 수 있어요.`
+          : `입력한 등수가 이 구간의 앞선 기준(${formatRank(edges[0])}등)보다 더 앞서 있어요. 같은 학년·다른 종목도 함께 보면 현재 위치를 더 안정적으로 읽을 수 있어요.`;
+    } else if (parsed > edges[4]) {
+      rangeNote =
+        mode === "time"
+          ? `입력한 기록이 이 구간의 느린 기준(${formatSeconds(edges[4])})보다 더 느려요. 종목을 바꾸거나 앞뒤 학년도 함께 보면서 비교 범위를 넓혀보세요.`
+          : `입력한 등수가 이 구간의 뒤쪽 기준(${formatRank(edges[4])}등)보다 더 뒤에 있어요. 종목을 바꾸거나 앞뒤 학년도 함께 보면서 비교 범위를 넓혀보세요.`;
+    }
+
     return {
       showResult: true,
       conclusion: `또래 ${countText} 중 상위 ${percentile}%예요`,
       detail,
       markerPos,
+      rangeNote,
     };
   }, [edges, mode, parsed, props.kAnonymityMin, selectedRow]);
 
@@ -415,6 +430,7 @@ export default function DistributionTool(props: Props) {
           {fallbackNotice && <div className="dist-fallback-note">{fallbackNotice}</div>}
           <div className="dist-verdict">{calc.conclusion}</div>
           <div className="dist-verdict-detail">{calc.detail}</div>
+          {calc.rangeNote && <div className="dist-range-note">{calc.rangeNote}</div>}
 
           <details className="dist-evidence">
             <summary className="dist-evidence-summary">어떻게 나온 숫자인가요?</summary>

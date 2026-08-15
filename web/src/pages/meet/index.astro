@@ -30,6 +30,15 @@ const kindOrder = ["전체", "국가대표 선발", "전국체전", "선수권",
 const seenKinds = new Set(listPayload.map((item) => item.kind));
 const kindOptions = kindOrder.filter((kind) => kind === "전체" || seenKinds.has(kind));
 const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => item.distances))).sort((a, b) => a - b)];
+const defaultRows = listPayload
+  .slice()
+  .sort((a, b) => b.year - a.year || String(a.meet).localeCompare(String(b.meet), "ko"));
+const defaultYearGroups = new Map<number, typeof listPayload>();
+for (const row of defaultRows) {
+  const currentRows = defaultYearGroups.get(row.year);
+  if (currentRows) currentRows.push(row);
+  else defaultYearGroups.set(row.year, [row]);
+}
 ---
 
 <Base
@@ -51,30 +60,86 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
         </svg>
       </span>
       <input id="queryInput" type="text" placeholder="대회 이름이나 연도로 검색" autocomplete="off" />
-      <button id="clearQueryButton" type="button" class="field-clear" aria-label="검색어 지우기">✕</button>
+      <button id="clearQueryButton" type="button" class="field-clear" aria-label="검색어 지우기" hidden>✕</button>
     </label>
 
     <div class="filter-block">
       <div class="filter-title">대회 종류</div>
-      <div id="kindChips" class="chip-row"></div>
+      <div id="kindChips" class="chip-row">
+        {
+          kindOptions.map((kind) => (
+            <button type="button" class={`chip${kind === "전체" ? " is-active" : ""}`} data-kind={kind}>
+              {kind}
+            </button>
+          ))
+        }
+      </div>
     </div>
     <div class="filter-block">
       <div class="filter-title">종목</div>
-      <div id="distChips" class="chip-row"></div>
+      <div id="distChips" class="chip-row">
+        {
+          distanceOptions.map((distance) => (
+            <button type="button" class={`chip${distance === 0 ? " is-active" : ""}`} data-distance={distance}>
+              {distance === 0 ? "전체" : `${distance}m`}
+            </button>
+          ))
+        }
+      </div>
     </div>
+    <noscript>
+      <p class="hint">자바스크립트를 끄면 검색과 필터는 사용할 수 없지만, 아래 최신순 목록은 그대로 볼 수 있어요.</p>
+    </noscript>
   </section>
 
   <div class="result-row">
-    <span id="resultLabel">0개 대회</span>
+    <span id="resultLabel">{totalMeets}개 대회</span>
     <button id="toggleOrderButton" type="button">최신순 ↓</button>
   </div>
 
-  <section id="emptyState" class="card empty" hidden>
+  <section id="emptyState" class="card empty" hidden={totalMeets > 0}>
     <b>찾는 대회가 없습니다</b>
     <span>검색어를 지우거나 필터를 바꿔보세요.</span>
   </section>
 
-  <section id="yearGroups" class="year-groups"></section>
+  <section id="yearGroups" class="year-groups">
+    {
+      [...defaultYearGroups.entries()].map(([year, itemsByYear]) => (
+        <section class="year-group">
+          <div class="group-head">
+            <b>{year}년</b>
+            <span>{itemsByYear.length}개 대회</span>
+          </div>
+          <div class="list">
+            {itemsByYear.map((entry) => (
+              <a class="meet-card" href={entry.href}>
+                <div class="meet-body">
+                  <div class="badge-row">
+                    <span class="badge">{entry.kind}</span>
+                    {entry.isNational && <span class="badge is-point">전국 규모</span>}
+                  </div>
+                  <b class="meet-title">{entry.short || entry.meet}</b>
+                  <div class="meet-meta">
+                    {entry.when}
+                    <br />
+                    {entry.where}
+                  </div>
+                  <div class="badge-row">
+                    {entry.distances.length === 0 ? (
+                      <span class="badge">종목 정보 없음</span>
+                    ) : (
+                      entry.distances.map((distance) => <span class="badge">{distance}m</span>)
+                    )}
+                  </div>
+                </div>
+                <span class="meet-arrow">›</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ))
+    }
+  </section>
 
   <script type="application/json" id="meetListData" set:html={JSON.stringify(listPayload)}></script>
   <script type="application/json" id="meetKindOptions" set:html={JSON.stringify(kindOptions)}></script>

@@ -34,12 +34,44 @@ const distributionPayload = distributionRows.map((row) => ({
   p75: row.timeP75,
   p90: row.timeP90,
 }));
-const defaultDistance = distributionRows.length > 0 ? distributionRows[0].distance : 0;
+const defaultDistributionRow =
+  distributionRows.find(
+    (row) =>
+      !row.insufficient &&
+      row.timeP10 !== null &&
+      row.timeP25 !== null &&
+      row.timeP50 !== null &&
+      row.timeP75 !== null &&
+      row.timeP90 !== null,
+  ) ?? distributionRows[0] ?? null;
+const defaultDistance = defaultDistributionRow?.distance ?? 0;
 const figures = item.publicFigureResults ?? [];
 const seriesRows = [{ year: item.year, meet: item.meet, url: item.url || `meet/${meetSlug(item)}/`, current: true }]
   .concat((item.seriesLinks ?? []).map((row) => ({ ...row, current: false })))
   .sort((a, b) => b.year - a.year);
 const ogTitle = `${item.meet} 결과`;
+const fallbackSeriesLink = seriesRows.find((row) => !row.current) ?? null;
+
+const hasUsableDefaultDistribution =
+  defaultDistributionRow !== null &&
+  !defaultDistributionRow.insufficient &&
+  defaultDistributionRow.timeP10 !== null &&
+  defaultDistributionRow.timeP25 !== null &&
+  defaultDistributionRow.timeP50 !== null &&
+  defaultDistributionRow.timeP75 !== null &&
+  defaultDistributionRow.timeP90 !== null;
+
+const unavailableMessage =
+  distributionRows.length === 0
+    ? "이 대회는 종목별 예선 기록이 아직 정리되지 않아 분포를 보여드리기 어렵습니다."
+    : "참가 선수가 적어 개인이 특정될 수 있는 종목이라, 분포를 공개하지 않습니다.";
+
+function formatSeconds(sec: number): string {
+  if (sec < 60) return `${sec.toFixed(2)}초`;
+  const minutes = Math.floor(sec / 60);
+  const seconds = sec - minutes * 60;
+  return `${minutes}분 ${seconds < 10 ? "0" : ""}${seconds.toFixed(2)}초`;
+}
 
 function formatPlacementChip(placement: MeetPublicFigurePlacement): string {
   const distance = placement.distance !== null ? `${placement.distance}m` : "-";
@@ -98,11 +130,15 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
 
     <div id="distTabs" class="chip-row is-wrap tab-row">
       {
-        distributionRows.map((row) => (
-          <button type="button" class={`chip ${row.distance === defaultDistance ? "is-active" : ""}`} data-distance={row.distance}>
-            {row.distance}m
-          </button>
-        ))
+        distributionRows.length > 0 ? (
+          distributionRows.map((row) => (
+            <button type="button" class={`chip ${row.distance === defaultDistance ? "is-active" : ""}`} data-distance={row.distance}>
+              {row.distance}m
+            </button>
+          ))
+        ) : (
+          <div class="dist-tabs-empty">종목별 기록이 준비되면 이 자리에서 비교할 수 있어요.</div>
+        )
       }
     </div>
 
@@ -111,16 +147,45 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       <div class="scale-bar">
         <div></div><div></div><div></div><div></div>
       </div>
-      <div id="bandValues" class="band-values"></div>
+      <div id="bandValues" class="band-values">
+        {
+          hasUsableDefaultDistribution ? (
+            <>
+              <span>{formatSeconds(defaultDistributionRow!.timeP10!)}</span>
+              <span>{formatSeconds(defaultDistributionRow!.timeP25!)}</span>
+              <span>{formatSeconds(defaultDistributionRow!.timeP50!)}</span>
+              <span>{formatSeconds(defaultDistributionRow!.timeP75!)}</span>
+              <span>{formatSeconds(defaultDistributionRow!.timeP90!)}</span>
+            </>
+          ) : (
+            <>
+              <span>-</span><span>-</span><span>-</span><span>-</span><span>-</span>
+            </>
+          )
+        }
+      </div>
       <div class="band-names">
         <span>상위 10%</span><span>상위 25%</span><span>중간</span><span>하위 25%</span><span>하위 10%</span>
       </div>
 
-      <div id="distUnavailable" class="dist-unavailable" hidden>
-        참가 선수가 적어 개인이 특정될 수 있는 종목이라, 분포를 공개하지 않아요.
+      <div id="distUnavailable" class="dist-unavailable" hidden={hasUsableDefaultDistribution}>
+        <div>{unavailableMessage}</div>
+        <div class="dist-unavailable-next">
+          {fallbackSeriesLink ? (
+            <>
+              같은 대회의 다른 해 기록도 함께 확인해보세요.
+              <a href={withBase(fallbackSeriesLink.url)}> {fallbackSeriesLink.year}년 대회 보기</a>
+            </>
+          ) : (
+            <>
+              대회 목록에서 다른 대회나 종목을 선택해 비교해보세요.
+              <a href={withBase("meet/")}> 대회 목록으로 이동</a>
+            </>
+          )}
+        </div>
       </div>
 
-      <div id="timeCheckBox" class="time-check-box">
+      <div id="timeCheckBox" class="time-check-box" style={hasUsableDefaultDistribution ? undefined : "display:none"}>
         <div class="time-check-title">내 기록으로 확인해보기</div>
         <div class="time-input-row">
           <label class="field">
@@ -138,6 +203,9 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
         </div>
       </div>
     </div>
+    <noscript>
+      <p class="hint">자바스크립트가 꺼져 있으면 종목 전환과 내 기록 비교는 동작하지 않아요. 위 기준값으로 먼저 위치를 확인해주세요.</p>
+    </noscript>
 
     <p class="hint">참가 인원이 적은 종목은 개인이 특정될 수 있어 공개하지 않아요. 결승은 순위 운영 영향이 커서 예선 기록만 썼습니다.</p>
   </section>
@@ -237,8 +305,21 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       }
 
       const rows = JSON.parse(distDataEl.textContent || "[]");
-      if (!Array.isArray(rows) || rows.length === 0) return;
-      const state = { distance: Number(rows[0].distance || 0), myTime: "" };
+      if (!Array.isArray(rows) || rows.length === 0) {
+        bandValues.innerHTML = "<span>-</span><span>-</span><span>-</span><span>-</span><span>-</span>";
+        distUnavailable.hidden = false;
+        distUnavailable.innerHTML =
+          "이 대회는 종목별 예선 기록이 아직 정리되지 않아 분포를 보여드리기 어렵습니다.<br>같은 대회의 다른 해를 보거나 대회 목록에서 다른 종목을 확인해보세요.";
+        timeCheckBox.style.display = "none";
+        return;
+      }
+      const initialDistanceButton = distTabs.querySelector("button[data-distance].is-active");
+      const state = {
+        distance: Number((initialDistanceButton instanceof HTMLButtonElement ? initialDistanceButton.dataset.distance : rows[0].distance) || 0),
+        myTime: "",
+      };
+      const insufficientMessage =
+        "참가 선수가 적어 개인이 특정될 수 있는 종목이라 분포를 공개하지 않습니다.<br>다른 종목을 선택하거나 같은 대회의 다른 해를 확인해보세요.";
 
       const fmt = (sec) => {
         if (sec == null || Number.isNaN(sec)) return "-";
@@ -274,6 +355,7 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
         if (!row || row.insufficient || row.p10 == null) {
           bandValues.innerHTML = "<span>-</span><span>-</span><span>-</span><span>-</span><span>-</span>";
           distUnavailable.hidden = false;
+          distUnavailable.innerHTML = insufficientMessage;
           timeCheckBox.style.display = "none";
           return;
         }
@@ -372,6 +454,14 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
     .tab-row {
       margin-bottom: 14px;
     }
+    .dist-tabs-empty {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: var(--r-ctl);
+      background: var(--surface-3);
+      color: var(--sub-2);
+      font-size: 13.5px;
+    }
     .distribution-box {
       padding: 18px 16px 16px;
     }
@@ -441,6 +531,12 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       padding: 12px;
       font-size: 13px;
       color: var(--sub-2);
+    }
+    .dist-unavailable-next {
+      margin-top: 6px;
+    }
+    .dist-unavailable-next a {
+      font-weight: 700;
     }
     .time-check-box {
       margin-top: 18px;

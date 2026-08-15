@@ -4,6 +4,7 @@ import { toAbsoluteUrl, withBase } from "../lib/base";
 interface Props {
   title: string;
   description: string;
+  robots?: string;
   canonical?: string;
   ogTitle?: string;
   ogDescription?: string;
@@ -14,7 +15,7 @@ interface Props {
   back?: { href: string; label: string };
 }
 
-const { title, description, canonical, ogTitle, ogDescription, ogImage, ogType, generatedAt, back } = Astro.props;
+const { title, description, robots, canonical, ogTitle, ogDescription, ogImage, ogType, generatedAt, back } = Astro.props;
 
 const canonicalUrl = canonical ? toAbsoluteUrl(canonical) : Astro.url?.toString() ?? toAbsoluteUrl();
 const resolvedOgTitle = ogTitle ?? title;
@@ -51,6 +52,7 @@ const navItems = [
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    {robots && <meta name="robots" content={robots} />}
     <meta property="og:title" content={resolvedOgTitle} />
     <meta property="og:description" content={resolvedOgDescription} />
     <meta property="og:image" content={resolvedOgImage} />
@@ -919,6 +921,14 @@ const navItems = [
         background: var(--surface-3);
         border-radius: var(--r-ctl);
         padding: 10px 12px;
+      }
+      .dist-range-note {
+        margin-top: 12px;
+        font-size: 13.5px;
+        color: var(--sub-2);
+        background: var(--surface-3);
+        border-radius: var(--r-ctl);
+        padding: 11px 12px;
       }
       .dist-evidence {
         margin-top: 16px;
