@@ -19,6 +19,7 @@ export const GET: APIRoute = () => {
   const athleteUrls = [...new Set(athletes.map((athlete) => `athlete/${athlete.slug}/`))];
   const urls = [
     "",
+    "analysis/",
     "athlete/",
     "privacy/",
     "distribution/",
