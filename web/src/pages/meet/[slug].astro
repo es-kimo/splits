@@ -192,19 +192,29 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
 
       <div id="timeCheckBox" class="time-check-box" style={hasUsableDefaultDistribution ? undefined : "display:none"}>
         <div class="time-check-title">내 기록으로 확인해보기</div>
-        <div class="time-input-row">
-          <label class="field">
-            <input id="myTimeInput" type="text" placeholder="예: 2:29.15" autocomplete="off" aria-label="내 예선 기록" />
-            <span class="unit">분:초</span>
-          </label>
-          <button id="clearTimeButton" type="button" class="btn is-ghost clear-time-btn" hidden>지우기</button>
+        <div id="timePresetRow" class="chip-row is-wrap time-preset-row" role="group" aria-label="추천 기록 선택"></div>
+        <div class="time-stepper" role="group" aria-label="기록 미세 조정">
+          <button id="timeSlowerButton" type="button" class="btn is-ghost time-step-btn">느리게 +0.1초</button>
+          <div id="timePickerValue" class="time-picker-value" aria-live="polite" aria-atomic="true">기록을 골라주세요</div>
+          <button id="timeFasterButton" type="button" class="btn is-ghost time-step-btn">빠르게 -0.1초</button>
         </div>
+        <p class="time-picker-note">추천값을 누른 뒤 버튼으로 0.1초씩 맞춰보세요.</p>
+        <details class="time-manual-input">
+          <summary>직접 입력하기</summary>
+          <div class="time-input-row">
+            <label class="field">
+              <input id="myTimeInput" type="text" placeholder="예: 2:29.15" autocomplete="off" aria-label="내 예선 기록 직접 입력" />
+              <span class="unit">분:초</span>
+            </label>
+            <button id="clearTimeButton" type="button" class="btn is-ghost clear-time-btn" hidden>지우기</button>
+          </div>
+          <div id="timeErrorText" class="error-text" role="alert" hidden>
+            시간 형식을 확인해주세요. 2분 29초 15는 <b>2:29.15</b>, 45초 8은 <b>45.8</b>로 적어주세요.
+          </div>
+        </details>
         <div id="timeResultBox" class="time-result" role="status" aria-live="polite" aria-atomic="true" hidden>
           <div id="timeResultTitle"></div>
           <div id="timeResultDetail"></div>
-        </div>
-        <div id="timeErrorText" class="error-text" role="alert" hidden>
-          시간 형식을 확인해주세요. 2분 29초 15는 <b>2:29.15</b>, 45초 8은 <b>45.8</b>로 적어주세요.
         </div>
       </div>
     </div>
@@ -287,6 +297,10 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       const bandValues = document.getElementById("bandValues");
       const distUnavailable = document.getElementById("distUnavailable");
       const timeCheckBox = document.getElementById("timeCheckBox");
+      const timePresetRow = document.getElementById("timePresetRow");
+      const timeSlowerButton = document.getElementById("timeSlowerButton");
+      const timeFasterButton = document.getElementById("timeFasterButton");
+      const timePickerValue = document.getElementById("timePickerValue");
       const myTimeInput = document.getElementById("myTimeInput");
       const clearTimeButton = document.getElementById("clearTimeButton");
       const timeResultBox = document.getElementById("timeResultBox");
@@ -299,6 +313,10 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
         !(bandValues instanceof HTMLElement) ||
         !(distUnavailable instanceof HTMLElement) ||
         !(timeCheckBox instanceof HTMLElement) ||
+        !(timePresetRow instanceof HTMLElement) ||
+        !(timeSlowerButton instanceof HTMLButtonElement) ||
+        !(timeFasterButton instanceof HTMLButtonElement) ||
+        !(timePickerValue instanceof HTMLElement) ||
         !(myTimeInput instanceof HTMLInputElement) ||
         !(clearTimeButton instanceof HTMLButtonElement) ||
         !(timeResultBox instanceof HTMLElement) ||
@@ -322,6 +340,7 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       const state = {
         distance: Number((initialDistanceButton instanceof HTMLButtonElement ? initialDistanceButton.dataset.distance : rows[0].distance) || 0),
         myTime: "",
+        pickerTime: null,
       };
       const insufficientMessage =
         "참가 선수가 적어 개인이 특정될 수 있는 종목이라 분포를 공개하지 않습니다.<br>다른 종목을 선택하거나 같은 대회의 다른 해를 확인해보세요.";
@@ -347,6 +366,43 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       };
 
       const selectedRow = () => rows.find((row) => Number(row.distance) === Number(state.distance)) || rows[0];
+      const roundTime = (value) => Math.max(0, Math.round(Number(value) * 10) / 10);
+      const selectedTime = () => {
+        if (typeof state.pickerTime === "number" && Number.isFinite(state.pickerTime)) return state.pickerTime;
+        if (!state.myTime.trim()) return null;
+        return parseTime(state.myTime);
+      };
+      const presetValuesForRow = (row) => {
+        const values = [row.p10, row.p25, row.p50, row.p75, row.p90]
+          .filter((value) => typeof value === "number" && Number.isFinite(value))
+          .map((value) => roundTime(value));
+        const unique = [];
+        values.forEach((value) => {
+          if (!unique.some((item) => Math.abs(item - value) < 0.0001)) unique.push(value);
+        });
+        return unique;
+      };
+      const renderPresets = () => {
+        const row = selectedRow();
+        if (!row || row.insufficient || row.p10 == null) {
+          timePresetRow.innerHTML = "";
+          timePickerValue.textContent = "기록을 고를 수 없어요";
+          return;
+        }
+        const presets = presetValuesForRow(row);
+        const currentValue = selectedTime();
+        timePresetRow.innerHTML = presets
+          .map((value) => {
+            const active = typeof currentValue === "number" && Number.isFinite(currentValue) && Math.abs(currentValue - value) < 0.0001;
+            return `<button type="button" class="chip${active ? " is-active" : ""}" data-preset-time="${value}" aria-pressed="${active}">${fmt(value)}</button>`;
+          })
+          .join("");
+        if (typeof currentValue === "number" && Number.isFinite(currentValue)) {
+          timePickerValue.textContent = fmt(currentValue);
+        } else {
+          timePickerValue.textContent = "기록을 골라주세요";
+        }
+      };
 
       const renderTabs = () => {
         distTabs.querySelectorAll("button[data-distance]").forEach((button) => {
@@ -364,6 +420,7 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
           distUnavailable.hidden = false;
           distUnavailable.innerHTML = insufficientMessage;
           timeCheckBox.style.display = "none";
+          state.pickerTime = null;
           return;
         }
         bandValues.innerHTML = `
@@ -375,6 +432,10 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
         `;
         distUnavailable.hidden = true;
         timeCheckBox.style.display = "block";
+        if (typeof state.pickerTime !== "number" || !Number.isFinite(state.pickerTime)) {
+          state.pickerTime = roundTime(row.p50);
+        }
+        renderPresets();
       };
 
       const renderMyTimeResult = () => {
@@ -383,7 +444,8 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
         timeResultBox.hidden = true;
         timeErrorText.hidden = true;
         if (!row || row.insufficient || row.p10 == null) return;
-        const parsed = state.myTime.trim() ? parseTime(state.myTime) : null;
+        const parsed = selectedTime();
+        renderPresets();
         if (parsed == null) return;
         if (Number.isNaN(parsed)) {
           timeErrorText.hidden = false;
@@ -431,18 +493,62 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
         const button = target.closest("button[data-distance]");
         if (!(button instanceof HTMLButtonElement)) return;
         state.distance = Number(button.dataset.distance || "0");
+        state.pickerTime = null;
+        state.myTime = "";
+        myTimeInput.value = "";
         renderAll();
+      });
+
+      timePresetRow.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const button = target.closest("button[data-preset-time]");
+        if (!(button instanceof HTMLButtonElement)) return;
+        state.pickerTime = roundTime(Number(button.dataset.presetTime || "0"));
+        state.myTime = "";
+        myTimeInput.value = "";
+        renderMyTimeResult();
+      });
+
+      timeSlowerButton.addEventListener("click", () => {
+        const row = selectedRow();
+        const base =
+          typeof state.pickerTime === "number" && Number.isFinite(state.pickerTime)
+            ? state.pickerTime
+            : row && row.p50 != null
+              ? roundTime(row.p50)
+              : 0;
+        state.pickerTime = roundTime(base + 0.1);
+        state.myTime = "";
+        myTimeInput.value = "";
+        renderMyTimeResult();
+      });
+
+      timeFasterButton.addEventListener("click", () => {
+        const row = selectedRow();
+        const base =
+          typeof state.pickerTime === "number" && Number.isFinite(state.pickerTime)
+            ? state.pickerTime
+            : row && row.p50 != null
+              ? roundTime(row.p50)
+              : 0;
+        state.pickerTime = roundTime(Math.max(0, base - 0.1));
+        state.myTime = "";
+        myTimeInput.value = "";
+        renderMyTimeResult();
       });
 
       myTimeInput.addEventListener("input", (event) => {
         const target = event.target;
         if (!(target instanceof HTMLInputElement)) return;
         state.myTime = target.value;
+        state.pickerTime = null;
         renderMyTimeResult();
       });
 
       clearTimeButton.addEventListener("click", () => {
         state.myTime = "";
+        state.pickerTime = null;
         myTimeInput.value = "";
         renderMyTimeResult();
       });
@@ -555,12 +661,79 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       font-weight: 700;
       margin-bottom: 9px;
     }
-    .time-input-row {
+    .time-preset-row {
+      margin-bottom: 8px;
+    }
+    .time-stepper {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .time-step-btn {
+      min-height: 52px;
+      border-radius: 14px;
+      padding: 0 14px;
+      font-size: 13.5px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .time-picker-value {
+      min-height: 52px;
+      min-width: 0;
+      border: 1.5px solid var(--line-strong);
+      border-radius: 14px;
+      background: var(--surface);
+      padding: 0 14px;
       display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink);
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .time-picker-note {
+      margin: 10px 0 0;
+      font-size: 15px;
+      color: var(--sub-2);
+    }
+    .time-manual-input {
+      margin-top: 10px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .time-manual-input summary {
+      list-style: none;
+      cursor: pointer;
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .time-manual-input summary::-webkit-details-marker {
+      display: none;
+    }
+    .time-manual-input summary::after {
+      content: "▾";
+      margin-left: 6px;
+      font-size: 12px;
+      color: var(--soft);
+    }
+    .time-manual-input[open] summary::after {
+      content: "▴";
+    }
+    .time-input-row {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
     }
     .time-input-row .field {
-      flex: 1;
+      min-width: 0;
     }
     .clear-time-btn {
       min-height: 52px;
@@ -636,6 +809,14 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
     @media (max-width: 640px) {
       .figure-head a {
         margin-left: 0;
+      }
+      .time-stepper,
+      .time-input-row {
+        grid-template-columns: 1fr;
+      }
+      .time-step-btn,
+      .clear-time-btn {
+        width: 100%;
       }
       /* 5칸 눈금은 360px에서 값이 겹친다. 양 끝과 한가운데만 남긴다. */
       .band-values :global(span:nth-child(2)),
