@@ -10,7 +10,7 @@ const meta = loadMetaDoc();
 
 <Base
   title="또래 기록 분포 조회"
-  description="출생연도 포함 비교와 통합 비교를 모두 지원하며, 성별·거리 조건에서 기록 또는 순위의 상대 위치를 확인합니다."
+  description="학년 또는 출생연도로 또래 조건을 고르고, 기록·등수의 상대 위치를 한 줄 결론으로 확인합니다."
   ogTitle="또래 기록 분포 조회"
   ogImage="og/distribution.png"
   generatedAt={meta.generatedAt}
@@ -158,7 +158,8 @@ const meta = loadMetaDoc();
       font-weight: 700;
       color: #5b5f68;
     }
-    :global(.dist-year-select select) {
+    :global(.dist-year-select select),
+    :global(.dist-year-select input) {
       width: 100%;
       min-height: 44px;
       border-radius: 12px;
@@ -168,6 +169,19 @@ const meta = loadMetaDoc();
       font-size: 14px;
       color: #17181c;
       font-family: inherit;
+    }
+    :global(.dist-age-mode-note) {
+      margin: 0;
+      font-size: 13px;
+      color: #8a8f99;
+    }
+    :global(.dist-distance-fallback-note) {
+      margin: 10px 0 0;
+      font-size: 13px;
+      color: #6b6f78;
+      background: #f5f7fa;
+      border-radius: 11px;
+      padding: 10px 12px;
     }
     :global(.dist-year-merged-note) {
       margin: 12px 0 0;
@@ -249,6 +263,41 @@ const meta = loadMetaDoc();
       margin-top: 6px;
       font-size: 15px;
       color: #5b5f68;
+    }
+    :global(.dist-fallback-note) {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: #5b5f68;
+      background: #f5f7fa;
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    :global(.dist-evidence) {
+      margin-top: 16px;
+      border-top: 1px solid #edf0f4;
+      padding-top: 12px;
+    }
+    :global(.dist-evidence-summary) {
+      list-style: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+      color: #3a3d45;
+    }
+    :global(.dist-evidence-summary::-webkit-details-marker) {
+      display: none;
+    }
+    :global(.dist-evidence-summary::after) {
+      content: "▾";
+      margin-left: 6px;
+      font-size: 12px;
+      color: #8a8f99;
+    }
+    :global(.dist-evidence[open] .dist-evidence-summary::after) {
+      content: "▴";
+    }
+    :global(.dist-evidence-inner) {
+      margin-top: 12px;
     }
     :global(.dist-band-wrap) {
       margin-top: 20px;
@@ -339,6 +388,27 @@ const meta = loadMetaDoc();
       padding-top: 12px;
       font-size: 13.5px;
       color: #6b6f78;
+    }
+    :global(.dist-quantile-table) {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    :global(.dist-quantile-table th),
+    :global(.dist-quantile-table td) {
+      padding: 9px 0;
+      border-bottom: 1px solid #edf0f4;
+      text-align: left;
+      font-variant-numeric: tabular-nums;
+    }
+    :global(.dist-quantile-table th) {
+      color: #6b6f78;
+      font-weight: 600;
+    }
+    :global(.dist-quantile-table td) {
+      color: #17181c;
+      font-weight: 700;
     }
     :global(.dist-caution-box) {
       margin-top: 14px;
