@@ -12,6 +12,7 @@ from analyze import (
     build_clean_records,
     classify_class_cd,
 )
+from local_env import load_local_env
 
 DATA_DIR = Path("data")
 SITE_DATA_DIR = Path("site/data")
@@ -1146,6 +1147,7 @@ def assert_public_scope(athletes, active_id_set):
 
 
 def main():
+    load_local_env()
     try:
         frames = {name: read_csv(name) for name in INPUT_FILES}
         payload, placements_target, public_figures, active_id_set = build_athletes_payload(frames)

@@ -44,8 +44,10 @@ npm install --prefix web   # 최초 1회
 python scrape.py resolve
 python scrape.py history
 python analyze.py
-export SPLITS_ANON_SALT='로컬 전용 SALT'
-export SPLITS_MEET_INDEX_CSV='/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv'
+cat > .env.local <<'EOF'
+SPLITS_ANON_SALT=<충분히 긴 랜덤 문자열>
+SPLITS_MEET_INDEX_CSV=/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv
+EOF
 python build_data.py
 python build_site.py
 ```
@@ -119,7 +121,7 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 
 - `data/` 커밋 허용 파일은 `records_anon.csv`, `stats_distribution.csv`, `stats_participation.csv`, `public_figures.csv`, `coverage.csv`, `meet_index_inf201.csv`(및 `data/README.md`)로 제한합니다.
 - 개인식별/원천 데이터(`records`, `records_full`, `athlete_info`, `athlete_info_full`, `athlete_index`, `id_merge_candidates`, `id_merges`, `raw/**`)는 Git에 커밋하지 않습니다.
-- SALT는 환경변수 `SPLITS_ANON_SALT`로만 주입하며 `.env*` 파일은 커밋하지 않습니다.
+- SALT는 환경변수 `SPLITS_ANON_SALT`로만 주입하며 `.env*` 파일은 커밋하지 않습니다. `build_data.py`와 `collect_full_history.py`는 실행 시 `.env.local`/`.env`를 자동 로드합니다(이미 쉘에 설정된 값이 우선).
 - `python analyze.py`는 익명 통계 생성 시 `records_full/athlete_info_full`이 있으면 우선 사용하고, 없으면 `records/athlete_info`를 사용합니다. 선수 단계 산출물(`placements.csv` 등)은 항상 `records/athlete_info` 기준입니다.
 - `python analyze.py`는 `records.csv`/`athlete_info.csv`가 없고 `records_anon.csv`만 있는 경우에도 `coverage.csv`, `stats_distribution.csv`, `stats_participation.csv`를 재생성할 수 있습니다.
 - `python build_data.py`도 대회 집계에서 같은 우선순위(`records_full` → `records`)로 원천을 직접 읽습니다. 이 경로는 CSV를 거치지 않고 `analyze.py` 함수를 그대로 호출하므로 `Int64` 결측(`pd.NA`)이 살아 있습니다 — 값 변환 헬퍼는 `as_text()`를 거쳐 NA를 흡수해야 합니다.

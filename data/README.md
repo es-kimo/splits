@@ -57,14 +57,17 @@
 ## 5) 생성 순서
 
 ```bash
-export SPLITS_ANON_SALT='로컬에서만 보관하는_충분히긴_무작위문자열'
-export SPLITS_MEET_INDEX_CSV='/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv'
+cat > .env.local <<'EOF'
+SPLITS_ANON_SALT=<충분히 긴 랜덤 문자열>
+SPLITS_MEET_INDEX_CSV=/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv
+EOF
 python3 analyze.py
 python3 build_data.py
 ```
 
 - `analyze.py`는 통계 CSV를 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
+- `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 
 ## 6) 커밋 전 검증
 
