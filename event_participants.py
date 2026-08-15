@@ -19,7 +19,9 @@ INF503_ENDPOINT = f"{BASE_URL}/SK/INF503.do"
 HEADERS = {"Content-Type": "application/x-www-form-urlencoded"}
 SESSION = requests.Session()
 
-PARTICIPANT_ID_RE = re.compile(r"fn\w*History\(\s*['\"]?(\d{6,})['\"]?\s*\)")
+PARTICIPANT_ID_VALID_RE = re.compile(r"^\d{12}$")
+PARTICIPANT_ID_RAW_RE = re.compile(r"fn\w*History\(\s*['\"]?([0-9A-Za-z]+)['\"]?")
+TEAM_ID_RE = re.compile(r"^[0-9A-Za-z]+$")
 DIGIT_RE = re.compile(r"\d+")
 MEET_TEXT_RE = re.compile(r"[^0-9a-z가-힣]+")
 
@@ -147,43 +149,66 @@ def _extract_result_headers(table):
     headers = []
     name_columns = ("성명", "선수명", "팀명", "소속")
     for tr in table.find_all("tr"):
-        ths = tr.find_all("th")
-        if not ths:
+        cells = tr.find_all(["th", "td"])
+        if not cells:
             continue
-        if len(ths) == 1 and ths[0].get("colspan"):
+        if len(cells) == 1 and cells[0].get("colspan"):
             continue
-        values = [_norm(th.get_text(" ", strip=True)) for th in ths]
-        if "순위" in values and any(col in values for col in name_columns):
+        values = [_norm(cell.get_text(" ", strip=True)) for cell in cells]
+        if not any(col in values for col in name_columns):
+            continue
+        if any(col in values for col in ("순위", "기록", "기록차", "학년", "BIB", "레인")):
             headers = values
             break
     return headers
 
 
-def _extract_participant_entries(tr, row_map):
+def _is_valid_participant_id(id_no):
+    value = _norm(id_no)
+    return bool(PARTICIPANT_ID_VALID_RE.fullmatch(value))
+
+
+def _extract_participant_entries(tr, row_map, invalid_id_sink=None, allow_non_numeric_ids=False):
     base_name = _norm(row_map.get("성명") or row_map.get("선수명") or row_map.get("팀명"))
     entries = []
-    seen_ids = set()
+    seen_entries = set()
+    seen_invalid = set()
 
     def add_entry(id_no, name):
         iid = _norm(id_no)
-        if not iid or iid in seen_ids:
+        entry_name = _norm(name) or base_name
+        entry_key = (iid, entry_name)
+        if not iid or entry_key in seen_entries:
             return
-        seen_ids.add(iid)
-        entries.append({"idNo": iid, "name": _norm(name) or base_name})
+        seen_entries.add(entry_key)
+        entries.append({"idNo": iid, "name": entry_name})
 
-    for anchor in tr.find_all("a"):
-        anchor_name = _norm(anchor.get_text(" ", strip=True))
-        for raw in [anchor.get("href", ""), anchor.get("onclick", "")]:
-            m = PARTICIPANT_ID_RE.search(raw or "")
-            if m:
-                add_entry(m.group(1), anchor_name)
-                break
+    def handle_match(match, raw_source, source_label):
+        if not match:
+            return
+        raw_id = _norm(match.group(1))
+        if _is_valid_participant_id(raw_id):
+            add_entry(raw_id, source_label)
+            return
+        if allow_non_numeric_ids and TEAM_ID_RE.fullmatch(raw_id):
+            add_entry(raw_id, source_label)
+            return
+        if invalid_id_sink is None:
+            return
+        invalid_key = (raw_id, _norm(raw_source))
+        if invalid_key in seen_invalid:
+            return
+        seen_invalid.add(invalid_key)
+        invalid_id_sink(raw_id, _norm(raw_source), _norm(source_label))
 
-    for node in [tr, *tr.find_all(attrs={"onclick": True})]:
+    nodes = [tr, *tr.find_all("a"), *tr.find_all(attrs={"onclick": True}), *tr.find_all(attrs={"href": True})]
+    for node in nodes:
+        source_label = base_name
+        if node.name == "a":
+            source_label = _norm(node.get_text(" ", strip=True)) or base_name
         for raw in [node.get("onclick", ""), node.get("href", "")]:
-            m = PARTICIPANT_ID_RE.search(raw or "")
-            if m:
-                add_entry(m.group(1), base_name)
+            for m in PARTICIPANT_ID_RAW_RE.finditer(raw or ""):
+                handle_match(m, raw, source_label)
 
     return entries
 
@@ -400,6 +425,11 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
     row_without_participant_count = 0
     row_without_participant_likely_result_count = 0
     participant_entry_count = 0
+    suspicious_ids = set()
+
+    def invalid_id_sink(raw_id, raw_source, source_label):
+        suspicious_ids.add(raw_id)
+
     for tr in table.find_all("tr"):
         ths = tr.find_all("th")
         if len(ths) == 1 and ths[0].get("colspan"):
@@ -430,7 +460,13 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
         reason = _norm(row_map.get("사유"))
         record_gap = _norm(row_map.get("기록차"))
         row_name = _norm(row_map.get("성명") or row_map.get("선수명") or row_map.get("팀명"))
-        participants = _extract_participant_entries(tr, row_map)
+        allow_non_numeric_ids = _norm(result_call.get("pcntGbn")).upper() == "T" or _norm(result_call.get("baseClassCd")) == "07"
+        participants = _extract_participant_entries(
+            tr,
+            row_map,
+            invalid_id_sink=invalid_id_sink,
+            allow_non_numeric_ids=allow_non_numeric_ids,
+        )
         if not participants:
             row_without_participant_count += 1
             if rank or record or row_name:
@@ -441,7 +477,7 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
         for participant in participants:
             id_no = participant["idNo"]
             name = participant["name"]
-            unique_key = (id_no, current_round, current_category, rank, record, result_call["baseClassCd"], result_call["rhCd"])
+            unique_key = (id_no, name, current_round, current_category, rank, record, result_call["baseClassCd"], result_call["rhCd"])
             if unique_key in seen:
                 continue
             seen.add(unique_key)
@@ -460,6 +496,17 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
                     "기록차": record_gap,
                 }
             )
+    if suspicious_ids:
+        print(
+            "[warn] INF310 idNo 비정상 감지: classCd={0} toCd={1} kindCd={2} detailClassCd={3} rhCd={4} count={5}".format(
+                class_cd,
+                to_cd,
+                kind_cd,
+                detail_class_cd,
+                result_call.get("rhCd", ""),
+                len(suspicious_ids),
+            )
+        )
     return {
         "rows": rows,
         "stats": {
@@ -470,6 +517,7 @@ def fetch_inf310_result_rows(class_cd, to_cd, search_app_yn, kind_cd, detail_cla
             "row_without_participant_count": row_without_participant_count,
             "row_without_participant_likely_result_count": row_without_participant_likely_result_count,
             "participant_entry_count": participant_entry_count,
+            "suspicious_id_count": len(suspicious_ids),
         },
     }
 

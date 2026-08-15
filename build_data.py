@@ -381,7 +381,7 @@ def _load_meet_index_entries():
     return rows, selected
 
 
-def _match_to_cd_for_meet(meet_year, meet_name, entries):
+def _match_to_cd_for_meet(meet_year, meet_name, entries, preferred_class_cds=None):
     norm_target = _normalize_meet_match_text(meet_name)
     if meet_year is None or not norm_target or not entries:
         return "", "missing-key"
@@ -409,6 +409,12 @@ def _match_to_cd_for_meet(meet_year, meet_name, entries):
     unique_to_cd = sorted({item["toCd"] for item in top if item["toCd"]})
     if len(unique_to_cd) == 1:
         return unique_to_cd[0], "matched"
+    preferred_classes = {as_text(value) for value in (preferred_class_cds or set()) if as_text(value)}
+    if preferred_classes:
+        preferred_top = [item for item in top if as_text(item.get("classCd")) in preferred_classes]
+        preferred_to_cd = sorted({item["toCd"] for item in preferred_top if item["toCd"]})
+        if len(preferred_to_cd) == 1:
+            return preferred_to_cd[0], "matched"
     return "", "ambiguous"
 
 
@@ -420,7 +426,14 @@ def _build_meet_to_cd_map(clean_records):
     base = clean_records.copy()
     base["대회연도_num"] = pd.to_numeric(base.get("대회연도"), errors="coerce").astype("Int64")
     base["대회명_text"] = base.get("대회명", "").map(as_text)
+    base["classCd_text"] = base.get("classCd", "").map(as_text)
     meet_keys = base[["대회연도_num", "대회명_text"]].drop_duplicates()
+    class_preferences = {}
+    grouped_classes = base.groupby(["대회연도_num", "대회명_text"], dropna=False)["classCd_text"]
+    for (year_value, meet_name), values in grouped_classes:
+        if pd.isna(year_value) or not meet_name:
+            continue
+        class_preferences[(int(year_value), meet_name)] = {value for value in values.tolist() if value}
 
     mapping = {}
     matched = 0
@@ -432,7 +445,8 @@ def _build_meet_to_cd_map(clean_records):
         if pd.isna(year_value) or not meet_name:
             continue
         year_int = int(year_value)
-        to_cd, reason = _match_to_cd_for_meet(year_int, meet_name, entries)
+        class_pref = class_preferences.get((year_int, meet_name), set())
+        to_cd, reason = _match_to_cd_for_meet(year_int, meet_name, entries, preferred_class_cds=class_pref)
         mapping[(year_int, meet_name)] = to_cd
         if reason == "matched":
             matched += 1
@@ -467,6 +481,9 @@ def build_records_anon(clean_records, salt):
     base["순위_num"] = pd.to_numeric(base.get("순위_정수"), errors="coerce").astype("Int64")
     base["익명키"] = base["idNo_text"].map(lambda value: _build_anon_key(value, salt_text))
     meet_to_cd_map, to_cd_stats = _build_meet_to_cd_map(base)
+    direct_to_cd_rows = 0
+    mapped_to_cd_rows = 0
+    unresolved_to_cd_rows = 0
 
     rows = []
     for _, row in base.iterrows():
@@ -476,8 +493,18 @@ def build_records_anon(clean_records, salt):
         meet_name = as_text(row.get("대회명"))
         date_text = as_text(row.get("일자_정규화")) or as_text(row.get("일자"))
         to_cd = ""
-        if pd.notna(year_num) and meet_name:
+        row_to_cd = as_text(row.get("toCd"))
+        if row_to_cd:
+            to_cd = row_to_cd
+            direct_to_cd_rows += 1
+        elif pd.notna(year_num) and meet_name:
             to_cd = meet_to_cd_map.get((int(year_num), meet_name), "")
+            if to_cd:
+                mapped_to_cd_rows += 1
+            else:
+                unresolved_to_cd_rows += 1
+        else:
+            unresolved_to_cd_rows += 1
         rows.append(
             {
                 "toCd": to_cd,
@@ -504,6 +531,14 @@ def build_records_anon(clean_records, salt):
     if out.empty:
         return out
     out = out.sort_values(["대회연도", "대회명", "일자", "거리", "라운드", "익명키"], na_position="last").reset_index(drop=True)
+    to_cd_stats.update(
+        {
+            "rows_total": int(len(out)),
+            "rows_direct": int(direct_to_cd_rows),
+            "rows_mapped": int(mapped_to_cd_rows),
+            "rows_unresolved": int(unresolved_to_cd_rows),
+        }
+    )
     out.attrs["to_cd_stats"] = to_cd_stats
     return out
 
@@ -1139,6 +1174,14 @@ def main():
                 to_cd_stats.get("total", 0),
                 to_cd_stats.get("unmatched", 0),
                 to_cd_stats.get("ambiguous", 0),
+            )
+        )
+        print(
+            "[ok] records_anon toCd 채움: direct={0}, mapped={1}, unresolved={2} / total_rows={3}".format(
+                to_cd_stats.get("rows_direct", 0),
+                to_cd_stats.get("rows_mapped", 0),
+                to_cd_stats.get("rows_unresolved", 0),
+                to_cd_stats.get("rows_total", 0),
             )
         )
     else:

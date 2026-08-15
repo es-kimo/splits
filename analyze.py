@@ -996,6 +996,22 @@ def build_athlete_profiles(athlete_df):
     return profile
 
 
+def exclude_team_records_for_stats(records_df):
+    if records_df is None or records_df.empty:
+        return records_df, 0
+    base = records_df.copy()
+    idx = base.index
+    pcnt = base.get("pcntGbn", pd.Series("", index=idx)).astype(str).str.strip().str.upper()
+    detail_cd = base.get("detailClassCd", pd.Series("", index=idx)).astype(str).str.strip()
+    detail_name = base.get("세부종목", pd.Series("", index=idx)).astype(str).str.strip()
+    relay_mask = detail_name.str.contains("릴레이|RELAY", case=False, regex=True)
+    team_mask = pcnt.eq("T") | detail_cd.str.endswith("07") | relay_mask
+    removed = int(team_mask.sum())
+    if removed <= 0:
+        return base, 0
+    return base[~team_mask].copy(), removed
+
+
 def select_stats_source(records_merged_df, athlete_merged_df, id_merge_map):
     stats_records = records_merged_df
     stats_athlete = athlete_merged_df
@@ -1006,6 +1022,9 @@ def select_stats_source(records_merged_df, athlete_merged_df, id_merge_map):
         stats_records = apply_id_remap(full_records_df, id_merge_map, id_col="idNo")
         stats_athlete = apply_id_remap(full_athlete_df, id_merge_map, id_col="idNo")
         source_label = f"{RECORDS_FULL_CSV.name}, {ATHLETE_INFO_FULL_CSV.name}"
+    stats_records, excluded_team_rows = exclude_team_records_for_stats(stats_records)
+    if excluded_team_rows:
+        print(f"통계 집계에서 단체전/계주 기록 {excluded_team_rows}건 제외")
     stats_clean = build_clean_records(stats_records, stats_athlete)
     stats_placements = best_placement(stats_clean)
     stats_summary = summarize_youth(stats_placements, stats_clean, stats_athlete)
