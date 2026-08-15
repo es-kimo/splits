@@ -10,6 +10,7 @@
 - `data/stats_participation.csv`
 - `data/public_figures.csv` (의도된 실명 명단)
 - `data/coverage.csv`
+- `data/meet_index_inf201.csv`
 
 ## 2) 커밋 금지 파일
 
@@ -34,6 +35,7 @@
 `이름, idNo, 소속, 시도, BIB, 레인`
 
 `toCd`는 `meet_index_inf201.csv`가 있으면 자동 매핑하고, 파일이 없거나 매칭이 애매하면 공백으로 둡니다.
+주간 자동 갱신은 이 파일을 기준으로 신규 대회를 식별합니다.
 
 ## 4) 익명키 규칙
 

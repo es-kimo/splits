@@ -5,6 +5,7 @@
 !/data/coverage.csv
 !/data/stats_distribution.csv
 !/data/stats_participation.csv
+!/data/meet_index_inf201.csv
 # full-history collection artifacts (PII/raw cache)
 /data/collect_progress.json
 /data/collect_failures.csv
