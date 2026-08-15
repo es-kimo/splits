@@ -91,6 +91,7 @@ DETAIL_FAILURE_FIELDS = [
     "toCd",
     "kindCd",
     "detailClassCd",
+    "실패단계",
     "단계",
     "사유",
     "대회명",
@@ -137,12 +138,14 @@ RECORD_FIELDS = [
     "rhCd",
     "pcntGbn",
     "소스",
+    "source",
 ]
 
 DATE_DIGITS_RE = re.compile(r"^(19|20)\d{2}(0[1-9]|1[0-2])([0-2]\d|3[01])$")
 DATE_DOTTED_RE = re.compile(r"^((?:19|20)\d{2})[.\-/](0?[1-9]|1[0-2])[.\-/](0?[1-9]|[12]\d|3[01])$")
 FIRST_DATE_RE = re.compile(r"((?:19|20)\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})")
 KIND_CD_RE = re.compile(r"^\d{2}$")
+MEET_NAME_NORMALIZE_RE = re.compile(r"[^0-9a-z가-힣]+")
 
 
 def _configure_data_paths(base_dir):
@@ -192,6 +195,21 @@ def _now_iso():
 
 def _norm(value):
     return str(value or "").strip()
+
+
+def _normalize_meet_name(value):
+    return MEET_NAME_NORMALIZE_RE.sub("", _norm(value).lower())
+
+
+def _record_identity_key(id_no, meet_name, detail_name, round_name, rank, record):
+    return (
+        _norm(id_no),
+        _normalize_meet_name(meet_name),
+        _norm(detail_name),
+        _norm(round_name),
+        _norm(rank),
+        _norm(record),
+    )
 
 
 def _safe_fragment(value):
@@ -519,6 +537,10 @@ def _cache_path_inf301_kind(class_cd, to_cd):
     return RAW_INF301_KIND_DIR / f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}.html"
 
 
+def _legacy_cache_path_inf301_kind(to_cd):
+    return RAW_INF301_KIND_DIR / f"{_safe_fragment(to_cd)}.html"
+
+
 def _cache_path_detail_class_ajax(class_cd, to_cd, kind_cd):
     return RAW_DETAIL_AJAX_DIR / f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}.json"
 
@@ -530,9 +552,20 @@ def _cache_path_inf301(class_cd, to_cd, kind_cd, detail_class_cd):
     )
 
 
+def _legacy_cache_path_inf301(to_cd, kind_cd, detail_class_cd):
+    return RAW_INF301_DIR / f"{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}_{_safe_fragment(detail_class_cd)}.html"
+
+
 def _cache_path_inf310(class_cd, to_cd, kind_cd, detail_class_cd, base_class_cd, rh_cd, pcnt_gbn):
     return RAW_INF310_DIR / (
         f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}_{_safe_fragment(detail_class_cd)}_"
+        f"{_safe_fragment(base_class_cd)}_{_safe_fragment(rh_cd)}_{_safe_fragment(pcnt_gbn)}.html"
+    )
+
+
+def _legacy_cache_path_inf310(to_cd, kind_cd, detail_class_cd, base_class_cd, rh_cd, pcnt_gbn):
+    return RAW_INF310_DIR / (
+        f"{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}_{_safe_fragment(detail_class_cd)}_"
         f"{_safe_fragment(base_class_cd)}_{_safe_fragment(rh_cd)}_{_safe_fragment(pcnt_gbn)}.html"
     )
 
@@ -1256,6 +1289,7 @@ def _build_base_records(events):
                     "toCd": to_cd,
                     "kindCd": _norm(kind_cd),
                     "detailClassCd": _norm(detail_class_cd),
+                    "실패단계": _norm(stage),
                     "단계": _norm(stage),
                     "사유": _norm(reason),
                     "대회명": event_name,
@@ -1281,6 +1315,10 @@ def _build_base_records(events):
             to_cd_by_meet.setdefault(event_name, set()).add(to_cd)
         _, event_date_norm = _extract_event_date(event)
         cache_kind = _cache_path_inf301_kind(class_cd, to_cd)
+        if not cache_kind.exists():
+            legacy_kind = _legacy_cache_path_inf301_kind(to_cd)
+            if legacy_kind.exists():
+                cache_kind = legacy_kind
         if not cache_kind.exists():
             add_detail_failure("", "", "", "", "inf301_kind_cache_missing", "INF301 kind 캐시 없음")
             event_status_rows.append(
@@ -1344,6 +1382,10 @@ def _build_base_records(events):
 
                 cache_301 = _cache_path_inf301(class_cd, to_cd, kind_cd, detail_class_cd)
                 if not cache_301.exists():
+                    legacy_301 = _legacy_cache_path_inf301(to_cd, kind_cd, detail_class_cd)
+                    if legacy_301.exists():
+                        cache_301 = legacy_301
+                if not cache_301.exists():
                     add_detail_failure(
                         kind_cd,
                         detail_class_cd,
@@ -1386,6 +1428,17 @@ def _build_base_records(events):
                         pcnt_gbn=pcnt_gbn,
                     )
                     if not cache_310.exists():
+                        legacy_310 = _legacy_cache_path_inf310(
+                            to_cd=to_cd,
+                            kind_cd=kind_cd,
+                            detail_class_cd=detail_class_cd,
+                            base_class_cd=_norm(call.get("baseClassCd")),
+                            rh_cd=_norm(call.get("rhCd")),
+                            pcnt_gbn=pcnt_gbn,
+                        )
+                        if legacy_310.exists():
+                            cache_310 = legacy_310
+                    if not cache_310.exists():
                         detail_cache_missing = True
                         continue
                     cache_key = str(cache_310)
@@ -1421,14 +1474,13 @@ def _build_base_records(events):
 
                     detail_name = detail_name_seed or _norm(call.get("baseClassNm"))
                     for row in rows:
-                        record_key = (
+                        record_key = _record_identity_key(
                             _norm(row.get("idNo")),
                             event_name,
                             detail_name,
                             _norm(row.get("라운드")),
                             _norm(row.get("순위")),
                             _norm(row.get("기록")),
-                            _norm(row.get("소속")),
                         )
                         if not record_key[0]:
                             continue
@@ -1461,6 +1513,7 @@ def _build_base_records(events):
                                 "rhCd": _norm(call.get("rhCd")),
                                 "pcntGbn": pcnt_gbn,
                                 "소스": "INF310",
+                                "source": "event",
                             }
                         )
                         item = id_seed.setdefault(
@@ -1584,8 +1637,7 @@ def _collect_inf503_for_ids(session, id_list, refresh, request_gap_seconds, prog
             continue
 
 
-def _build_athlete_info_and_score_supplement(id_seed, winter_ids, to_cd_by_meet):
-    winter_id_set = set(winter_ids)
+def _build_athlete_info_and_score_supplement(id_seed, to_cd_by_meet):
     athlete_rows = []
     supplement_rows = []
     supplement_seen = set()
@@ -1601,8 +1653,7 @@ def _build_athlete_info_and_score_supplement(id_seed, winter_ids, to_cd_by_meet)
         else:
             html = ""
             info = {}
-            if id_no in winter_id_set:
-                inf503_cache_missing += 1
+            inf503_cache_missing += 1
 
         name = _norm(info.get("이름")) or _norm(seed.get("이름"))
         gender = _norm(info.get("성별")) or _norm(seed.get("성별"))
@@ -1622,25 +1673,20 @@ def _build_athlete_info_and_score_supplement(id_seed, winter_ids, to_cd_by_meet)
             }
         )
 
-        if id_no not in winter_id_set or not html:
+        if not html:
             continue
         for row in parse_history(html, id_no):
             meet_name = _norm(row.get("대회명"))
             round_name = _norm(row.get("라운드"))
-            if "채점종합" not in round_name:
-                continue
-            if "동계체" not in meet_name:
-                continue
             date_raw = _norm(row.get("일자"))
             date_norm = _normalize_date_text(_norm(row.get("일자_정규화")) or date_raw)
-            key = (
+            key = _record_identity_key(
                 id_no,
                 meet_name,
                 _norm(row.get("세부종목")),
                 round_name,
                 _norm(row.get("순위")),
                 _norm(row.get("기록")),
-                _norm(row.get("소속")),
             )
             if key in supplement_seen:
                 continue
@@ -1670,6 +1716,7 @@ def _build_athlete_info_and_score_supplement(id_seed, winter_ids, to_cd_by_meet)
                     "rhCd": "",
                     "pcntGbn": "I",
                     "소스": "INF503_SCORE",
+                    "source": "inf503",
                 }
             )
 
@@ -1680,35 +1727,34 @@ def _export_full_csv(events, progress):
     base_records, id_seed, winter_ids, to_cd_by_meet, parse_stats, suspicious_rows, detail_failures, event_status_rows = _build_base_records(events)
     athlete_rows, supplement_rows, birth_year_ok, inf503_cache_missing = _build_athlete_info_and_score_supplement(
         id_seed=id_seed,
-        winter_ids=winter_ids,
         to_cd_by_meet=to_cd_by_meet,
     )
 
     existing_keys = {
-        (
+        _record_identity_key(
             _norm(row.get("idNo")),
             _norm(row.get("대회명")),
             _norm(row.get("세부종목")),
             _norm(row.get("라운드")),
             _norm(row.get("순위")),
             _norm(row.get("기록")),
-            _norm(row.get("소속")),
         )
         for row in base_records
     }
     merged_records = list(base_records)
     supplement_added = 0
+    supplement_duplicate_skipped = 0
     for row in supplement_rows:
-        key = (
+        key = _record_identity_key(
             _norm(row.get("idNo")),
             _norm(row.get("대회명")),
             _norm(row.get("세부종목")),
             _norm(row.get("라운드")),
             _norm(row.get("순위")),
             _norm(row.get("기록")),
-            _norm(row.get("소속")),
         )
         if key in existing_keys:
+            supplement_duplicate_skipped += 1
             continue
         existing_keys.add(key)
         merged_records.append(row)
@@ -1744,14 +1790,17 @@ def _export_full_csv(events, progress):
     _save_progress(progress)
 
     print(
-        "[export] 기록 {0:,}건 (INF310 {1:,} + INF503 채점종합 추가 {2:,})".format(
+        "[export] 기록 {0:,}건 (INF310 {1:,} + INF503 보완 추가 {2:,})".format(
             len(merged_records),
             len(base_records),
             supplement_added,
         )
     )
+    print(f"[export] INF503 중복 병합 스킵 {supplement_duplicate_skipped:,}건 (중복 키 기준)")
     print(f"[export] 선수 {len(athlete_rows):,}명 / 출생년도 확보 {birth_year_ok:,}명")
-    print(f"[export] 동계체전 참가자 idNo {len(winter_ids):,}명 / INF503 캐시 미보유 {inf503_cache_missing:,}명")
+    print(
+        f"[export] INF503 대상 idNo {len(id_seed):,}명 (동계체전 참가자 {len(winter_ids):,}명 포함) / INF503 캐시 미보유 {inf503_cache_missing:,}명"
+    )
     print(f"[export] idNo 비정상 감지 {len(suspicious_rows):,}건 → {SUSPICIOUS_IDS_CSV}")
     if suspicious_rows:
         length_counts = {}
@@ -1823,6 +1872,7 @@ def _export_full_csv(events, progress):
         "records_total": len(merged_records),
         "records_inf310": len(base_records),
         "records_inf503_added": supplement_added,
+        "records_inf503_duplicate_skipped": supplement_duplicate_skipped,
         "athletes_total": len(athlete_rows),
         "birth_year_covered": birth_year_ok,
         "winter_ids": len(winter_ids),
@@ -2073,7 +2123,7 @@ def _finalize_summary(progress, request_failures, meet_failures, mode, export_su
 
 
 def _build_arg_parser():
-    parser = argparse.ArgumentParser(description="대회 중심( INF201→INF301/AJAX→INF310 ) + 동계체 INF503 보완 전체 수집기")
+    parser = argparse.ArgumentParser(description="대회 중심( INF201→INF301/AJAX→INF310 ) + 전체 선수 INF503 보완 수집기")
     parser.add_argument(
         "--data-dir",
         default=None,
@@ -2099,7 +2149,7 @@ def _build_arg_parser():
     )
 
     sub = parser.add_subparsers(dest="command")
-    collect_parser = sub.add_parser("collect", help="전수 수집 + 동계체 INF503 보완 + full CSV 생성")
+    collect_parser = sub.add_parser("collect", help="전수 수집 + 전체 선수 INF503 보완 + full CSV 생성")
     collect_parser.add_argument("--refresh", action="store_true", help="캐시 무시 후 전체 재수집")
 
     retry_parser = sub.add_parser("retry-failures", help="실패 대회 재시도 후 full CSV 재생성")
@@ -2153,11 +2203,12 @@ def _run_collect(args):
     )
 
     base_records, _, winter_ids, _, _, _, _, _ = _build_base_records(events)
-    print(f"[target] INF310 기반 고유 선수 {len({_norm(r.get('idNo')) for r in base_records if _norm(r.get('idNo'))}):,}명")
-    print(f"[target] 동계체전 보완 대상 {len(winter_ids):,}명")
+    inf310_ids = sorted({_norm(r.get("idNo")) for r in base_records if _norm(r.get("idNo"))})
+    print(f"[target] INF310 기반 고유 선수 {len(inf310_ids):,}명")
+    print(f"[target] INF503 보완 대상(전체) {len(inf310_ids):,}명 / 동계체전 참가자 {len(winter_ids):,}명")
     _collect_inf503_for_ids(
         session,
-        id_list=winter_ids,
+        id_list=inf310_ids,
         refresh=bool(args.refresh),
         request_gap_seconds=args.request_gap,
         progress=progress,
@@ -2217,10 +2268,12 @@ def _run_retry_failures(args):
     all_events = _load_events_from_inf201_cache()
     if args.max_events is not None:
         all_events = all_events[: max(0, args.max_events)]
-    _, _, winter_ids, _, _, _, _, _ = _build_base_records(all_events)
+    base_records_retry, _, winter_ids, _, _, _, _, _ = _build_base_records(all_events)
+    inf310_ids_retry = sorted({_norm(r.get("idNo")) for r in base_records_retry if _norm(r.get("idNo"))})
+    print(f"[retry] INF503 보완 대상(전체) {len(inf310_ids_retry):,}명 / 동계체전 참가자 {len(winter_ids):,}명")
     _collect_inf503_for_ids(
         session,
-        id_list=winter_ids,
+        id_list=inf310_ids_retry,
         refresh=False,
         request_gap_seconds=args.request_gap,
         progress=progress,

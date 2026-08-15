@@ -86,7 +86,7 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 - `cleanup-raw-cache`: 집계 후 raw HTML 캐시만 삭제
 - `--data-dir` 미지정 시 `./data`(또는 `SPLITS_DATA_DIR`) 사용
 - 네트워크 요청 간격은 기본 1초(`--request-gap`), 캐시 히트 시 sleep 생략
-- `collect`는 classCd=2(쇼트트랙) 대회를 `INF201` 응답 기준으로 전수 시도하고, 대회명에 `동계체`가 포함된 참가자만 `INF503`를 보완 조회해 `채점종합`·출생년도를 채웁니다.
+- `collect`는 classCd=2(쇼트트랙) 대회를 `INF201` 응답 기준으로 전수 시도하고, 대회 경로에서 발견된 전체 선수 id를 `INF503`로 보완 조회해 `채점종합`·출생년도·목록 외 대회 이력을 보강합니다.
 
 ## 5) 파일 의미(핵심)
 
@@ -97,7 +97,7 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 | `data/athlete_index.csv`                               | 전체 선수 수집용 id 인덱스                                     |
 | `data/resolved.csv`                                    | 기준 선수 id 확정 결과                                         |
 | `data/records.csv` / `data/athlete_info.csv`           | 기본 분석 입력(공개 사이트 핵심 입력)                          |
-| `data/records_full.csv` / `data/athlete_info_full.csv` | 전체 수집 확장 입력(익명 통계 + 대회 집계 강화용)              |
+| `data/records_full.csv` / `data/athlete_info_full.csv` | 전체 수집 확장 입력(익명 통계 + 대회 집계 강화용, `source=event|inf503` 포함) |
 | `data/collect_failures.csv`                             | 대회 상태 요약 중 부분완료/실패 목록(재시도 입력)              |
 | `data/detail_failures.csv`                              | 세부종목 단위 실패 로그(`classCd,toCd,kindCd,detailClassCd`)   |
 | `data/collect_request_failures.csv`                     | 요청 단위 실패 로그(HTTP/네트워크 진단)                        |
