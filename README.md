@@ -130,3 +130,4 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 - 이미 커밋된 `records_anon.csv`에 컬럼을 추가·개명할 때는 익명키 재생성을 피하기 위해 `python scripts/backfill_records_anon_class_cd.py`를 사용합니다.
 - `stats_distribution.csv`는 `출생연도×성별×거리` 단위이며 실제 데이터가 있는 조합만 생성합니다. 기록 통계(쇼트트랙 예선)와 순위 통계(쇼트트랙 학령 결승·채점종합)는 대상이 달라 인원수와 k-익명성 판정을 각각 분리합니다.
 - k-익명성 기준(`k=10`) 미만 구간은 행을 유지하되 해당 쪽 `인원수`/지표를 `데이터 부족`으로 표기합니다.
+- 산출물 생성 후에는 `python scripts/audit_data_quality.py`로 스키마·k-익명성·분위수 단조성·물리적 타당성·도메인 신호·커버리지를 점검합니다. 원천 데이터나 SALT 없이 실행됩니다.
