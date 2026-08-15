@@ -53,6 +53,7 @@ RAW_INF503_DIR = RAW_ROOT_DIR / "inf503"
 PROGRESS_JSON = DATA_DIR / "collect_progress.json"
 REQUEST_FAILURES_CSV = DATA_DIR / "collect_request_failures.csv"
 MEET_FAILURES_CSV = DATA_DIR / "collect_failures.csv"
+DETAIL_FAILURES_CSV = DATA_DIR / "detail_failures.csv"
 SUSPICIOUS_IDS_CSV = DATA_DIR / "suspicious_ids.csv"
 RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
 ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
@@ -71,7 +72,33 @@ FAILURE_FIELDS = [
     "attempts",
     "최종실패시각",
 ]
-MEET_FAILURE_FIELDS = ["classCd", "toCd", "대회명", "실패단계", "사유", "최종실패시각", "시도횟수"]
+MEET_FAILURE_FIELDS = [
+    "classCd",
+    "toCd",
+    "대회명",
+    "event_status",
+    "세부종목수",
+    "성공세부종목수",
+    "실패세부종목수",
+    "경고세부종목수",
+    "대표실패단계",
+    "대표사유",
+    "최종실패시각",
+    "시도횟수",
+]
+DETAIL_FAILURE_FIELDS = [
+    "classCd",
+    "toCd",
+    "kindCd",
+    "detailClassCd",
+    "단계",
+    "사유",
+    "대회명",
+    "종별",
+    "세부종목",
+    "심각도",
+    "최종시각",
+]
 SUSPICIOUS_ID_FIELDS = [
     "classCd",
     "toCd",
@@ -129,6 +156,7 @@ def _configure_data_paths(base_dir):
     global PROGRESS_JSON
     global REQUEST_FAILURES_CSV
     global MEET_FAILURES_CSV
+    global DETAIL_FAILURES_CSV
     global SUSPICIOUS_IDS_CSV
     global RECORDS_FULL_CSV
     global ATHLETE_INFO_FULL_CSV
@@ -148,6 +176,7 @@ def _configure_data_paths(base_dir):
     PROGRESS_JSON = DATA_DIR / "collect_progress.json"
     REQUEST_FAILURES_CSV = DATA_DIR / "collect_request_failures.csv"
     MEET_FAILURES_CSV = DATA_DIR / "collect_failures.csv"
+    DETAIL_FAILURES_CSV = DATA_DIR / "detail_failures.csv"
     SUSPICIOUS_IDS_CSV = DATA_DIR / "suspicious_ids.csv"
     RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
     ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
@@ -360,8 +389,13 @@ def _load_meet_failures():
             "classCd": class_cd,
             "toCd": to_cd,
             "대회명": _norm(row.get("대회명")),
-            "실패단계": _norm(row.get("실패단계")),
-            "사유": _norm(row.get("사유")),
+            "event_status": _norm(row.get("event_status")) or "실패",
+            "세부종목수": _norm(row.get("세부종목수")),
+            "성공세부종목수": _norm(row.get("성공세부종목수")),
+            "실패세부종목수": _norm(row.get("실패세부종목수")),
+            "경고세부종목수": _norm(row.get("경고세부종목수")),
+            "대표실패단계": _norm(row.get("대표실패단계") or row.get("실패단계")),
+            "대표사유": _norm(row.get("대표사유") or row.get("사유")),
             "최종실패시각": _norm(row.get("최종실패시각")),
             "시도횟수": _norm(row.get("시도횟수")),
         }
@@ -371,6 +405,53 @@ def _load_meet_failures():
 def _save_meet_failures(meet_failures):
     rows = [meet_failures[key] for key in sorted(meet_failures.keys())]
     _save_csv_rows(MEET_FAILURES_CSV, rows, MEET_FAILURE_FIELDS)
+
+
+def _map_event_status_to_progress(event_status):
+    status = _norm(event_status)
+    if status == "완료":
+        return "done"
+    if status == "부분완료":
+        return "partial"
+    return "failed"
+
+
+def _apply_event_status_rows(progress, meet_failures, event_status_rows):
+    for row in event_status_rows:
+        class_cd = _norm(row.get("classCd"))
+        to_cd = _norm(row.get("toCd"))
+        if not class_cd or not to_cd:
+            continue
+        key = _meet_key(class_cd, to_cd)
+        event_stub = {"classCd": class_cd, "toCd": to_cd, "대회명": _norm(row.get("대회명"))}
+        event_status = _norm(row.get("event_status")) or "실패"
+        _set_meet_status(
+            progress,
+            event_stub,
+            _map_event_status_to_progress(event_status),
+            stage=_norm(row.get("대표실패단계")),
+            error=_norm(row.get("대표사유")),
+        )
+        if event_status == "완료":
+            if key in meet_failures:
+                meet_failures.pop(key)
+            continue
+        meet_item = progress.get("meets", {}).get(key, {})
+        meet_failures[key] = {
+            "classCd": class_cd,
+            "toCd": to_cd,
+            "대회명": _norm(row.get("대회명")),
+            "event_status": event_status,
+            "세부종목수": _norm(row.get("세부종목수")),
+            "성공세부종목수": _norm(row.get("성공세부종목수")),
+            "실패세부종목수": _norm(row.get("실패세부종목수")),
+            "경고세부종목수": _norm(row.get("경고세부종목수")),
+            "대표실패단계": _norm(row.get("대표실패단계")),
+            "대표사유": _norm(row.get("대표사유")),
+            "최종실패시각": _now_iso(),
+            "시도횟수": str(int(meet_item.get("시도횟수", 0))),
+        }
+    _save_meet_failures(meet_failures)
 
 
 def _is_retryable_http(status_code):
@@ -427,30 +508,6 @@ def _record_failure(failures, request_type, request_key, endpoint, payload, cach
 def _clear_failure(failures, request_key):
     if request_key in failures:
         failures.pop(request_key)
-
-
-def _record_meet_failure(meet_failures, event, stage, reason, progress):
-    class_cd = _norm(event.get("classCd"))
-    to_cd = _norm(event.get("toCd"))
-    key = _meet_key(class_cd, to_cd)
-    meet_item = progress.get("meets", {}).get(key, {})
-    meet_failures[key] = {
-        "classCd": class_cd,
-        "toCd": to_cd,
-        "대회명": _norm(event.get("대회명")),
-        "실패단계": _norm(stage),
-        "사유": _norm(reason),
-        "최종실패시각": _now_iso(),
-        "시도횟수": str(int(meet_item.get("시도횟수", 0))),
-    }
-    _save_meet_failures(meet_failures)
-
-
-def _clear_meet_failure(meet_failures, event):
-    key = _meet_key(event.get("classCd"), event.get("toCd"))
-    if key in meet_failures:
-        meet_failures.pop(key)
-        _save_meet_failures(meet_failures)
 
 
 def _cache_path_inf201(page_index):
@@ -637,6 +694,47 @@ def _parse_inf301_result_calls_html(html):
     return calls
 
 
+def _is_relay_context(detail_class_cd, detail_name, calls):
+    if _norm(detail_class_cd).endswith("07"):
+        return True
+    name = _norm(detail_name)
+    if "릴레이" in name or "RELAY" in name.upper():
+        return True
+    for call in calls:
+        if _norm(call.get("pcntGbn")).upper() == "T":
+            return True
+        if _norm(call.get("baseClassCd")) == "07":
+            return True
+    return False
+
+
+def _classify_inf301_empty_calls(html_301):
+    soup = BeautifulSoup(html_301 or "", "html.parser")
+    full_text = soup.get_text(" ", strip=True)
+    has_no_schedule = "조회된 일정이 없습니다" in full_text
+    raw_onclick_calls = 0
+    parsed_onclick_calls = 0
+    for node in soup.find_all(attrs={"onclick": True}):
+        onclick = _norm(node.get("onclick"))
+        if "fnEventResult(" in onclick:
+            raw_onclick_calls += 1
+        if _parse_js_args(onclick, "fnEventResult"):
+            parsed_onclick_calls += 1
+    gm_options = []
+    gm_select = soup.find("select", attrs={"id": "searchGmDt"})
+    if gm_select:
+        for option in gm_select.find_all("option"):
+            value = _norm(option.get("value"))
+            if value:
+                gm_options.append(value)
+
+    if raw_onclick_calls > 0 and parsed_onclick_calls <= 0:
+        return "parser_mismatch", f"fnEventResult_raw={raw_onclick_calls} parsed=0 gm_options={len(gm_options)}"
+    if has_no_schedule:
+        return "no_schedule_rows", f"gm_options={len(gm_options)}"
+    return "calls_empty_unknown", f"fnEventResult_raw={raw_onclick_calls} parsed={parsed_onclick_calls} gm_options={len(gm_options)}"
+
+
 def _parse_inf310_rows_html(html, result_call, *, context=None, suspicious_rows=None):
     context = context or {}
     suspicious_rows = suspicious_rows if suspicious_rows is not None else []
@@ -646,6 +744,7 @@ def _parse_inf310_rows_html(html, result_call, *, context=None, suspicious_rows=
         return {
             "rows": [],
             "stats": {
+                "table_found": False,
                 "header_detected": False,
                 "data_row_count": 0,
                 "category_row_count": 0,
@@ -682,6 +781,11 @@ def _parse_inf310_rows_html(html, result_call, *, context=None, suspicious_rows=
     row_without_participant_count = 0
     row_without_participant_likely_result_count = 0
     participant_entry_count = 0
+    allow_non_numeric_ids = _is_relay_context(
+        context.get("detailClassCd"),
+        context.get("detailName"),
+        [result_call],
+    )
 
     for tr in table.find_all("tr"):
         ths = tr.find_all("th")
@@ -738,7 +842,12 @@ def _parse_inf310_rows_html(html, result_call, *, context=None, suspicious_rows=
             suspicious_ids.add(key)
             suspicious_rows.append(row)
 
-        participants = _extract_participant_entries(tr, row_map, invalid_id_sink=invalid_id_sink)
+        participants = _extract_participant_entries(
+            tr,
+            row_map,
+            invalid_id_sink=invalid_id_sink,
+            allow_non_numeric_ids=allow_non_numeric_ids,
+        )
         if not participants:
             row_without_participant_count += 1
             if rank or record or row_name:
@@ -749,10 +858,12 @@ def _parse_inf310_rows_html(html, result_call, *, context=None, suspicious_rows=
         participant_entry_count += len(participants)
         for participant in participants:
             id_no = _norm(participant.get("idNo"))
+            participant_name = _norm(participant.get("name")) or row_name
             if not id_no:
                 continue
             unique_key = (
                 id_no,
+                participant_name,
                 current_round,
                 current_category,
                 rank,
@@ -766,7 +877,7 @@ def _parse_inf310_rows_html(html, result_call, *, context=None, suspicious_rows=
             rows.append(
                 {
                     "idNo": id_no,
-                    "이름": _norm(participant.get("name")) or row_name,
+                    "이름": participant_name,
                     "소속": affiliation,
                     "종별구분": current_category,
                     "라운드": current_round,
@@ -783,6 +894,7 @@ def _parse_inf310_rows_html(html, result_call, *, context=None, suspicious_rows=
     return {
         "rows": rows,
         "stats": {
+            "table_found": True,
             "header_detected": header_detected,
             "data_row_count": data_row_count,
             "category_row_count": category_row_count,
@@ -852,13 +964,10 @@ def _collect_event_route(
     failures,
     meet_failures,
 ):
+    _ = meet_failures
     total_events = len(events)
     seen_inf310 = set()
     _seed_meet_progress(progress, events)
-
-    def mark_event_failure(event, stage, reason):
-        _set_meet_status(progress, event, "failed", stage=stage, error=reason)
-        _record_meet_failure(meet_failures, event, stage=stage, reason=reason, progress=progress)
 
     for idx, event in enumerate(events, start=1):
         class_cd = _norm(event.get("classCd"))
@@ -867,7 +976,6 @@ def _collect_event_route(
         event_name = _norm(event.get("대회명"))
         print(f"[event {idx}/{total_events}] classCd={class_cd} toCd={to_cd} | {event_name}")
         _set_meet_status(progress, event, "in_progress", stage="start")
-        event_has_error = False
         event_inf310_calls = 0
 
         payload_kind = _base_payload()
@@ -888,12 +996,12 @@ def _collect_event_route(
         _bump_counter(progress, "inf301_kind_requests")
         _save_progress(progress)
         if html_kind is None:
-            mark_event_failure(event, stage="inf301_kind_fetch", reason=reason or "kind_fetch_failed")
+            _set_meet_status(progress, event, "in_progress", stage="inf301_kind_fetch_failed", error=reason or "kind_fetch_failed")
             continue
 
         kind_items = _parse_inf301_kind_options_html(html_kind)
         if not kind_items:
-            mark_event_failure(event, stage="inf301_kind_parse", reason="kind_options_empty")
+            _set_meet_status(progress, event, "in_progress", stage="inf301_kind_parse_empty", error="kind_options_empty")
             continue
 
         for kind_item in kind_items:
@@ -918,13 +1026,11 @@ def _collect_event_route(
             _bump_counter(progress, "detail_class_ajax_requests")
             _save_progress(progress)
             if ajax_text is None:
-                event_has_error = True
-                mark_event_failure(event, stage="detail_class_fetch", reason=ajax_reason or f"kindCd={kind_cd}")
+                print(f"[warn] detail_class_ajax fetch 실패: toCd={to_cd} kindCd={kind_cd} reason={ajax_reason or 'unknown'}")
                 continue
             details = _parse_detail_class_list_json(ajax_text, kind_cd=kind_cd, kind_nm=kind_nm)
             if not details:
-                event_has_error = True
-                mark_event_failure(event, stage="detail_class_parse", reason=f"kindCd={kind_cd} detail_empty")
+                print(f"[warn] detail_class_ajax 파싱 결과 없음: toCd={to_cd} kindCd={kind_cd}")
                 continue
 
             for detail in details:
@@ -957,14 +1063,23 @@ def _collect_event_route(
                 _bump_counter(progress, "inf301_requests")
                 _save_progress(progress)
                 if html_301 is None:
-                    event_has_error = True
-                    mark_event_failure(event, stage="inf301_detail_fetch", reason=reason_301 or f"kindCd={kind_cd} detailClassCd={detail_class_cd}")
+                    print(
+                        f"[warn] INF301 fetch 실패: toCd={to_cd} kindCd={kind_cd} detailClassCd={detail_class_cd} reason={reason_301 or 'unknown'}"
+                    )
                     continue
 
                 calls = _parse_inf301_result_calls_html(html_301)
                 if not calls:
-                    event_has_error = True
-                    mark_event_failure(event, stage="inf301_result_call_parse", reason=f"kindCd={kind_cd} detailClassCd={detail_class_cd} calls_empty")
+                    empty_stage, empty_reason = _classify_inf301_empty_calls(html_301)
+                    print(
+                        "[warn] INF301 result call 없음: toCd={0} kindCd={1} detailClassCd={2} stage={3} reason={4}".format(
+                            to_cd,
+                            kind_cd,
+                            detail_class_cd,
+                            empty_stage,
+                            empty_reason,
+                        )
+                    )
                     continue
 
                 for call in calls:
@@ -1018,19 +1133,16 @@ def _collect_event_route(
                     _bump_counter(progress, "inf310_requests")
                     _save_progress(progress)
                     if reason_310:
-                        event_has_error = True
-                        mark_event_failure(event, stage="inf310_fetch", reason=reason_310)
+                        print(
+                            f"[warn] INF310 fetch 실패: toCd={to_cd} kindCd={kind_cd} detailClassCd={detail_class_cd} baseClassCd={base_class_cd} rhCd={rh_cd} reason={reason_310}"
+                        )
                         continue
                     event_inf310_calls += 1
 
         if event_inf310_calls <= 0:
-            event_has_error = True
-            mark_event_failure(event, stage="inf310_calls_empty", reason="no_inf310_calls")
+            _set_meet_status(progress, event, "in_progress", stage="inf310_calls_empty", error="no_inf310_calls")
             continue
-        if event_has_error:
-            continue
-        _clear_meet_failure(meet_failures, event)
-        _set_meet_status(progress, event, "done", stage="completed")
+        _set_meet_status(progress, event, "done", stage="fetch_completed")
 
     return meet_failures
 
@@ -1070,7 +1182,8 @@ def _build_base_records(events):
     winter_ids = set()
     to_cd_by_meet = {}
     suspicious_rows = []
-    meet_parse_failures = {}
+    detail_failures = []
+    event_status_rows = []
     parse_stats = {
         "events_total": len(events),
         "events_winter": 0,
@@ -1078,6 +1191,7 @@ def _build_base_records(events):
         "detail_class_count": 0,
         "inf301_call_count": 0,
         "inf310_call_count": 0,
+        "inf310_table_missing_call_count": 0,
         "inf310_header_missing_call_count": 0,
         "inf310_data_row_count": 0,
         "inf310_category_row_count": 0,
@@ -1086,24 +1200,60 @@ def _build_base_records(events):
         "inf310_participant_entry_count": 0,
         "inf310_suspicious_id_count": 0,
         "inf310_zero_participant_detail_count": 0,
+        "inf310_zero_participant_relay_warning_count": 0,
+        "detail_success_count": 0,
+        "detail_failure_count": 0,
+        "detail_warning_count": 0,
+        "event_complete_count": 0,
+        "event_partial_count": 0,
+        "event_failed_count": 0,
+        "inf301_no_schedule_detail_count": 0,
+        "inf301_parser_mismatch_detail_count": 0,
     }
 
     for event in events:
         class_cd = _norm(event.get("classCd"))
         to_cd = _norm(event.get("toCd"))
         event_name = _norm(event.get("대회명"))
+        event_records_before = len(records)
+        event_detail_total = 0
+        event_detail_failed = 0
+        event_detail_warned = 0
+        first_failure_stage = ""
+        first_failure_reason = ""
+        first_warning_stage = ""
+        first_warning_reason = ""
 
-        def add_meet_parse_failure(stage, reason):
-            key = _meet_key(class_cd, to_cd)
-            if key in meet_parse_failures:
-                return
-            meet_parse_failures[key] = {
-                "classCd": class_cd,
-                "toCd": to_cd,
-                "대회명": event_name,
-                "실패단계": _norm(stage),
-                "사유": _norm(reason),
-            }
+        def add_detail_failure(kind_cd, detail_class_cd, detail_category, detail_name, stage, reason):
+            nonlocal event_detail_failed, first_failure_stage, first_failure_reason
+            parse_stats["detail_failure_count"] += 1
+            event_detail_failed += 1
+            if not first_failure_stage:
+                first_failure_stage = _norm(stage)
+                first_failure_reason = _norm(reason)
+            detail_failures.append(
+                {
+                    "classCd": class_cd,
+                    "toCd": to_cd,
+                    "kindCd": _norm(kind_cd),
+                    "detailClassCd": _norm(detail_class_cd),
+                    "단계": _norm(stage),
+                    "사유": _norm(reason),
+                    "대회명": event_name,
+                    "종별": _norm(detail_category),
+                    "세부종목": _norm(detail_name),
+                    "심각도": "fail",
+                    "최종시각": _now_iso(),
+                }
+            )
+
+        def add_detail_warning(stage, reason):
+            nonlocal event_detail_warned, first_warning_stage, first_warning_reason
+            parse_stats["detail_warning_count"] += 1
+            event_detail_warned += 1
+            if not first_warning_stage:
+                first_warning_stage = _norm(stage)
+                first_warning_reason = _norm(reason)
 
         is_winter = "동계체" in event_name
         if is_winter:
@@ -1113,12 +1263,42 @@ def _build_base_records(events):
         _, event_date_norm = _extract_event_date(event)
         cache_kind = _cache_path_inf301_kind(to_cd)
         if not cache_kind.exists():
-            add_meet_parse_failure("inf301_kind_cache_missing", "INF301 kind 캐시 없음")
+            add_detail_failure("", "", "", "", "inf301_kind_cache_missing", "INF301 kind 캐시 없음")
+            event_status_rows.append(
+                {
+                    "classCd": class_cd,
+                    "toCd": to_cd,
+                    "대회명": event_name,
+                    "event_status": "실패",
+                    "세부종목수": "0",
+                    "성공세부종목수": "0",
+                    "실패세부종목수": "1",
+                    "경고세부종목수": "0",
+                    "대표실패단계": "inf301_kind_cache_missing",
+                    "대표사유": "INF301 kind 캐시 없음",
+                }
+            )
+            parse_stats["event_failed_count"] += 1
             continue
 
         kind_items = _parse_inf301_kind_options_html(cache_kind.read_text(encoding="utf-8"))
         if not kind_items:
-            add_meet_parse_failure("inf301_kind_parse", "INF301 kind 옵션 미감지")
+            add_detail_failure("", "", "", "", "inf301_kind_parse", "INF301 kind 옵션 미감지")
+            event_status_rows.append(
+                {
+                    "classCd": class_cd,
+                    "toCd": to_cd,
+                    "대회명": event_name,
+                    "event_status": "실패",
+                    "세부종목수": "0",
+                    "성공세부종목수": "0",
+                    "실패세부종목수": "1",
+                    "경고세부종목수": "0",
+                    "대표실패단계": "inf301_kind_parse",
+                    "대표사유": "INF301 kind 옵션 미감지",
+                }
+            )
+            parse_stats["event_failed_count"] += 1
             continue
         parse_stats["kind_count"] += len(kind_items)
 
@@ -1127,12 +1307,12 @@ def _build_base_records(events):
             kind_nm = _norm(kind_item.get("kindNm"))
             cache_detail = _cache_path_detail_class_ajax(class_cd, to_cd, kind_cd)
             if not cache_detail.exists():
-                add_meet_parse_failure("detail_class_cache_missing", f"kindCd={kind_cd}")
+                add_detail_failure(kind_cd, "", kind_nm, "", "detail_class_cache_missing", f"kindCd={kind_cd}")
                 continue
 
             details = _parse_detail_class_list_json(cache_detail.read_text(encoding="utf-8"), kind_cd=kind_cd, kind_nm=kind_nm)
             if not details:
-                add_meet_parse_failure("detail_class_parse", f"kindCd={kind_cd} detail_empty")
+                add_detail_failure(kind_cd, "", kind_nm, "", "detail_class_parse", f"kindCd={kind_cd} detail_empty")
                 continue
             parse_stats["detail_class_count"] += len(details)
 
@@ -1140,18 +1320,41 @@ def _build_base_records(events):
                 detail_class_cd = _norm(detail.get("detailClassCd"))
                 detail_category = _norm(detail.get("종별"))
                 detail_name_seed = _norm(detail.get("세부종목"))
+                event_detail_total += 1
                 detail_participant_rows = 0
 
                 cache_301 = _cache_path_inf301(to_cd, kind_cd, detail_class_cd)
                 if not cache_301.exists():
-                    add_meet_parse_failure("inf301_detail_cache_missing", f"kindCd={kind_cd} detailClassCd={detail_class_cd}")
+                    add_detail_failure(
+                        kind_cd,
+                        detail_class_cd,
+                        detail_category,
+                        detail_name_seed,
+                        "inf301_detail_cache_missing",
+                        f"kindCd={kind_cd} detailClassCd={detail_class_cd}",
+                    )
                     continue
-                calls = _parse_inf301_result_calls_html(cache_301.read_text(encoding="utf-8"))
+                html_301 = cache_301.read_text(encoding="utf-8")
+                calls = _parse_inf301_result_calls_html(html_301)
                 parse_stats["inf301_call_count"] += len(calls)
                 if not calls:
-                    add_meet_parse_failure("inf301_result_call_parse", f"kindCd={kind_cd} detailClassCd={detail_class_cd}")
+                    reason_code, reason_detail = _classify_inf301_empty_calls(html_301)
+                    if reason_code == "no_schedule_rows":
+                        parse_stats["inf301_no_schedule_detail_count"] += 1
+                    elif reason_code == "parser_mismatch":
+                        parse_stats["inf301_parser_mismatch_detail_count"] += 1
+                    add_detail_failure(
+                        kind_cd,
+                        detail_class_cd,
+                        detail_category,
+                        detail_name_seed,
+                        "inf301_result_call_parse",
+                        f"kindCd={kind_cd} detailClassCd={detail_class_cd} code={reason_code} {reason_detail}",
+                    )
                     continue
 
+                is_relay_detail = _is_relay_context(detail_class_cd, detail_name_seed, calls)
+                detail_cache_missing = False
                 for call in calls:
                     pcnt_gbn = _norm(call.get("pcntGbn")) or "-"
                     cache_310 = _cache_path_inf310(
@@ -1163,10 +1366,7 @@ def _build_base_records(events):
                         pcnt_gbn=pcnt_gbn,
                     )
                     if not cache_310.exists():
-                        add_meet_parse_failure(
-                            "inf310_cache_missing",
-                            f"kindCd={kind_cd} detailClassCd={detail_class_cd} baseClassCd={_norm(call.get('baseClassCd'))} rhCd={_norm(call.get('rhCd'))}",
-                        )
+                        detail_cache_missing = True
                         continue
                     cache_key = str(cache_310)
                     if cache_key in seen_inf310_cache:
@@ -1181,13 +1381,16 @@ def _build_base_records(events):
                             "대회명": event_name,
                             "kindCd": kind_cd,
                             "detailClassCd": detail_class_cd,
+                            "detailName": detail_name_seed,
                         },
                         suspicious_rows=suspicious_rows,
                     )
                     rows = inf310["rows"]
                     stats = inf310["stats"]
                     parse_stats["inf310_call_count"] += 1
-                    if not stats["header_detected"]:
+                    if not stats.get("table_found", True):
+                        parse_stats["inf310_table_missing_call_count"] += 1
+                    elif not stats["header_detected"]:
                         parse_stats["inf310_header_missing_call_count"] += 1
                     parse_stats["inf310_data_row_count"] += stats["data_row_count"]
                     parse_stats["inf310_category_row_count"] += stats["category_row_count"]
@@ -1255,9 +1458,74 @@ def _build_base_records(events):
                         if is_winter:
                             winter_ids.add(_norm(row.get("idNo")))
 
+                if detail_cache_missing:
+                    add_detail_failure(
+                        kind_cd,
+                        detail_class_cd,
+                        detail_category,
+                        detail_name_seed,
+                        "inf310_cache_missing",
+                        f"kindCd={kind_cd} detailClassCd={detail_class_cd}",
+                    )
+                    continue
+
                 if detail_participant_rows <= 0:
+                    if is_relay_detail:
+                        parse_stats["inf310_zero_participant_relay_warning_count"] += 1
+                        add_detail_warning(
+                            "inf310_zero_participant_relay",
+                            f"kindCd={kind_cd} detailClassCd={detail_class_cd}",
+                        )
+                        print(
+                            f"[warn] 계주 세부종목 참가자 0건(실패 미판정): toCd={to_cd} kindCd={kind_cd} detailClassCd={detail_class_cd}"
+                        )
+                        parse_stats["detail_success_count"] += 1
+                        continue
                     parse_stats["inf310_zero_participant_detail_count"] += 1
-                    add_meet_parse_failure("inf310_zero_participant", f"kindCd={kind_cd} detailClassCd={detail_class_cd}")
+                    add_detail_failure(
+                        kind_cd,
+                        detail_class_cd,
+                        detail_category,
+                        detail_name_seed,
+                        "inf310_zero_participant",
+                        f"kindCd={kind_cd} detailClassCd={detail_class_cd}",
+                    )
+                    continue
+                parse_stats["detail_success_count"] += 1
+
+        event_record_delta = len(records) - event_records_before
+        event_success_details = max(0, event_detail_total - event_detail_failed)
+        if event_record_delta > 0:
+            if event_detail_failed > 0:
+                event_status = "부분완료"
+                parse_stats["event_partial_count"] += 1
+            else:
+                event_status = "완료"
+                parse_stats["event_complete_count"] += 1
+        else:
+            if event_detail_warned > 0 and event_detail_failed <= 0:
+                event_status = "부분완료"
+                parse_stats["event_partial_count"] += 1
+            else:
+                event_status = "실패"
+                parse_stats["event_failed_count"] += 1
+
+        summary_stage = first_failure_stage or first_warning_stage
+        summary_reason = first_failure_reason or first_warning_reason
+        event_status_rows.append(
+            {
+                "classCd": class_cd,
+                "toCd": to_cd,
+                "대회명": event_name,
+                "event_status": event_status,
+                "세부종목수": str(event_detail_total),
+                "성공세부종목수": str(event_success_details),
+                "실패세부종목수": str(event_detail_failed),
+                "경고세부종목수": str(event_detail_warned),
+                "대표실패단계": _norm(summary_stage),
+                "대표사유": _norm(summary_reason),
+            }
+        )
 
     for id_no, item in id_seed.items():
         if not item["성별"]:
@@ -1268,7 +1536,8 @@ def _build_base_records(events):
     to_cd_final = {}
     for meet_name, values in to_cd_by_meet.items():
         to_cd_final[meet_name] = next(iter(values)) if len(values) == 1 else ""
-    return records, id_seed, sorted(winter_ids), to_cd_final, parse_stats, suspicious_rows, list(meet_parse_failures.values())
+    event_status_rows = sorted(event_status_rows, key=lambda r: (_norm(r.get("classCd")), _norm(r.get("toCd"))))
+    return records, id_seed, sorted(winter_ids), to_cd_final, parse_stats, suspicious_rows, detail_failures, event_status_rows
 
 
 def _collect_inf503_for_ids(session, id_list, refresh, request_gap_seconds, progress, failures):
@@ -1388,7 +1657,7 @@ def _build_athlete_info_and_score_supplement(id_seed, winter_ids, to_cd_by_meet)
 
 
 def _export_full_csv(events, progress):
-    base_records, id_seed, winter_ids, to_cd_by_meet, parse_stats, suspicious_rows, meet_parse_failures = _build_base_records(events)
+    base_records, id_seed, winter_ids, to_cd_by_meet, parse_stats, suspicious_rows, detail_failures, event_status_rows = _build_base_records(events)
     athlete_rows, supplement_rows, birth_year_ok, inf503_cache_missing = _build_athlete_info_and_score_supplement(
         id_seed=id_seed,
         winter_ids=winter_ids,
@@ -1448,6 +1717,7 @@ def _export_full_csv(events, progress):
         writer.writeheader()
         writer.writerows(athlete_rows)
     _save_csv_rows(SUSPICIOUS_IDS_CSV, suspicious_rows, SUSPICIOUS_ID_FIELDS)
+    _save_csv_rows(DETAIL_FAILURES_CSV, detail_failures, DETAIL_FAILURE_FIELDS)
 
     _bump_counter(progress, "records_inf310_rows", len(base_records))
     _bump_counter(progress, "records_inf503_score_rows", supplement_added)
@@ -1463,12 +1733,21 @@ def _export_full_csv(events, progress):
     print(f"[export] 선수 {len(athlete_rows):,}명 / 출생년도 확보 {birth_year_ok:,}명")
     print(f"[export] 동계체전 참가자 idNo {len(winter_ids):,}명 / INF503 캐시 미보유 {inf503_cache_missing:,}명")
     print(f"[export] idNo 비정상 감지 {len(suspicious_rows):,}건 → {SUSPICIOUS_IDS_CSV}")
+    if suspicious_rows:
+        length_counts = {}
+        for row in suspicious_rows:
+            length = len(_norm(row.get("idNo_원본")))
+            length_counts[length] = length_counts.get(length, 0) + 1
+        dist_text = ", ".join(f"{length}자리 {count:,}건" for length, count in sorted(length_counts.items()))
+        print(f"[export] idNo 비정상 길이 분포: {dist_text}")
+    print(f"[export] 세부종목 실패 {len(detail_failures):,}건 → {DETAIL_FAILURES_CSV}")
     print(
-        "[export] INF310 파싱: data row {0:,} / 구분행 {1:,} / 참가자 없음 row {2:,}(결과행 추정 {3:,}) / header 미감지 {4:,} / 비정상 id {5:,}".format(
+        "[export] INF310 파싱: data row {0:,} / 구분행 {1:,} / 참가자 없음 row {2:,}(결과행 추정 {3:,}) / table 미감지 {4:,} / header 미감지 {5:,} / 비정상 id {6:,}".format(
             parse_stats["inf310_data_row_count"],
             parse_stats["inf310_category_row_count"],
             parse_stats["inf310_row_without_participant_count"],
             parse_stats["inf310_row_without_participant_likely_result_count"],
+            parse_stats.get("inf310_table_missing_call_count", 0),
             parse_stats["inf310_header_missing_call_count"],
             parse_stats["inf310_suspicious_id_count"],
         )
@@ -1483,7 +1762,43 @@ def _export_full_csv(events, progress):
             parse_stats["inf310_call_count"],
         )
     )
-    print(f"[export] 세부종목 참가자 0건 감지 {parse_stats['inf310_zero_participant_detail_count']:,}건")
+    event_total = parse_stats.get("event_complete_count", 0) + parse_stats.get("event_partial_count", 0) + parse_stats.get("event_failed_count", 0)
+    event_complete = parse_stats.get("event_complete_count", 0)
+    event_partial = parse_stats.get("event_partial_count", 0)
+    event_failed = parse_stats.get("event_failed_count", 0)
+    detail_total = parse_stats.get("detail_class_count", 0)
+    detail_success = parse_stats.get("detail_success_count", 0)
+    detail_failure = parse_stats.get("detail_failure_count", 0)
+    print(
+        "[export] 대회 상태: 완료 {0:,} / 부분완료 {1:,} / 실패 {2:,} (완료율 {3:.2f}% / 부분완료 포함 {4:.2f}%)".format(
+            event_complete,
+            event_partial,
+            event_failed,
+            (event_complete / event_total * 100.0) if event_total else 0.0,
+            ((event_complete + event_partial) / event_total * 100.0) if event_total else 0.0,
+        )
+    )
+    print(
+        "[export] 세부종목 상태: 성공 {0:,} / 실패 {1:,} / 경고 {2:,} / 전체 {3:,} (성공률 {4:.2f}%)".format(
+            detail_success,
+            detail_failure,
+            parse_stats.get("detail_warning_count", 0),
+            detail_total,
+            (detail_success / detail_total * 100.0) if detail_total else 0.0,
+        )
+    )
+    print(
+        "[export] 세부종목 참가자 0건: 일반 실패 {0:,} / 계주 경고 {1:,}".format(
+            parse_stats["inf310_zero_participant_detail_count"],
+            parse_stats.get("inf310_zero_participant_relay_warning_count", 0),
+        )
+    )
+    print(
+        "[export] INF301 call 미감지 분류: no_schedule {0:,} / parser_mismatch {1:,}".format(
+            parse_stats.get("inf301_no_schedule_detail_count", 0),
+            parse_stats.get("inf301_parser_mismatch_detail_count", 0),
+        )
+    )
     return {
         "records_total": len(merged_records),
         "records_inf310": len(base_records),
@@ -1493,9 +1808,50 @@ def _export_full_csv(events, progress):
         "winter_ids": len(winter_ids),
         "inf503_cache_missing": inf503_cache_missing,
         "suspicious_ids_count": len(suspicious_rows),
-        "meet_parse_failures": meet_parse_failures,
+        "detail_failures": detail_failures,
+        "event_status_rows": event_status_rows,
         **parse_stats,
     }
+
+
+def _count_csv_data_rows(path):
+    if not path.exists():
+        return 0
+    with path.open("r", newline="", encoding="utf-8-sig") as f:
+        return sum(1 for _ in csv.DictReader(f))
+
+
+def _count_records_by_meet(path, meet_keys=None):
+    counts = {}
+    if not path.exists():
+        return counts
+    for row in _load_csv_rows(path):
+        key = _meet_key(row.get("classCd"), row.get("toCd"))
+        if key == ":":
+            continue
+        if meet_keys is not None and key not in meet_keys:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _invalidate_meet_cache(event):
+    class_cd = _norm(event.get("classCd"))
+    to_cd = _norm(event.get("toCd"))
+    if not class_cd or not to_cd:
+        return 0
+    safe_class = _safe_fragment(class_cd)
+    safe_to = _safe_fragment(to_cd)
+    removed = 0
+    targets = [_cache_path_inf301_kind(to_cd)]
+    targets.extend(RAW_DETAIL_AJAX_DIR.glob(f"{safe_class}_{safe_to}_*.json"))
+    targets.extend(RAW_INF301_DIR.glob(f"{safe_to}_*.html"))
+    targets.extend(RAW_INF310_DIR.glob(f"{safe_to}_*.html"))
+    for path in targets:
+        if path.exists() and path.is_file():
+            path.unlink()
+            removed += 1
+    return removed
 
 
 def _load_retry_entries():
@@ -1508,6 +1864,8 @@ def _retry_failure_requests(retry_entries):
         return set()
     retry_keys = set()
     for row in retry_entries:
+        if _norm(row.get("event_status")) == "완료":
+            continue
         class_cd = _norm(row.get("classCd"))
         to_cd = _norm(row.get("toCd"))
         if not class_cd or not to_cd:
@@ -1614,42 +1972,76 @@ def _finalize_summary(progress, request_failures, meet_failures, mode, export_su
     request_total = int(progress["counters"].get("request_network_attempted", 0))
     request_failures_remaining = len(request_failures)
     meet_failures_remaining = len(meet_failures)
-    success_rate = 100.0
+    request_success_rate = 100.0
     if request_total > 0:
-        success_rate = (request_total - request_failures_remaining) / request_total * 100.0
+        request_success_rate = (request_total - request_failures_remaining) / request_total * 100.0
+    event_total = int(export_summary.get("event_complete_count", 0)) + int(export_summary.get("event_partial_count", 0)) + int(
+        export_summary.get("event_failed_count", 0)
+    )
+    event_complete = int(export_summary.get("event_complete_count", 0))
+    event_partial = int(export_summary.get("event_partial_count", 0))
+    event_failed = int(export_summary.get("event_failed_count", 0))
+    event_complete_rate = (event_complete / event_total * 100.0) if event_total else 0.0
+    event_partial_inclusive_rate = ((event_complete + event_partial) / event_total * 100.0) if event_total else 0.0
+    detail_total = int(export_summary.get("detail_class_count", 0))
+    detail_success = int(export_summary.get("detail_success_count", 0))
+    detail_success_rate = (detail_success / detail_total * 100.0) if detail_total else 0.0
     summary = {
         "mode": mode,
         "updated_at": _now_iso(),
         "request_network_attempted": request_total,
         "request_failures_remaining": request_failures_remaining,
         "meet_failures_remaining": meet_failures_remaining,
-        "success_rate_percent": round(success_rate, 2),
-        "meets_95_percent": success_rate >= 95.0,
+        "request_success_rate_percent": round(request_success_rate, 2),
+        "event_complete_rate_percent": round(event_complete_rate, 2),
+        "event_partial_inclusive_rate_percent": round(event_partial_inclusive_rate, 2),
+        "detail_success_rate_percent": round(detail_success_rate, 2),
+        "meets_95_percent": event_complete_rate >= 95.0,
         "export": export_summary,
     }
     meet_items = list(progress.get("meets", {}).values())
     meet_done = sum(1 for item in meet_items if _norm(item.get("상태")) == "done")
+    meet_partial = sum(1 for item in meet_items if _norm(item.get("상태")) == "partial")
     meet_failed = sum(1 for item in meet_items if _norm(item.get("상태")) == "failed")
     meet_in_progress = sum(1 for item in meet_items if _norm(item.get("상태")) == "in_progress")
     summary["meet_done"] = meet_done
+    summary["meet_partial"] = meet_partial
     summary["meet_failed"] = meet_failed
     summary["meet_in_progress"] = meet_in_progress
     progress["last_summary"] = summary
     _save_progress(progress)
     print(
-        "[summary] 요청시도 {0:,}건 / 요청실패 {1:,}건 / 대회실패 {2:,}건 / 성공률 {3:.2f}% / 95% 기준 {4}".format(
+        "[summary] 대회 상태 완료 {0:,} / 부분완료 {1:,} / 실패 {2:,} / 완료율 {3:.2f}% / 부분완료 포함 {4:.2f}% / 95% 기준 {5}".format(
+            event_complete,
+            event_partial,
+            event_failed,
+            event_complete_rate,
+            event_partial_inclusive_rate,
+            "충족" if event_complete_rate >= 95.0 else "미충족",
+        )
+    )
+    print(
+        "[summary] 세부종목 성공 {0:,}/{1:,} ({2:.2f}%) / 실패 {3:,} / 경고 {4:,}".format(
+            detail_success,
+            detail_total,
+            detail_success_rate,
+            int(export_summary.get("detail_failure_count", 0)),
+            int(export_summary.get("detail_warning_count", 0)),
+        )
+    )
+    print(
+        "[summary] 요청시도 {0:,}건 / 요청실패 {1:,}건 / 요청 성공률 {2:.2f}% / 대회 실패(재시도 대상) {3:,}건".format(
             request_total,
             request_failures_remaining,
+            request_success_rate,
             meet_failures_remaining,
-            success_rate,
-            "충족" if success_rate >= 95.0 else "미충족",
         )
     )
     if meet_failures_remaining:
-        print(f"[summary] 실패 대회 목록 잔여 {meet_failures_remaining}건 → {MEET_FAILURES_CSV}")
+        print(f"[summary] 부분완료/실패 대회 목록 {meet_failures_remaining}건 → {MEET_FAILURES_CSV}")
     else:
-        print("[summary] 실패 대회 목록 없음")
-    print(f"[summary] 대회 상태: 완료 {meet_done:,} / 실패 {meet_failed:,} / 진행중 {meet_in_progress:,}")
+        print("[summary] 부분완료/실패 대회 목록 없음")
+    print(f"[summary] 진행상태 반영: 완료 {meet_done:,} / 부분완료 {meet_partial:,} / 실패 {meet_failed:,} / 진행중 {meet_in_progress:,}")
     if request_failures_remaining:
         print(f"[summary] 요청 실패 목록 잔여 {request_failures_remaining}건 → {REQUEST_FAILURES_CSV}")
     else:
@@ -1725,8 +2117,6 @@ def _run_collect(args):
     if args.max_events is not None:
         events = events[: max(0, args.max_events)]
     print(f"[target] classCd=2 대회 {len(events)}개")
-    if args.max_events is None and len(events) != 132:
-        print(f"[warn] 쇼트트랙 대회 수가 기대치(132)와 다릅니다: {len(events)}")
 
     _collect_event_route(
         session,
@@ -1738,7 +2128,7 @@ def _run_collect(args):
         meet_failures=meet_failures,
     )
 
-    base_records, _, winter_ids, _, _, _, _ = _build_base_records(events)
+    base_records, _, winter_ids, _, _, _, _, _ = _build_base_records(events)
     print(f"[target] INF310 기반 고유 선수 {len({_norm(r.get('idNo')) for r in base_records if _norm(r.get('idNo'))}):,}명")
     print(f"[target] 동계체전 보완 대상 {len(winter_ids):,}명")
     _collect_inf503_for_ids(
@@ -1751,16 +2141,7 @@ def _run_collect(args):
     )
 
     export_summary = _export_full_csv(events, progress=progress)
-    for item in export_summary.get("meet_parse_failures", []):
-        event_stub = {"classCd": item.get("classCd"), "toCd": item.get("toCd"), "대회명": item.get("대회명")}
-        _set_meet_status(progress, event_stub, "failed", stage=item.get("실패단계"), error=item.get("사유"))
-        _record_meet_failure(
-            meet_failures,
-            event_stub,
-            stage=item.get("실패단계"),
-            reason=item.get("사유"),
-            progress=progress,
-        )
+    _apply_event_status_rows(progress, meet_failures, export_summary.get("event_status_rows", []))
     _finalize_summary(progress, failures, meet_failures, mode="collect", export_summary=export_summary)
 
 
@@ -1774,6 +2155,8 @@ def _run_retry_failures(args):
     session = requests.Session()
     retry_entries = _load_retry_entries()
     retry_keys = _retry_failure_requests(retry_entries=retry_entries)
+    rows_before_total = _count_csv_data_rows(RECORDS_FULL_CSV)
+    rows_before_by_meet = _count_records_by_meet(RECORDS_FULL_CSV, meet_keys=retry_keys) if retry_keys else {}
 
     # 실패 대회 목록만 다시 수집한다.
     events = _collect_inf201_events(
@@ -1791,10 +2174,16 @@ def _run_retry_failures(args):
     else:
         events = []
     print(f"[retry] 재수집 대상 대회 {len(events)}개")
+    invalidated = 0
+    for event in events:
+        invalidated += _invalidate_meet_cache(event)
+    print(f"[retry] 대상 대회 캐시 무효화 {invalidated:,}건")
+    if events and not bool(args.refresh):
+        print("[retry] 재시도는 강제 재요청 모드로 실행됩니다 (target meet refresh=true).")
     _collect_event_route(
         session,
         events=events,
-        refresh=bool(args.refresh),
+        refresh=True,
         request_gap_seconds=args.request_gap,
         progress=progress,
         failures=failures,
@@ -1804,7 +2193,7 @@ def _run_retry_failures(args):
     all_events = _load_events_from_inf201_cache()
     if args.max_events is not None:
         all_events = all_events[: max(0, args.max_events)]
-    _, _, winter_ids, _, _, _, _ = _build_base_records(all_events)
+    _, _, winter_ids, _, _, _, _, _ = _build_base_records(all_events)
     _collect_inf503_for_ids(
         session,
         id_list=winter_ids,
@@ -1815,16 +2204,21 @@ def _run_retry_failures(args):
     )
 
     export_summary = _export_full_csv(all_events, progress=progress)
-    for item in export_summary.get("meet_parse_failures", []):
-        event_stub = {"classCd": item.get("classCd"), "toCd": item.get("toCd"), "대회명": item.get("대회명")}
-        _set_meet_status(progress, event_stub, "failed", stage=item.get("실패단계"), error=item.get("사유"))
-        _record_meet_failure(
-            meet_failures,
-            event_stub,
-            stage=item.get("실패단계"),
-            reason=item.get("사유"),
-            progress=progress,
-        )
+    _apply_event_status_rows(progress, meet_failures, export_summary.get("event_status_rows", []))
+    rows_after_total = int(export_summary.get("records_total", 0))
+    print(f"[retry] records_full 행수 변화: {rows_before_total:,} -> {rows_after_total:,} ({rows_after_total - rows_before_total:+,})")
+    if retry_keys:
+        rows_after_by_meet = _count_records_by_meet(RECORDS_FULL_CSV, meet_keys=retry_keys)
+        changed_meets = 0
+        for key in sorted(retry_keys):
+            before = int(rows_before_by_meet.get(key, 0))
+            after = int(rows_after_by_meet.get(key, 0))
+            delta = after - before
+            if delta != 0:
+                changed_meets += 1
+            class_cd, to_cd = key.split(":", 1)
+            print(f"[retry] 대회 행수 변화 classCd={class_cd} toCd={to_cd}: {before:,} -> {after:,} ({delta:+,})")
+        print(f"[retry] 행수 변화 발생 대회 {changed_meets:,}/{len(retry_keys):,}")
     _finalize_summary(progress, failures, meet_failures, mode="retry-failures", export_summary=export_summary)
 
 
@@ -1838,16 +2232,7 @@ def _run_export(args):
     if not events:
         raise FileNotFoundError(f"[error] INF201 캐시가 없습니다: {RAW_INF201_DIR}. 먼저 collect를 실행하세요.")
     export_summary = _export_full_csv(events, progress=progress)
-    for item in export_summary.get("meet_parse_failures", []):
-        event_stub = {"classCd": item.get("classCd"), "toCd": item.get("toCd"), "대회명": item.get("대회명")}
-        _set_meet_status(progress, event_stub, "failed", stage=item.get("실패단계"), error=item.get("사유"))
-        _record_meet_failure(
-            meet_failures,
-            event_stub,
-            stage=item.get("실패단계"),
-            reason=item.get("사유"),
-            progress=progress,
-        )
+    _apply_event_status_rows(progress, meet_failures, export_summary.get("event_status_rows", []))
     _finalize_summary(progress, failures, meet_failures, mode="export", export_summary=export_summary)
 
 

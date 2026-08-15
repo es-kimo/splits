@@ -185,7 +185,7 @@ POST pclassCd=SK&pageIndex=N
 → onclick="fnEventInfo('{classCd}','{toCd}')"
 ```
 
-- 총 383건 / 39페이지 (10건/p). 이 중 쇼트트랙(`classCd=2`)은 132건.
+- 총 383건 / 39페이지 (10건/p). 이 중 쇼트트랙(`classCd=2`) 건수는 시점별로 달라질 수 있으며 최근 관측치는 135건.
 - 같은 행에 대회명(`<td class="tal">`)과 개최장소
 
 ### INF202 — 표시용 대회 개요
@@ -570,8 +570,8 @@ diff <(sed 's/[0-9]\{13\}//g' a.html) <(sed 's/[0-9]\{13\}//g' b.html)
 
 ```
 INF201   39 요청            대회 목록
-INF301   132 요청           kindCd 목록(대회당 1회)
-AJAX     132 × (6~15)       detailClass 목록
+INF301   쇼트트랙 대회수만큼  kindCd 목록(대회당 1회)
+AJAX     쇼트트랙 대회수 × (6~15) detailClass 목록
 INF301   세부종목당 1회      라운드 목록
 INF310   실제 라운드만 호출
 ─────────────────────────────────────────
