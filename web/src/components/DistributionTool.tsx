@@ -24,8 +24,12 @@ const NOTES = [
     a: "출생연도 포함 비교는 동년생 안에서 현재 위치를 봅니다. 통합 비교는 표본이 커서 변동이 줄어들지만 연도별 환경 차이가 함께 섞입니다.",
   },
   {
-    q: "학령구간은 어떻게 나눴나요?",
-    a: "대회 기록에 포함된 학령구간 분류를 그대로 사용합니다. 실제 학교 학년과 1:1로 같지 않을 수 있습니다.",
+    q: "어떤 종목의 기록인가요?",
+    a: "쇼트트랙 기록만 집계합니다. 함께 열리는 스피드스케이팅 경기 기록은 제외했습니다.",
+  },
+  {
+    q: "기록과 등수의 비교 인원이 다른 이유는 무엇인가요?",
+    a: "기록은 예선 기록을 모두 사용하고, 등수는 학령 경기의 결승·채점종합만 사용합니다. 두 통계의 대상 경기가 달라 비교 인원도 다릅니다.",
   },
   {
     q: "위치가 낮으면 진로 판단에 써도 되나요?",
@@ -40,62 +44,46 @@ const NOTES = [
 export default function DistributionTool(props: Props) {
   const allRows = props.rows;
   const aggregatedRows = useMemo(() => aggregateRows(allRows), [allRows]);
-  const initialRow = allRows.find((row) => !row.insufficient) ?? allRows[0];
+  const initialRow = allRows.find((row) => !row.timeInsufficient || !row.rankInsufficient) ?? allRows[0];
 
   const [scope, setScope] = useState<CompareScope>("same-birth-year");
   const [gender, setGender] = useState(initialRow?.gender ?? "");
-  const [schoolLevel, setSchoolLevel] = useState(initialRow?.schoolLevel ?? "");
   const [distance, setDistance] = useState<number | null>(initialRow?.distance ?? null);
   const [birthYear, setBirthYear] = useState<number | null>(initialRow?.birthYear ?? null);
   const [mode, setMode] = useState<InputMode>("time");
   const [input, setInput] = useState("");
 
   const activeRows = scope === "same-birth-year" ? allRows : aggregatedRows;
-  const sufficientRows = useMemo(() => activeRows.filter((row) => !row.insufficient), [activeRows]);
+  const sufficientRows = useMemo(
+    () => activeRows.filter((row) => !isInsufficient(row, mode)),
+    [activeRows, mode],
+  );
 
   const availableGenders = useMemo(
     () => props.filters.genders.filter((item) => activeRows.some((row) => row.gender === item)),
     [activeRows, props.filters.genders],
   );
-  const availableSchoolLevels = useMemo(
-    () =>
-      props.filters.schoolLevels.filter((item) =>
-        activeRows.some((row) => row.gender === gender && row.schoolLevel === item),
-      ),
-    [activeRows, gender, props.filters.schoolLevels],
-  );
   const availableDistances = useMemo(
     () =>
       props.filters.distances.filter((item) =>
-        activeRows.some((row) => row.gender === gender && row.schoolLevel === schoolLevel && row.distance === item),
+        activeRows.some((row) => row.gender === gender && row.distance === item),
       ),
-    [activeRows, gender, props.filters.distances, schoolLevel],
+    [activeRows, gender, props.filters.distances],
   );
   const availableBirthYears = useMemo(() => {
     if (scope !== "same-birth-year" || distance === null) return [];
     return props.filters.birthYears
       .filter((item) =>
-        allRows.some(
-          (row) =>
-            row.gender === gender &&
-            row.schoolLevel === schoolLevel &&
-            row.distance === distance &&
-            row.birthYear === item,
-        ),
+        allRows.some((row) => row.gender === gender && row.distance === distance && row.birthYear === item),
       )
       .sort((a, b) => b - a);
-  }, [allRows, distance, gender, props.filters.birthYears, schoolLevel, scope]);
+  }, [allRows, distance, gender, props.filters.birthYears, scope]);
 
   useEffect(() => {
     if (availableGenders.length && !availableGenders.includes(gender)) {
       setGender(availableGenders[0]);
     }
   }, [availableGenders, gender]);
-  useEffect(() => {
-    if (availableSchoolLevels.length && !availableSchoolLevels.includes(schoolLevel)) {
-      setSchoolLevel(availableSchoolLevels[0]);
-    }
-  }, [availableSchoolLevels, schoolLevel]);
   useEffect(() => {
     if (availableDistances.length && (distance === null || !availableDistances.includes(distance))) {
       setDistance(availableDistances[0]);
@@ -111,61 +99,36 @@ export default function DistributionTool(props: Props) {
   useEffect(() => {
     if (distance === null) return;
     if (scope === "same-birth-year") {
-      if (
-        allRows.some(
-          (row) =>
-            row.gender === gender &&
-            row.schoolLevel === schoolLevel &&
-            row.distance === distance &&
-            row.birthYear === birthYear,
-        )
-      ) {
+      if (allRows.some((row) => row.gender === gender && row.distance === distance && row.birthYear === birthYear)) {
         return;
       }
       const fallback =
-        allRows.find(
-          (row) =>
-            row.gender === gender &&
-            row.schoolLevel === schoolLevel &&
-            row.distance === distance &&
-            !row.insufficient,
-        ) ?? allRows.find((row) => row.gender === gender && row.schoolLevel === schoolLevel && row.distance === distance);
+        allRows.find((row) => row.gender === gender && row.distance === distance && !isInsufficient(row, mode)) ??
+        allRows.find((row) => row.gender === gender && row.distance === distance);
       if (!fallback) return;
       setBirthYear(fallback.birthYear);
       return;
     }
-    if (
-      aggregatedRows.some(
-        (row) => row.gender === gender && row.schoolLevel === schoolLevel && row.distance === distance,
-      )
-    ) {
+    if (aggregatedRows.some((row) => row.gender === gender && row.distance === distance)) {
       return;
     }
     const fallback =
-      aggregatedRows.find((row) => row.gender === gender && row.schoolLevel === schoolLevel && !row.insufficient) ??
-      aggregatedRows[0];
+      aggregatedRows.find((row) => row.gender === gender && !isInsufficient(row, mode)) ?? aggregatedRows[0];
     if (!fallback) return;
     setGender(fallback.gender);
-    setSchoolLevel(fallback.schoolLevel);
     setDistance(fallback.distance);
-  }, [aggregatedRows, allRows, birthYear, distance, gender, schoolLevel, scope]);
+  }, [aggregatedRows, allRows, birthYear, distance, gender, mode, scope]);
 
   const selectedRow = useMemo(() => {
-    if (!gender || !schoolLevel || distance === null) return undefined;
+    if (!gender || distance === null) return undefined;
     if (scope === "same-birth-year") {
       if (birthYear === null) return undefined;
       return allRows.find(
-        (row) =>
-          row.gender === gender &&
-          row.schoolLevel === schoolLevel &&
-          row.distance === distance &&
-          row.birthYear === birthYear,
+        (row) => row.gender === gender && row.distance === distance && row.birthYear === birthYear,
       );
     }
-    return aggregatedRows.find(
-      (row) => row.gender === gender && row.schoolLevel === schoolLevel && row.distance === distance,
-    );
-  }, [aggregatedRows, allRows, birthYear, distance, gender, schoolLevel, scope]);
+    return aggregatedRows.find((row) => row.gender === gender && row.distance === distance);
+  }, [aggregatedRows, allRows, birthYear, distance, gender, scope]);
 
   const edges = useMemo(() => buildEdges(selectedRow, mode), [mode, selectedRow]);
   const raw = input.trim();
@@ -177,13 +140,14 @@ export default function DistributionTool(props: Props) {
   }, [mode, raw]);
   const hasError = raw.length > 0 && (parsed === null || Number.isNaN(parsed));
 
-  const groupCountText = selectedRow?.athleteCount ? `${selectedRow.athleteCount}명` : `${props.kAnonymityMin}명 미만`;
+  const selectedCount = selectedRow ? countOf(selectedRow, mode) : null;
+  const groupCountText = selectedCount ? `${selectedCount}명` : `${props.kAnonymityMin}명 미만`;
   const scopeLabel =
     scope === "same-birth-year" ? `${birthYear ?? "-"}년생 기준` : "출생연도 통합 기준";
-  const groupLabel = `${scopeLabel} · ${gender}자 ${schoolLevel} · ${distance ?? "-"}m · 같은 조건 선수 ${groupCountText}`;
+  const groupLabel = `${scopeLabel} · ${gender}자 · ${distance ?? "-"}m · 같은 조건 선수 ${groupCountText}`;
 
   const calc = useMemo(() => {
-    const enough = Boolean(selectedRow && !selectedRow.insufficient && edges);
+    const enough = Boolean(selectedRow && !isInsufficient(selectedRow, mode) && edges);
     if (!enough || !edges || !selectedRow) {
       return {
         showResult: false,
@@ -195,14 +159,17 @@ export default function DistributionTool(props: Props) {
     }
     const hasParsed = typeof parsed === "number" && Number.isFinite(parsed);
     if (!hasParsed) {
-      const verdict = mode === "time" ? `또래 ${selectedRow.athleteCount ?? 0}명의 기록 분포예요` : `또래 ${selectedRow.athleteCount ?? 0}명의 등수 분포예요`;
+      const verdict =
+        mode === "time"
+          ? `또래 ${countOf(selectedRow, mode) ?? 0}명의 기록 분포예요`
+          : `또래 ${countOf(selectedRow, mode) ?? 0}명의 등수 분포예요`;
       const verdictDetail =
         mode === "time"
           ? `빠른 쪽 10%는 ${formatSeconds(edges[0])} 안쪽, 중간은 ${formatSeconds(edges[2])} 정도예요.`
           : `앞선 쪽 10%는 ${formatRank(edges[0])}등 안쪽, 중간은 ${formatRank(edges[2])}등 정도예요.`;
       return { showResult: true, showThin: false, verdict, verdictDetail, markerPos: null };
     }
-    const percentile = Math.round(percentOf(edges, parsed));
+    const percentile = Math.round(percentOf(edges, parsed, mode));
     const markerPos = bandPos(edges, parsed);
     const verdict =
       percentile <= 10
@@ -245,9 +212,8 @@ export default function DistributionTool(props: Props) {
       });
       const altDistance = allRows.find(
         (row) =>
-          !row.insufficient &&
+          !isInsufficient(row, mode) &&
           row.gender === selectedRow.gender &&
-          row.schoolLevel === selectedRow.schoolLevel &&
           row.birthYear === selectedRow.birthYear &&
           row.distance !== selectedRow.distance,
       );
@@ -259,9 +225,8 @@ export default function DistributionTool(props: Props) {
       }
       const altBirthYear = allRows.find(
         (row) =>
-          !row.insufficient &&
+          !isInsufficient(row, mode) &&
           row.gender === selectedRow.gender &&
-          row.schoolLevel === selectedRow.schoolLevel &&
           row.distance === selectedRow.distance &&
           row.birthYear !== selectedRow.birthYear,
       );
@@ -274,10 +239,7 @@ export default function DistributionTool(props: Props) {
       return actions.slice(0, 3);
     }
     const altDistance = sufficientRows.find(
-      (row) =>
-        row.gender === selectedRow.gender &&
-        row.schoolLevel === selectedRow.schoolLevel &&
-        row.distance !== selectedRow.distance,
+      (row) => row.gender === selectedRow.gender && row.distance !== selectedRow.distance,
     );
     if (altDistance) {
       actions.push({
@@ -285,20 +247,8 @@ export default function DistributionTool(props: Props) {
         onClick: () => setDistance(altDistance.distance),
       });
     }
-    const altSchoolLevel = sufficientRows.find(
-      (row) =>
-        row.gender === selectedRow.gender &&
-        row.distance === selectedRow.distance &&
-        row.schoolLevel !== selectedRow.schoolLevel,
-    );
-    if (altSchoolLevel) {
-      actions.push({
-        label: `${altSchoolLevel.schoolLevel} 기준으로 보기`,
-        onClick: () => setSchoolLevel(altSchoolLevel.schoolLevel),
-      });
-    }
     return actions.slice(0, 2);
-  }, [allRows, scope, selectedRow, sufficientRows]);
+  }, [allRows, mode, scope, selectedRow, sufficientRows]);
 
   return (
     <div className="dist-tool">
@@ -358,18 +308,6 @@ export default function DistributionTool(props: Props) {
                 onClick={() => setGender(item)}
               >
                 {item}자
-              </button>
-            ))}
-          </div>
-          <div className="dist-chip-row">
-            {availableSchoolLevels.map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={`dist-chip${item === schoolLevel ? " is-active" : ""}`}
-                onClick={() => setSchoolLevel(item)}
-              >
-                {item}
               </button>
             ))}
           </div>
@@ -543,10 +481,25 @@ export default function DistributionTool(props: Props) {
   );
 }
 
+const TIME_EDGE_PERCENTILES = [10, 30, 50, 70, 90];
+const RANK_EDGE_PERCENTILES = [10, 25, 50, 75, 90];
+
+function isInsufficient(row: PeerDistributionRow, mode: InputMode): boolean {
+  return mode === "time" ? row.timeInsufficient : row.rankInsufficient;
+}
+
+function countOf(row: PeerDistributionRow, mode: InputMode): number | null {
+  return mode === "time" ? row.timeCount : row.rankCount;
+}
+
+function edgePercentiles(mode: InputMode): number[] {
+  return mode === "time" ? TIME_EDGE_PERCENTILES : RANK_EDGE_PERCENTILES;
+}
+
 function buildEdges(row: PeerDistributionRow | undefined, mode: InputMode): number[] | null {
-  if (!row || row.insufficient) return null;
+  if (!row || isInsufficient(row, mode)) return null;
   if (mode === "time") {
-    const values = [row.timeP10, row.timeP25, row.timeP50, row.timeP75, row.timeP90];
+    const values = [row.timeP10, row.timeP30, row.timeP50, row.timeP70, row.timeP90];
     if (values.some((value) => typeof value !== "number")) return null;
     return values as number[];
   }
@@ -570,8 +523,8 @@ function parseTime(raw: string): number | null {
   return Number.NaN;
 }
 
-function percentOf(edges: number[], value: number): number {
-  const percentiles = [10, 25, 50, 75, 90];
+function percentOf(edges: number[], value: number, mode: InputMode): number {
+  const percentiles = edgePercentiles(mode);
   if (value <= edges[0]) return 8;
   if (value >= edges[4]) return 94;
   for (let idx = 0; idx < 4; idx += 1) {
@@ -609,7 +562,7 @@ function formatRank(value: number): string {
 function aggregateRows(rows: PeerDistributionRow[]): PeerDistributionRow[] {
   const grouped = new Map<string, PeerDistributionRow[]>();
   for (const row of rows) {
-    const key = `${row.gender}__${row.schoolLevel}__${row.distance}`;
+    const key = `${row.gender}__${row.distance}`;
     const bucket = grouped.get(key);
     if (bucket) bucket.push(row);
     else grouped.set(key, [row]);
@@ -617,57 +570,50 @@ function aggregateRows(rows: PeerDistributionRow[]): PeerDistributionRow[] {
   const result: PeerDistributionRow[] = [];
   for (const bucket of grouped.values()) {
     const seed = bucket[0];
-    const valid = bucket.filter((row) => !row.insufficient && typeof row.athleteCount === "number");
-    if (!valid.length) {
-      result.push({
-        birthYear: -1,
-        gender: seed.gender,
-        schoolLevel: seed.schoolLevel,
-        distance: seed.distance,
-        athleteCount: null,
-        insufficient: true,
-        timeP10: null,
-        timeP25: null,
-        timeP50: null,
-        timeP75: null,
-        timeP90: null,
-        rankP25: null,
-        rankP50: null,
-        rankP75: null,
-      });
-      continue;
-    }
-    const totalCount = valid.reduce((sum, row) => sum + (row.athleteCount ?? 0), 0);
+    const timeValid = bucket.filter((row) => !row.timeInsufficient && typeof row.timeCount === "number");
+    const rankValid = bucket.filter((row) => !row.rankInsufficient && typeof row.rankCount === "number");
+    const timeTotal = timeValid.reduce((sum, row) => sum + (row.timeCount ?? 0), 0);
+    const rankTotal = rankValid.reduce((sum, row) => sum + (row.rankCount ?? 0), 0);
     result.push({
       birthYear: -1,
       gender: seed.gender,
-      schoolLevel: seed.schoolLevel,
       distance: seed.distance,
-      athleteCount: totalCount > 0 ? totalCount : null,
-      insufficient: totalCount <= 0,
-      timeP10: weightedMetric(valid, "timeP10"),
-      timeP25: weightedMetric(valid, "timeP25"),
-      timeP50: weightedMetric(valid, "timeP50"),
-      timeP75: weightedMetric(valid, "timeP75"),
-      timeP90: weightedMetric(valid, "timeP90"),
-      rankP25: weightedMetric(valid, "rankP25"),
-      rankP50: weightedMetric(valid, "rankP50"),
-      rankP75: weightedMetric(valid, "rankP75"),
+      timeCount: timeTotal > 0 ? timeTotal : null,
+      timeInsufficient: timeTotal <= 0,
+      rankCount: rankTotal > 0 ? rankTotal : null,
+      rankInsufficient: rankTotal <= 0,
+      timeP05: weightedMetric(timeValid, "timeP05", "timeCount"),
+      timeP10: weightedMetric(timeValid, "timeP10", "timeCount"),
+      timeP20: weightedMetric(timeValid, "timeP20", "timeCount"),
+      timeP30: weightedMetric(timeValid, "timeP30", "timeCount"),
+      timeP40: weightedMetric(timeValid, "timeP40", "timeCount"),
+      timeP50: weightedMetric(timeValid, "timeP50", "timeCount"),
+      timeP60: weightedMetric(timeValid, "timeP60", "timeCount"),
+      timeP70: weightedMetric(timeValid, "timeP70", "timeCount"),
+      timeP80: weightedMetric(timeValid, "timeP80", "timeCount"),
+      timeP90: weightedMetric(timeValid, "timeP90", "timeCount"),
+      timeP95: weightedMetric(timeValid, "timeP95", "timeCount"),
+      rankP25: weightedMetric(rankValid, "rankP25", "rankCount"),
+      rankP50: weightedMetric(rankValid, "rankP50", "rankCount"),
+      rankP75: weightedMetric(rankValid, "rankP75", "rankCount"),
     });
   }
   return result.sort((a, b) => {
     if (a.gender !== b.gender) return a.gender.localeCompare(b.gender, "ko");
-    if (a.schoolLevel !== b.schoolLevel) return a.schoolLevel.localeCompare(b.schoolLevel, "ko");
     return a.distance - b.distance;
   });
 }
 
-function weightedMetric(rows: PeerDistributionRow[], key: keyof PeerDistributionRow): number | null {
+function weightedMetric(
+  rows: PeerDistributionRow[],
+  key: keyof PeerDistributionRow,
+  countKey: "timeCount" | "rankCount",
+): number | null {
   let weightedSum = 0;
   let weight = 0;
   for (const row of rows) {
     const value = row[key];
-    const count = row.athleteCount;
+    const count = row[countKey];
     if (typeof value !== "number" || typeof count !== "number" || count <= 0) continue;
     weightedSum += value * count;
     weight += count;

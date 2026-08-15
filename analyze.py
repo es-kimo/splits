@@ -35,6 +35,15 @@ WINTER_GAME_ROUND_RE = re.compile(r"제\s*(\d+)\s*회")
 LOWER_BOUNDS = {500: 40, 1000: 82, 1500: 128, 3000: 260}
 OPEN_GENERAL_UPPER_BOUNDS = {500: 70, 1000: 140, 1500: 220}
 LOWER_NEAR_MARGIN = 2.0
+# 통계 집계 전용 하한. 종목 오염(스피드스케이팅) 제거 후에도 남는 입력 오류만 보수적으로 제거한다.
+# 상한은 두지 않는다. 초등 저학년이 500m를 90초에 타는 것은 정상이다.
+STATS_TIME_LOWER_BOUNDS = {500: 30, 1000: 60, 1500: 100, 2000: 140, 3000: 210}
+SPEED_CLASS_CD = "1"
+SHORTTRACK_CLASS_CD = "2"
+FIGURE_CLASS_CD = "3"
+HEAT_GROUP_ROUND_RE = re.compile(r"^\d+조$")
+SPEED_MEET_NAME_TOKEN = "스피드"
+SHORTTRACK_MEET_NAME_TOKEN = "쇼트트랙"
 KNOWN_WINTER_ROUNDS = {88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 103, 104, 105, 107}
 K_ANONYMITY_MIN = 10
 INSUFFICIENT_TEXT = "데이터 부족"
@@ -42,6 +51,7 @@ FORBIDDEN_OUTPUT_COLUMNS = {"idNo", "이름", "소속", "시도"}
 FORBIDDEN_ANON_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
 RECORDS_ANON_REQUIRED_COLUMNS = [
     "toCd",
+    "classCd",
     "대회명",
     "대회연도",
     "일자",
@@ -55,26 +65,18 @@ RECORDS_ANON_REQUIRED_COLUMNS = [
     "기록_초",
     "사유",
     "성별",
-    "출생년도",
+    "출생연도",
     "학년",
     "익명키",
 ]
-DIST_GROUP_COLS = ["출생연도", "성별", "학령구간", "거리"]
-DIST_OUTPUT_COLS = [
-    "출생연도",
-    "성별",
-    "학령구간",
-    "거리",
-    "인원수",
-    "기록_p10",
-    "기록_p25",
-    "기록_p50",
-    "기록_p75",
-    "기록_p90",
-    "순위_p25",
-    "순위_p50",
-    "순위_p75",
-]
+DIST_GROUP_COLS = ["출생연도", "성별", "거리"]
+DIST_TIME_QUANTILES = [0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95]
+DIST_TIME_COLS = ["기록_p05", "기록_p10", "기록_p20", "기록_p30", "기록_p40", "기록_p50", "기록_p60", "기록_p70", "기록_p80", "기록_p90", "기록_p95"]
+DIST_RANK_QUANTILES = [0.25, 0.50, 0.75]
+DIST_RANK_COLS = ["순위_p25", "순위_p50", "순위_p75"]
+DIST_OUTPUT_COLS = (
+    ["출생연도", "성별", "거리", "기록_인원수"] + DIST_TIME_COLS + ["순위_인원수"] + DIST_RANK_COLS
+)
 PART_OUTPUT_COLS = ["출생연도", "성별", "최초출전나이_p25", "최초출전나이_p50", "최초출전나이_p75", "초등부출전수_p50", "인원수"]
 SCHOOL_REGION_PREFIXES = [
     "서울특별시",
@@ -678,6 +680,49 @@ def classify_round(round_name):
     if "예선" in text:
         return "예선"
     return "기타"
+
+
+def is_speed_meet_name(meet_name):
+    text = str(meet_name or "").strip()
+    if not text:
+        return False
+    return SPEED_MEET_NAME_TOKEN in text and SHORTTRACK_MEET_NAME_TOKEN not in text
+
+
+def classify_class_cd(meet_name, round_name, round_kind=None, meet_class_cd=None):
+    # 수집 원천의 classCd는 조회 파라미터 값이라 종목 판별력이 없고, meet_index_inf201.csv도 쇼트트랙만 담고 있다.
+    # 게다가 전국동계체육대회처럼 한 대회명에 스피드·쇼트트랙이 함께 있는 대회가 있어 대회 단위 조인만으로는 분리되지 않는다.
+    # 따라서 행 단위 규칙으로 판별한다.
+    mapped = str(meet_class_cd or "").strip()
+    if mapped in {SPEED_CLASS_CD, FIGURE_CLASS_CD}:
+        return mapped
+    kind = str(round_kind or "").strip() or classify_round(round_name)
+    round_text = str(round_name or "").strip().replace(" ", "")
+    if kind == "기타" and HEAT_GROUP_ROUND_RE.match(round_text):
+        # 스피드스케이팅은 2명씩 조를 나눠 타고 기록으로 겨루므로 예선/결승 구분 없이 조 번호만 남는다.
+        return SPEED_CLASS_CD
+    if is_speed_meet_name(meet_name):
+        return SPEED_CLASS_CD
+    return SHORTTRACK_CLASS_CD
+
+
+def attach_class_cd(df, meet_class_cd_map=None):
+    out = df.copy()
+    if out.empty:
+        out["classCd"] = pd.Series(dtype=str)
+        return out
+    meet_names = out.get("대회명", pd.Series([""] * len(out), index=out.index))
+    rounds = out.get("라운드", pd.Series([""] * len(out), index=out.index))
+    round_kinds = out.get("라운드종류", pd.Series([""] * len(out), index=out.index))
+    if meet_class_cd_map:
+        mapped = [meet_class_cd_map.get(str(name or "").strip(), "") for name in meet_names]
+    else:
+        mapped = [""] * len(out)
+    out["classCd"] = [
+        classify_class_cd(name, round_name, round_kind, mapped_value)
+        for name, round_name, round_kind, mapped_value in zip(meet_names, rounds, round_kinds, mapped)
+    ]
+    return out
 def extract_meet_year(normalized_date, raw_date):
     for value in [normalized_date, raw_date]:
         text = str(value or "").strip()
@@ -767,10 +812,11 @@ def build_clean_records(records_df, athlete_df):
     clean["기록_초"] = pd.to_numeric(clean["기록"].apply(parse_time_to_seconds), errors="coerce")
     clean["라운드종류"] = clean["라운드"].apply(classify_round)
     clean["순위_정수"] = pd.Series(clean["순위"].apply(parse_rank), dtype="Int64")
+    clean = attach_class_cd(clean)
     return clean
 def detect_outliers(clean_df):
     reasons = {}
-    reason_counts = {"하한미달": 0, "상한초과": 0, "계측오류의심": 0}
+    reason_counts = {"하한미달": 0, "상한초과": 0, "계측오류의심": 0, "통계하한미달": 0}
 
     def add_reason(index, code, detail):
         item = reasons.setdefault(index, {"codes": set(), "details": set()})
@@ -784,9 +830,16 @@ def detect_outliers(clean_df):
         if pd.isna(distance):
             continue
         distance = int(distance)
+        value = float(row["기록_초"])
+        stats_lower = STATS_TIME_LOWER_BOUNDS.get(distance)
+        if (
+            stats_lower is not None
+            and _norm_text(row.get("classCd")) == SHORTTRACK_CLASS_CD
+            and value < stats_lower
+        ):
+            add_reason(idx, "통계하한미달", f"{distance}M 통계 하한미달({value:.3f} < {stats_lower})")
         if distance not in LOWER_BOUNDS:
             continue
-        value = float(row["기록_초"])
         lower = LOWER_BOUNDS[distance]
         if value < lower:
             add_reason(idx, "하한미달", f"{distance}M 하한미달({value:.3f} < {lower})")
@@ -1060,6 +1113,7 @@ def _load_anon_clean_records():
                 "일자_정규화",
                 "순위_정수",
                 "나이_추정",
+                "classCd",
             ]
         )
         empty_clean.attrs["year_missing_after_restore"] = 0
@@ -1072,7 +1126,7 @@ def _load_anon_clean_records():
             "이름": anon_df["익명키"].astype(str).str.strip(),
             "대회명": anon_df["대회명"].map(_norm_text),
             "대회연도": pd.to_numeric(anon_df["대회연도"], errors="coerce").astype("Int64"),
-            "출생년도": pd.to_numeric(anon_df["출생년도"], errors="coerce").astype("Int64"),
+            "출생년도": pd.to_numeric(anon_df["출생연도"], errors="coerce").astype("Int64"),
             "성별": anon_df["성별"].map(_norm_text),
             "학령구간": anon_df["학령구간"].map(_norm_text),
             "거리": pd.to_numeric(anon_df["거리"], errors="coerce").astype("Int64"),
@@ -1084,11 +1138,22 @@ def _load_anon_clean_records():
             "종별": anon_df["종별"].map(_norm_text),
             "일자": anon_df["일자"].map(_norm_text),
             "일자_정규화": anon_df["일자"].map(_norm_text),
+            "classCd": anon_df["classCd"].map(_norm_text),
         }
     )
     missing_round_kind = clean["라운드종류"] == ""
     if missing_round_kind.any():
         clean.loc[missing_round_kind, "라운드종류"] = clean.loc[missing_round_kind, "라운드"].map(classify_round)
+    missing_class_cd = clean["classCd"] == ""
+    if missing_class_cd.any():
+        clean.loc[missing_class_cd, "classCd"] = [
+            classify_class_cd(name, round_name, round_kind)
+            for name, round_name, round_kind in zip(
+                clean.loc[missing_class_cd, "대회명"],
+                clean.loc[missing_class_cd, "라운드"],
+                clean.loc[missing_class_cd, "라운드종류"],
+            )
+        ]
     clean["순위_정수"] = pd.Series(clean["순위"].apply(parse_rank), dtype="Int64")
     clean["순위"] = clean["순위_정수"].astype("Int64")
     clean["나이_추정"] = pd.Series([estimate_age(y, b) for y, b in zip(clean["대회연도"], clean["출생년도"])], dtype="Int64")
@@ -1109,27 +1174,213 @@ def build_stats_from_anon_records():
     placements_df = best_placement(clean_df)
     summary_df = summarize_youth(placements_df, clean_df, athlete_df)
     coverage_df = build_coverage(clean_df)
-    stats_distribution_df = build_stats_distribution(clean_df, placements_df, athlete_df)
+    stats_distribution_df = build_stats_distribution(clean_df, athlete_df)
     stats_participation_df = build_stats_participation(summary_df, athlete_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     return coverage_df, stats_distribution_df, stats_participation_df
 
 
-def _to_group_key_frame(df, id_col="idNo"):
+def _norm_group_frame(df, id_col="idNo"):
     key_df = df.copy()
     key_df[id_col] = key_df[id_col].astype(str).str.strip()
-    key_df["학령구간"] = key_df["학령구간"].map(_norm_text)
     key_df["성별"] = key_df["성별"].map(_norm_text)
     key_df["거리"] = pd.to_numeric(key_df["거리"], errors="coerce").astype("Int64")
     key_df["출생연도"] = pd.to_numeric(key_df["출생연도"], errors="coerce").astype("Int64")
-    key_df = key_df[
-        (key_df[id_col] != "")
-        & (key_df["성별"] != "")
-        & (key_df["학령구간"] != "")
-        & key_df["거리"].notna()
-        & key_df["출생연도"].notna()
-    ].copy()
     return key_df
+
+
+def _is_shorttrack(series):
+    return series.map(_norm_text) == SHORTTRACK_CLASS_CD
+
+
+def _stats_time_outlier_mask(distances, times):
+    flags = []
+    for distance, value in zip(distances, times):
+        if pd.isna(distance) or pd.isna(value):
+            flags.append(False)
+            continue
+        lower = STATS_TIME_LOWER_BOUNDS.get(int(distance))
+        flags.append(lower is not None and float(value) < lower)
+    return pd.Series(flags, index=times.index, dtype=bool)
+
+
+def _build_time_stats_base(clean_df, profiles):
+    base = all_times(clean_df).copy()
+    log = {"전체": int(len(base))}
+    if base.empty:
+        empty = pd.DataFrame(columns=DIST_GROUP_COLS + ["idNo", "기록_초"])
+        empty.attrs["filter_log"] = log
+        return empty
+    base["idNo"] = base["idNo"].astype(str).str.strip()
+    if "성별" not in base.columns:
+        base = base.merge(profiles[["idNo", "성별"]], on="idNo", how="left")
+    base["출생연도"] = pd.to_numeric(base.get("출생년도"), errors="coerce").astype("Int64")
+    base["거리"] = pd.to_numeric(base["거리"], errors="coerce").astype("Int64")
+    base["성별"] = base["성별"].map(_norm_text)
+    base["classCd"] = base.get("classCd", "").map(_norm_text)
+
+    speed_mask = ~_is_shorttrack(base["classCd"])
+    log["classCd≠2 제외"] = int(speed_mask.sum())
+    log["  (그중 거리 결측)"] = int((speed_mask & base["거리"].isna()).sum())
+    base = base[~speed_mask]
+
+    round_mask = base["라운드종류"] != "예선"
+    log["라운드 필터 제외"] = int(round_mask.sum())
+    base = base[~round_mask]
+
+    time_missing = base["기록_초"].isna()
+    log["기록 결측"] = int(time_missing.sum())
+    base = base[~time_missing]
+
+    birth_missing = base["출생연도"].isna()
+    log["출생연도 결측"] = int(birth_missing.sum())
+    base = base[~birth_missing]
+
+    distance_missing = base["거리"].isna()
+    log["거리 결측"] = int(distance_missing.sum())
+    base = base[~distance_missing]
+
+    gender_missing = base["성별"] == ""
+    log["성별 결측"] = int(gender_missing.sum())
+    base = base[~gender_missing]
+
+    outlier_mask = _stats_time_outlier_mask(base["거리"], base["기록_초"])
+    log["이상치 제외"] = int(outlier_mask.sum())
+    base = base[~outlier_mask]
+
+    base = base[base["idNo"] != ""]
+    log["집계 대상"] = int(len(base))
+    out = _norm_group_frame(base)[DIST_GROUP_COLS + ["idNo", "기록_초"]].copy()
+    out.attrs["filter_log"] = log
+    return out
+
+
+def _build_rank_stats_base(clean_df, profiles):
+    log = {"전체": int(len(clean_df))}
+    if clean_df.empty:
+        empty = pd.DataFrame(columns=DIST_GROUP_COLS + ["idNo", "순위"])
+        empty.attrs["filter_log"] = log
+        return empty
+    source = clean_df.copy()
+    source["classCd"] = source.get("classCd", "").map(_norm_text)
+    speed_mask = ~_is_shorttrack(source["classCd"])
+    log["classCd≠2 제외"] = int(speed_mask.sum())
+    source = source[~speed_mask]
+
+    # 순위는 선수·대회·종목당 1건만 사용해야 하므로 성적 우선순위(채점종합 > 결승/결승B) 결과에서 고른다.
+    base = best_placement(source).copy()
+    log["성적 행 선택"] = int(len(base))
+    base["idNo"] = base["idNo"].astype(str).str.strip()
+    base["순위"] = pd.to_numeric(base["순위"], errors="coerce")
+    base["거리"] = pd.to_numeric(base["거리"], errors="coerce").astype("Int64")
+    base["학령구간"] = base["학령구간"].map(_norm_text)
+
+    round_mask = ~base["라운드종류"].isin(["채점종합", "결승"])
+    log["결승B·기타 라운드 제외"] = int(round_mask.sum())
+    base = base[~round_mask]
+
+    # 오픈(종별이 여자부/남자부)은 성인 국가대표까지 섞이는 경기라 학령 경기와 순위 의미가 다르다.
+    open_mask = base["학령구간"] == "오픈"
+    log["오픈 경기 제외"] = int(open_mask.sum())
+    base = base[~open_mask]
+
+    rank_missing = base["순위"].isna()
+    log["순위 결측"] = int(rank_missing.sum())
+    base = base[~rank_missing]
+
+    distance_missing = base["거리"].isna()
+    log["거리 결측"] = int(distance_missing.sum())
+    base = base[~distance_missing]
+
+    base = base[["idNo", "거리", "순위"]].merge(profiles, on="idNo", how="left")
+    base["성별"] = base["성별"].map(_norm_text)
+    base["출생연도"] = pd.to_numeric(base["출생연도"], errors="coerce").astype("Int64")
+
+    birth_missing = base["출생연도"].isna()
+    log["출생연도 결측"] = int(birth_missing.sum())
+    base = base[~birth_missing]
+
+    gender_missing = base["성별"] == ""
+    log["성별 결측"] = int(gender_missing.sum())
+    base = base[~gender_missing]
+
+    base = base[base["idNo"].astype(str).str.strip() != ""]
+    log["집계 대상"] = int(len(base))
+    out = _norm_group_frame(base)[DIST_GROUP_COLS + ["idNo", "순위"]].copy()
+    out.attrs["filter_log"] = log
+    return out
+
+
+def _quantile_columns(base, value_col, quantiles, column_names):
+    if base.empty:
+        return pd.DataFrame(columns=column_names)
+    frame = base.groupby(DIST_GROUP_COLS, dropna=False)[value_col].quantile(quantiles).unstack()
+    frame.columns = column_names
+    return frame
+
+
+def build_stats_distribution(clean_df, athlete_df):
+    profiles = build_athlete_profiles(athlete_df)
+    time_base = _build_time_stats_base(clean_df, profiles)
+    rank_base = _build_rank_stats_base(clean_df, profiles)
+    filter_log = {"기록": time_base.attrs.get("filter_log", {}), "순위": rank_base.attrs.get("filter_log", {})}
+
+    if time_base.empty and rank_base.empty:
+        out = pd.DataFrame(columns=DIST_OUTPUT_COLS)
+        out.attrs["filter_log"] = filter_log
+        return out
+
+    time_ids = time_base[DIST_GROUP_COLS + ["idNo"]].drop_duplicates()
+    rank_ids = rank_base[DIST_GROUP_COLS + ["idNo"]].drop_duplicates()
+    time_counts = time_ids.groupby(DIST_GROUP_COLS, dropna=False)["idNo"].nunique().rename("기록인원")
+    rank_counts = rank_ids.groupby(DIST_GROUP_COLS, dropna=False)["idNo"].nunique().rename("순위인원")
+    time_stats = _quantile_columns(time_base, "기록_초", DIST_TIME_QUANTILES, DIST_TIME_COLS)
+    rank_stats = _quantile_columns(rank_base, "순위", DIST_RANK_QUANTILES, DIST_RANK_COLS)
+
+    # 실제 데이터가 있는 조합만 남긴다. 존재하지 않는 조합은 행으로 만들지 않는다.
+    stats = pd.concat([time_counts, rank_counts, time_stats, rank_stats], axis=1).reset_index()
+    rows = []
+    for _, item in stats.iterrows():
+        row = {
+            "출생연도": int(item["출생연도"]),
+            "성별": item["성별"],
+            "거리": int(item["거리"]),
+        }
+        time_count = _count_or_zero(item.get("기록인원"))
+        rank_count = _count_or_zero(item.get("순위인원"))
+        # 기록과 순위는 필터가 달라 표본 크기가 다르므로 k-익명 판정을 각각 독립으로 한다.
+        if time_count < K_ANONYMITY_MIN:
+            row["기록_인원수"] = INSUFFICIENT_TEXT
+            for col in DIST_TIME_COLS:
+                row[col] = INSUFFICIENT_TEXT
+        else:
+            row["기록_인원수"] = time_count
+            for col in DIST_TIME_COLS:
+                row[col] = _round_or_none(item.get(col), digits=3)
+        if rank_count < K_ANONYMITY_MIN:
+            row["순위_인원수"] = INSUFFICIENT_TEXT
+            for col in DIST_RANK_COLS:
+                row[col] = INSUFFICIENT_TEXT
+        else:
+            row["순위_인원수"] = rank_count
+            for col in DIST_RANK_COLS:
+                row[col] = _round_or_none(item.get(col), digits=2)
+        rows.append(row)
+    out = pd.DataFrame(rows, columns=DIST_OUTPUT_COLS)
+    if not out.empty:
+        out = out.sort_values(["출생연도", "성별", "거리"], na_position="last").reset_index(drop=True)
+    out.attrs["filter_log"] = filter_log
+    return out
+
+
+def print_stats_filter_log(distribution_df):
+    filter_log = distribution_df.attrs.get("filter_log") or {}
+    for label, stages in filter_log.items():
+        if not stages:
+            continue
+        print(f"[{label} 통계] 집계 단계별 행수")
+        for name, value in stages.items():
+            print(f"  {name}: {value}행")
 
 
 def _insufficient_row(row, metric_cols):
@@ -1137,80 +1388,6 @@ def _insufficient_row(row, metric_cols):
     for col in metric_cols:
         row[col] = INSUFFICIENT_TEXT
     return row
-
-
-def build_stats_distribution(clean_df, placements_df, athlete_df):
-    profiles = build_athlete_profiles(athlete_df)
-    time_base = all_times(clean_df).copy()
-    time_base["idNo"] = time_base["idNo"].astype(str).str.strip()
-    time_base["출생연도"] = pd.to_numeric(time_base["출생년도"], errors="coerce").astype("Int64")
-    if "성별" not in time_base.columns:
-        time_base = time_base.merge(profiles[["idNo", "성별"]], on="idNo", how="left")
-    time_base = time_base[
-        (time_base["라운드종류"] == "예선") & time_base["기록_초"].notna() & time_base["거리"].notna()
-    ][["idNo", "출생연도", "성별", "학령구간", "거리", "기록_초"]]
-    time_base = _to_group_key_frame(time_base)
-
-    rank_base = placements_df.copy()
-    rank_base["idNo"] = rank_base["idNo"].astype(str).str.strip()
-    rank_base["순위"] = pd.to_numeric(rank_base["순위"], errors="coerce")
-    rank_base = rank_base[rank_base["순위"].notna() & rank_base["거리"].notna()][["idNo", "학령구간", "거리", "순위"]]
-    rank_base = rank_base.merge(profiles, on="idNo", how="left")
-    rank_base = _to_group_key_frame(rank_base)
-
-    if time_base.empty and rank_base.empty:
-        return pd.DataFrame(columns=DIST_OUTPUT_COLS)
-
-    time_ids = time_base[DIST_GROUP_COLS + ["idNo"]].drop_duplicates()
-    rank_ids = rank_base[DIST_GROUP_COLS + ["idNo"]].drop_duplicates()
-    all_ids = pd.concat([time_ids, rank_ids], ignore_index=True).drop_duplicates()
-    total_counts = all_ids.groupby(DIST_GROUP_COLS, dropna=False)["idNo"].nunique().rename("총인원")
-    time_counts = time_ids.groupby(DIST_GROUP_COLS, dropna=False)["idNo"].nunique().rename("기록인원")
-    rank_counts = rank_ids.groupby(DIST_GROUP_COLS, dropna=False)["idNo"].nunique().rename("순위인원")
-
-    time_stats = (
-        time_base.groupby(DIST_GROUP_COLS, dropna=False)["기록_초"]
-        .quantile([0.10, 0.25, 0.50, 0.75, 0.90])
-        .unstack()
-        .rename(columns={0.10: "기록_p10", 0.25: "기록_p25", 0.50: "기록_p50", 0.75: "기록_p75", 0.90: "기록_p90"})
-    )
-    rank_stats = (
-        rank_base.groupby(DIST_GROUP_COLS, dropna=False)["순위"]
-        .quantile([0.25, 0.50, 0.75])
-        .unstack()
-        .rename(columns={0.25: "순위_p25", 0.50: "순위_p50", 0.75: "순위_p75"})
-    )
-
-    stats = pd.concat([total_counts, time_counts, rank_counts, time_stats, rank_stats], axis=1).reset_index()
-    metric_cols = ["기록_p10", "기록_p25", "기록_p50", "기록_p75", "기록_p90", "순위_p25", "순위_p50", "순위_p75"]
-    rows = []
-    for _, item in stats.iterrows():
-        row = {
-            "출생연도": int(item["출생연도"]),
-            "성별": item["성별"],
-            "학령구간": item["학령구간"],
-            "거리": int(item["거리"]),
-        }
-        total_count = _count_or_zero(item.get("총인원"))
-        time_count = _count_or_zero(item.get("기록인원"))
-        rank_count = _count_or_zero(item.get("순위인원"))
-        if total_count < K_ANONYMITY_MIN or time_count < K_ANONYMITY_MIN or rank_count < K_ANONYMITY_MIN:
-            rows.append(_insufficient_row(row, metric_cols))
-            continue
-        row["인원수"] = total_count
-        row["기록_p10"] = _round_or_none(item.get("기록_p10"), digits=3)
-        row["기록_p25"] = _round_or_none(item.get("기록_p25"), digits=3)
-        row["기록_p50"] = _round_or_none(item.get("기록_p50"), digits=3)
-        row["기록_p75"] = _round_or_none(item.get("기록_p75"), digits=3)
-        row["기록_p90"] = _round_or_none(item.get("기록_p90"), digits=3)
-        row["순위_p25"] = _round_or_none(item.get("순위_p25"), digits=2)
-        row["순위_p50"] = _round_or_none(item.get("순위_p50"), digits=2)
-        row["순위_p75"] = _round_or_none(item.get("순위_p75"), digits=2)
-        rows.append(row)
-    out = pd.DataFrame(rows, columns=DIST_OUTPUT_COLS)
-    if out.empty:
-        return out
-    return out.sort_values(["출생연도", "성별", "학령구간", "거리"], na_position="last")
 
 
 def build_stats_participation(summary_df, athlete_df):
@@ -1257,24 +1434,25 @@ def validate_anonymous_stats(distribution_df, participation_df):
         if forbidden:
             raise ValueError(f"[error] {filename}에 개인식별 금지 컬럼이 포함되었습니다: {', '.join(sorted(forbidden))}")
 
-    def assert_k_rule(df, metric_cols, filename):
+    def assert_k_rule(df, metric_cols, filename, count_col="인원수"):
         if df.empty:
             return
         for idx, row in df.iterrows():
             row_no = idx + 2
-            count_value = row["인원수"]
+            count_value = row[count_col]
             if str(count_value).strip() == INSUFFICIENT_TEXT:
                 invalid = [col for col in metric_cols if str(row[col]).strip() != INSUFFICIENT_TEXT]
                 if invalid:
-                    raise ValueError(f"[error] {filename} {row_no}행: 인원수=데이터 부족인데 지표 컬럼이 노출되었습니다 ({', '.join(invalid)})")
+                    raise ValueError(f"[error] {filename} {row_no}행: {count_col}=데이터 부족인데 지표 컬럼이 노출되었습니다 ({', '.join(invalid)})")
                 continue
             count_num = pd.to_numeric(pd.Series([count_value]), errors="coerce").iloc[0]
             if pd.isna(count_num) or int(count_num) < K_ANONYMITY_MIN:
-                raise ValueError(f"[error] {filename} {row_no}행: k-익명 기준 미달 인원수가 공개되었습니다 ({count_value})")
+                raise ValueError(f"[error] {filename} {row_no}행: k-익명 기준 미달 {count_col}가 공개되었습니다 ({count_value})")
 
     assert_schema(distribution_df, DIST_OUTPUT_COLS, "data/stats_distribution.csv")
     assert_schema(participation_df, PART_OUTPUT_COLS, "data/stats_participation.csv")
-    assert_k_rule(distribution_df, ["기록_p10", "기록_p25", "기록_p50", "기록_p75", "기록_p90", "순위_p25", "순위_p50", "순위_p75"], "data/stats_distribution.csv")
+    assert_k_rule(distribution_df, DIST_TIME_COLS, "data/stats_distribution.csv", count_col="기록_인원수")
+    assert_k_rule(distribution_df, DIST_RANK_COLS, "data/stats_distribution.csv", count_col="순위_인원수")
     assert_k_rule(participation_df, ["최초출전나이_p25", "최초출전나이_p50", "최초출전나이_p75", "초등부출전수_p50"], "data/stats_participation.csv")
 
 
@@ -1329,6 +1507,7 @@ def main():
         coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
         stats_distribution_df.to_csv(STATS_DISTRIBUTION_CSV, index=False, encoding="utf-8-sig")
         stats_participation_df.to_csv(STATS_PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
+        print_stats_filter_log(stats_distribution_df)
         print(f"데이터 커버리지 저장 완료: {COVERAGE_CSV}")
         print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
         print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
@@ -1360,7 +1539,7 @@ def main():
     stats_clean_df, stats_placements_df, stats_summary_df, stats_athlete_df, stats_source_label = select_stats_source(
         records_merged_df, athlete_merged_df, id_merge_map
     )
-    stats_distribution_df = build_stats_distribution(stats_clean_df, stats_placements_df, stats_athlete_df)
+    stats_distribution_df = build_stats_distribution(stats_clean_df, stats_athlete_df)
     stats_participation_df = build_stats_participation(stats_summary_df, stats_athlete_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     dup_check = placements_df.groupby(["이름", "대회명", "거리", "SF여부"], dropna=False).size().reset_index(name="행수")
@@ -1396,7 +1575,7 @@ def main():
     if clean_df.attrs.get("winter_round_fallback_unknown", 0):
         print(f"전국동계체전 회차 복원(목록 외 회차): {clean_df.attrs.get('winter_round_fallback_unknown', 0)}행")
     print(f"데이터 커버리지 저장 완료: data/coverage.csv ({int(coverage_df['대회연도'].min())}~{int(coverage_df['대회연도'].max())})" if not coverage_df.empty else "데이터 커버리지 저장 완료: data/coverage.csv (연도 정보 없음)")
-    print("이상치 사유별 건수: 하한미달 {0}건 / 상한초과 {1}건 / 계측오류의심 {2}건".format(outlier_reason_counts["하한미달"], outlier_reason_counts["상한초과"], outlier_reason_counts["계측오류의심"]))
+    print("이상치 사유별 건수: 하한미달 {0}건 / 상한초과 {1}건 / 계측오류의심 {2}건 / 통계하한미달 {3}건".format(outlier_reason_counts["하한미달"], outlier_reason_counts["상한초과"], outlier_reason_counts["계측오류의심"], outlier_reason_counts["통계하한미달"]))
     print(f"이상치 {len(outliers_df)}건 검출 (data/outliers.csv)")
     review_count = 0 if id_merge_candidates_df.empty else int((id_merge_candidates_df["판정"] == "review").sum())
     auto_count = id_merge_stats["auto_count"]
@@ -1418,5 +1597,8 @@ def main():
     print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
     print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
     print(f"익명 통계 입력 소스: {stats_source_label}")
+    print_stats_filter_log(stats_distribution_df)
+
+
 if __name__ == "__main__":
     main()

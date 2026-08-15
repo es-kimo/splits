@@ -110,7 +110,7 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 | `data/suspicious_ids.csv`                               | 규격 외 idNo(자리수/형식 이상) 감지 로그                        |
 | `data/id_merges.csv`                                   | 동일 선수 id 병합 확정표(부idNo→주idNo)                        |
 | `data/placements.csv`                                  | 선수·대회·거리 단위 대표 성적(라운드 해석 적용 결과)           |
-| `data/stats_distribution.csv`                          | 익명 분포 통계(k-익명성 기준 적용)                             |
+| `data/stats_distribution.csv`                          | 익명 분포 통계(`출생연도×성별×거리`, k-익명성 기준 적용)       |
 | `data/stats_participation.csv`                         | 익명 참가 통계                                                 |
 | `site/data/*.json`                                     | Astro 빌드 계약 데이터                                         |
 | `index.html`, `athlete/`, `meet/` 등                   | 최종 배포 정적 산출물                                          |
@@ -124,4 +124,7 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 - `python analyze.py`는 `records.csv`/`athlete_info.csv`가 없고 `records_anon.csv`만 있는 경우에도 `coverage.csv`, `stats_distribution.csv`, `stats_participation.csv`를 재생성할 수 있습니다.
 - `python build_data.py`도 대회 집계에서 같은 우선순위(`records_full` → `records`)로 원천을 직접 읽습니다. 이 경로는 CSV를 거치지 않고 `analyze.py` 함수를 그대로 호출하므로 `Int64` 결측(`pd.NA`)이 살아 있습니다 — 값 변환 헬퍼는 `as_text()`를 거쳐 NA를 흡수해야 합니다.
 - `records_anon.csv`의 `toCd`는 `SPLITS_MEET_INDEX_CSV`(또는 `data/meet_index_inf201.csv`, `/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv`)가 있으면 자동 매핑하며, 매칭이 불명확하면 공백으로 둡니다.
-- k-익명성 기준(`k=10`) 미만 구간은 행을 유지하되 `인원수`/지표를 `데이터 부족`으로 표기합니다.
+- `records_anon.csv`의 `classCd`는 종목 구분값(`1`=스피드, `2`=쇼트트랙, `3`=피겨)이며, 라운드 형태(`N조`)와 대회명 규칙으로 행 단위 판별합니다. 통계 집계는 `classCd=2`만 사용하고 나머지 행도 삭제하지 않습니다.
+- 이미 커밋된 `records_anon.csv`에 컬럼을 추가·개명할 때는 익명키 재생성을 피하기 위해 `python scripts/backfill_records_anon_class_cd.py`를 사용합니다.
+- `stats_distribution.csv`는 `출생연도×성별×거리` 단위이며 실제 데이터가 있는 조합만 생성합니다. 기록 통계(쇼트트랙 예선)와 순위 통계(쇼트트랙 학령 결승·채점종합)는 대상이 달라 인원수와 k-익명성 판정을 각각 분리합니다.
+- k-익명성 기준(`k=10`) 미만 구간은 행을 유지하되 해당 쪽 `인원수`/지표를 `데이터 부족`으로 표기합니다.

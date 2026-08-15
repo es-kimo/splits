@@ -28,6 +28,7 @@ FORBIDDEN_DATA_FILES = {
 FORBIDDEN_DATA_PREFIXES = ("data/raw/",)
 RECORDS_ANON_COLUMNS = [
     "toCd",
+    "classCd",
     "대회명",
     "대회연도",
     "일자",
@@ -41,7 +42,7 @@ RECORDS_ANON_COLUMNS = [
     "기록_초",
     "사유",
     "성별",
-    "출생년도",
+    "출생연도",
     "학년",
     "익명키",
 ]

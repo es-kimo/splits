@@ -116,22 +116,28 @@ export interface MeetSeriesLink {
 export interface PeerDistributionFilters {
   birthYears: number[];
   genders: string[];
-  schoolLevels: string[];
   distances: number[];
 }
 
 export interface PeerDistributionRow {
   birthYear: number;
   gender: string;
-  schoolLevel: string;
   distance: number;
-  athleteCount: number | null;
-  insufficient: boolean;
+  timeCount: number | null;
+  timeInsufficient: boolean;
+  rankCount: number | null;
+  rankInsufficient: boolean;
+  timeP05: number | null;
   timeP10: number | null;
-  timeP25: number | null;
+  timeP20: number | null;
+  timeP30: number | null;
+  timeP40: number | null;
   timeP50: number | null;
-  timeP75: number | null;
+  timeP60: number | null;
+  timeP70: number | null;
+  timeP80: number | null;
   timeP90: number | null;
+  timeP95: number | null;
   rankP25: number | null;
   rankP50: number | null;
   rankP75: number | null;
