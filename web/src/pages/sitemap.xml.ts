@@ -17,12 +17,12 @@ export const GET: APIRoute = () => {
   const { athletes } = loadAthletesDoc();
   const { items } = loadMeetsDoc();
   const athleteUrls = [...new Set(athletes.map((athlete) => `athlete/${athlete.slug}/`))];
+  // distribution/ 은 홈으로 합쳐졌습니다. 리다이렉트 페이지라 사이트맵에서 뺍니다.
   const urls = [
     "",
     "analysis/",
     "athlete/",
     "privacy/",
-    "distribution/",
     "meet/",
     ...athleteUrls,
     ...items.map((item) => item.url || `meet/${meetSlug(item)}/`),

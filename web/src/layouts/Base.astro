@@ -37,8 +37,7 @@ function isNavActive(href: string): boolean {
 }
 
 const navItems = [
-  { href: withBase(), label: "홈" },
-  { href: withBase("distribution/"), label: "분포" },
+  { href: withBase(), label: "기록 조회" },
   { href: withBase("meet/"), label: "대회" },
   { href: withBase("athlete/"), label: "선수" },
 ];
@@ -183,7 +182,7 @@ const navItems = [
         color: var(--ink);
       }
       .site-brand-wordmark {
-        font-size: 24px;
+        font-size: 23px;
         font-weight: 900;
         letter-spacing: -0.055em;
         line-height: 1;
@@ -191,12 +190,12 @@ const navItems = [
       .site-nav {
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 3px;
       }
       .site-nav-link {
         min-height: 36px;
         border-radius: var(--r-ctl);
-        padding: 0 11px;
+        padding: 0 10px;
         font-size: 13.5px;
         font-weight: 700;
         color: var(--sub);
@@ -331,7 +330,8 @@ const navItems = [
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
       }
-      .metric-grid.is-4 {
+      .metric-grid.is-4,
+      .metric-grid.is-2 {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       .metric {
@@ -601,7 +601,7 @@ const navItems = [
       /* ---------- 그룹 헤더 (sticky) ---------- */
       .group-head {
         position: sticky;
-        top: 56px;
+        top: 54px;
         z-index: 2;
         background: var(--bg);
         padding: 4px 6px 8px;
@@ -778,26 +778,49 @@ const navItems = [
         background: var(--ink);
         color: #fff;
       }
+      .dist-field-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .dist-text-button {
+        flex: none;
+        border: 0;
+        background: transparent;
+        padding: 0 2px;
+        min-height: 40px;
+        font-size: 13.5px;
+        font-weight: 700;
+        color: var(--point);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .dist-text-button:hover {
+        color: var(--point-hover);
+      }
+      .dist-field-head .dist-group-label {
+        margin-bottom: 0;
+      }
+      .dist-group-label-spaced {
+        margin-top: 16px;
+      }
       .dist-year-select {
         display: grid;
         gap: 6px;
-        margin-top: 12px;
       }
-      .dist-year-select span {
-        font-size: 12.5px;
-        font-weight: 700;
-        color: var(--sub);
-      }
-      .dist-year-select select,
       .dist-year-select input {
         width: 100%;
-        min-height: 48px;
+        min-height: 52px;
         border-radius: var(--r-ctl);
         border: 1.5px solid var(--line-strong);
         background: var(--surface);
-        padding: 0 12px;
-        font-size: 15px;
+        padding: 0 14px;
+        font-size: 16px;
+        font-weight: 600;
         color: var(--ink);
+        font-variant-numeric: tabular-nums;
       }
       .dist-age-mode-note,
       .dist-year-merged-note {
@@ -818,7 +841,7 @@ const navItems = [
         padding-top: 18px;
       }
       .dist-input-guide {
-        margin: 0 0 12px;
+        margin: 10px 0 0;
         font-size: 13.5px;
         color: var(--soft);
       }
@@ -1114,17 +1137,17 @@ const navItems = [
           --gutter: 14px;
         }
         .site-header-inner {
-          flex-wrap: wrap;
+          padding: 8px 14px;
         }
-        .site-nav {
-          width: 100%;
+        .site-brand {
+          gap: 7px;
+        }
+        .site-brand-wordmark {
+          font-size: 21px;
         }
         .site-nav-link {
-          flex: 1;
-          min-height: 40px;
-        }
-        .group-head {
-          top: 96px;
+          padding: 0 9px;
+          font-size: 13px;
         }
         .page-head h1,
         .dist-hero h1 {
@@ -1141,6 +1164,11 @@ const navItems = [
         }
         .metric b {
           font-size: 19px;
+        }
+        /* 5칸 눈금은 360px에서 값이 겹친다. 양 끝과 한가운데만 남긴다. */
+        .dist-edge-labels span:nth-child(2),
+        .dist-edge-labels span:nth-child(4) {
+          display: none;
         }
       }
     </style>

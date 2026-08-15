@@ -1,26 +1,28 @@
 ---
-import DistributionTool from "../components/DistributionTool";
-import Base from "../layouts/Base.astro";
-import { withBase } from "../lib/base";
-import { loadDistributionDoc, loadMetaDoc } from "../lib/data";
+// 예전 주소. 조회 도구는 홈으로 합쳤습니다. 외부 링크와 OG 공유를 위해 리다이렉트만 남깁니다.
+import { toAbsoluteUrl, withBase } from "../lib/base";
 
-const distribution = loadDistributionDoc();
-const meta = loadMetaDoc();
+const homePath = withBase();
+const homeUrl = toAbsoluteUrl();
 ---
 
-<Base
-  title="또래 기록 분포 조회"
-  description="학년 또는 출생연도로 또래 조건을 고르고, 기록·등수의 상대 위치를 한 줄 결론으로 확인합니다."
-  ogTitle="또래 기록 분포 조회"
-  ogImage="og-distribution.png"
-  generatedAt={meta.generatedAt}
->
-  <DistributionTool
-    client:visible
-    homeUrl={withBase()}
-    kAnonymityMin={distribution.kAnonymityMin}
-    insufficientText={distribution.insufficientText}
-    filters={distribution.filters}
-    rows={distribution.rows}
-  />
-</Base>
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>또래 기록 분포 조회 — 스플릿</title>
+    <meta name="robots" content="noindex,follow" />
+    <meta http-equiv="refresh" content={`0;url=${homePath}`} />
+    <link rel="canonical" href={homeUrl} />
+    <link rel="icon" href={withBase("favicon.ico")} sizes="32x32" />
+    <script is:inline define:vars={{ homePath }}>
+      window.location.replace(homePath);
+    </script>
+  </head>
+  <body style="margin:0;padding:40px 16px;font-family:Pretendard,sans-serif;background:#F3F5F8;color:#5B5F68">
+    <p style="margin:0;font-size:15px">
+      조회 도구는 첫 화면으로 옮겼어요. <a href={homePath} style="color:#2E63F6;font-weight:700">바로 가기</a>
+    </p>
+  </body>
+</html>

@@ -36,18 +36,17 @@ const ogTitle = `${athlete.name} 경기 기록`;
 
 const missingNote =
   athlete.birth !== null && minYear !== null
-    ? `${minYear - athlete.birth}살(${minYear}년) 이전 기록은 시스템에 남아 있지 않아요. 대회에 나가지 않았다는 뜻은 아닙니다.`
-    : "초기 시즌 기록은 시스템에 남아 있지 않아요. 대회에 나가지 않았다는 뜻은 아닙니다.";
+    ? `${minYear - athlete.birth}살(${minYear}년) 이전 기록은 시스템에 남아 있지 않아요. 대회에 나가지 않았다는 뜻은 아니에요.`
+    : "초기 시즌 기록은 시스템에 남아 있지 않아요. 대회에 나가지 않았다는 뜻은 아니에요.";
 
-const yearBest = new Map<number, number>();
-for (const item of athlete.history) {
-  if (item.sf || item.year === null || item.rank === null) continue;
-  const current = yearBest.get(item.year);
-  if (current === undefined || item.rank < current) {
-    yearBest.set(item.year, item.rank);
-  }
-}
-const yearBestRows = [...yearBest.entries()].sort((a, b) => b[0] - a[0]);
+const bestRank = athlete.history.reduce<number | null>((best, item) => {
+  if (item.sf || item.rank === null) return best;
+  return best === null || item.rank < best ? item.rank : best;
+}, null);
+const bestYear =
+  bestRank === null
+    ? null
+    : athlete.history.find((item) => !item.sf && item.rank === bestRank)?.year ?? null;
 
 function normalizeGroupLabel(text: string): "종합" | "A" | "B" {
   const value = String(text || "").trim();
@@ -132,8 +131,8 @@ const glossary = [
 
   <section class="card">
     <div class="card-head">
-      <h2>나이별 성적 궤적</h2>
-      <p>파란 점이 위에 붙을수록 1등에 가까워요.</p>
+      <h2>어릴 때부터 지금까지</h2>
+      <p>나이마다 <b>가장 잘했던 등수</b>를 찍었어요. 파란 점이 위에 붙을수록 1등에 가까워요.</p>
     </div>
     <div class="tile">
       <Trajectory ages={ages} ageRanks={athlete.ages} />
@@ -141,33 +140,18 @@ const glossary = [
         <span>{ageMin}살</span><span>{ageMid}살</span><span>{ageMax}살</span>
       </div>
     </div>
-    <p class="hint">비어 있는 구간은 성적이 나빴다는 뜻이 아니라, 그 나이의 기록이 시스템에 없다는 뜻이에요.</p>
-  </section>
-
-  <section class="card">
-    <div class="card-head">
-      <h2>해마다 가장 잘한 등수</h2>
-      <p>막대가 길수록 좋은 성적이에요. 진한 막대는 1등을 한 해예요.</p>
-    </div>
-    <div class="year-best">
-      {
-        yearBestRows.map(([year, best]) => {
-          const width = Math.max(((11 - Math.min(best, 10)) / 10) * 100, 6);
-          const isGold = best === 1;
-          const isPodium = [1, 2, 3].includes(best);
-          const fill = isGold ? "var(--point)" : isPodium ? "var(--point-3)" : "#d3d8e0";
-          return (
-            <div class="year-best-row">
-              <span class="year">{year}</span>
-              <span class="age">{athlete.birth !== null ? `${year - athlete.birth}살` : "-"}</span>
-              <div class="bar-track"><span class="bar-fill" style={`width:${width}%;background:${fill}`}></span></div>
-              <span class="rank" style={isGold ? "color:var(--point)" : ""}>{best}등</span>
-            </div>
-          );
-        })
-      }
-    </div>
-    <p class="hint">{missingNote}</p>
+    {
+      bestRank !== null && (
+        <p class="best-line">
+          가장 좋았던 성적은 <b>{bestRank}등</b>
+          {bestYear !== null && `, ${bestYear}년`}
+          {bestYear !== null && athlete.birth !== null && ` (${bestYear - athlete.birth}살)`}이에요.
+        </p>
+      )
+    }
+    <p class="hint">
+      비어 있는 구간은 성적이 나빴다는 뜻이 아니라, 그 나이의 기록이 시스템에 없다는 뜻이에요. {missingNote}
+    </p>
   </section>
 
   <section class="card">
@@ -194,13 +178,10 @@ const glossary = [
                     {meet.results.map((result) => {
                       const groupLabel = normalizeGroupLabel(result.round);
                       const note = result.sf ? "준결승" : groupLabel === "종합" ? "종합 순위" : `${groupLabel}그룹 결승`;
-                      const tone = result.sf
-                        ? "is-mute"
-                        : result.rank === 1
-                          ? "is-gold"
-                          : result.rank === 2 || result.rank === 3
-                            ? "is-podium"
-                            : "";
+                      let tone = "";
+                      if (result.sf) tone = "is-mute";
+                      else if (result.rank === 1) tone = "is-gold";
+                      else if (result.rank === 2 || result.rank === 3) tone = "is-podium";
                       return (
                         <div class="result-row">
                           <span class="distance">{result.distance ?? "-"}m</span>
@@ -256,37 +237,14 @@ const glossary = [
       color: var(--faint-2);
       padding: 0 4px;
     }
-    .year-best {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
-    .year-best-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .year {
-      flex: none;
-      width: 38px;
-      font-size: 13px;
-      color: var(--soft);
-      font-variant-numeric: tabular-nums;
-    }
-    .age {
-      flex: none;
-      width: 34px;
-      font-size: 12px;
-      color: var(--faint-2);
-    }
-    .rank {
-      flex: none;
-      width: 36px;
-      text-align: right;
-      font-size: 13.5px;
-      font-weight: 700;
+    .best-line {
+      margin: 12px 0 0;
+      font-size: 14.5px;
       color: var(--sub);
-      font-variant-numeric: tabular-nums;
+    }
+    .best-line b {
+      color: var(--point);
+      font-weight: 700;
     }
     .year-groups {
       display: flex;

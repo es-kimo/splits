@@ -40,14 +40,6 @@ const seriesRows = [{ year: item.year, meet: item.meet, url: item.url || `meet/$
   .concat((item.seriesLinks ?? []).map((row) => ({ ...row, current: false })))
   .sort((a, b) => b.year - a.year);
 const ogTitle = `${item.meet} 결과`;
-const infoRows = [
-  ...(hasLocation ? [{ label: "장소", value: locationTextRaw }] : []),
-  ...(item.distanceSet.length > 0 ? [{ label: "종목", value: item.distanceSet.map((distance) => `${distance}m`).join(", ") }] : []),
-  ...(item.roundTypes.length > 0 ? [{ label: "경기 방식", value: item.roundTypes.join(", ") }] : []),
-  { label: "준결승 기록", value: item.hasSemifinal ? "있음" : "없음" },
-  { label: "집계 기준", value: "예선 기록 분포, 결승·채점종합 성적" },
-];
-const showInfoSection = infoRows.length > 2;
 
 function formatPlacementChip(placement: MeetPublicFigurePlacement): string {
   const distance = placement.distance !== null ? `${placement.distance}m` : "-";
@@ -213,25 +205,6 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       }
     </div>
   </section>
-
-  {
-    showInfoSection && (
-      <section class="card">
-        <div class="card-head">
-          <h2>대회 정보</h2>
-          <p>위 요약 말고 기준이 되는 정보를 정리했어요.</p>
-        </div>
-        <div class="info-body">
-          {infoRows.map((row) => (
-            <div class="info-row">
-              <span>{row.label}</span>
-              <span>{row.value}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-    )
-  }
 
   <script type="application/json" id="meetDistData" set:html={JSON.stringify(distributionPayload)}></script>
   <script is:inline>
@@ -557,30 +530,20 @@ function placementTone(placement: MeetPublicFigurePlacement): string {
       font-weight: 700;
       white-space: nowrap;
     }
-    .info-body {
-      display: flex;
-      flex-direction: column;
-    }
-    .info-row {
-      display: flex;
-      gap: 12px;
-      padding: 11px 2px;
-      border-top: 1px solid var(--line);
-    }
-    .info-row > span:first-child {
-      flex: none;
-      width: 84px;
-      font-size: 14px;
-      color: var(--soft);
-    }
-    .info-row > span:last-child {
-      flex: 1;
-      font-size: 14px;
-      color: var(--text);
-    }
     @media (max-width: 640px) {
       .figure-head a {
         margin-left: 0;
+      }
+      /* 5칸 눈금은 360px에서 값이 겹친다. 양 끝과 한가운데만 남긴다. */
+      .band-values :global(span:nth-child(2)),
+      .band-values :global(span:nth-child(4)),
+      .band-names span:nth-child(2),
+      .band-names span:nth-child(4) {
+        display: none;
+      }
+      .band-values,
+      .band-names {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
   </style>
