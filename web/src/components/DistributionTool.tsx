@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useState } from "react";
 
 import type { DistributionDoc, PeerDistributionRow } from "../lib/types";
 
@@ -83,12 +83,11 @@ export default function DistributionTool(props: Props) {
   const [ageInputMode, setAgeInputMode] = useState<AgeInputMode>("grade");
   const [gradeId, setGradeId] = useState(defaultGradeId);
   const [manualBirthYearInput, setManualBirthYearInput] = useState(initialRow?.birthYear ? String(initialRow.birthYear) : "");
-  const [input, setInput] = useState("");
   const [pickerValue, setPickerValue] = useState<number | null>(null);
+  const [activeSlot, setActiveSlot] = useState(0);
+  const [rankPage, setRankPage] = useState(0);
   const birthYearFieldId = useId();
   const birthYearMessageId = `${birthYearFieldId}-message`;
-  const performanceInputId = useId();
-  const performanceMessageId = `${performanceInputId}-message`;
 
   const availableGenders = useMemo(
     () => props.filters.genders.filter((item) => allRows.some((row) => row.gender === item)),
@@ -165,37 +164,30 @@ export default function DistributionTool(props: Props) {
 
   const edges = useMemo(() => buildEdges(selectedRow, mode), [mode, selectedRow]);
 
-  const raw = input.trim();
-  const parsed = useMemo(() => {
-    if (!raw) return null;
-    if (mode === "time") return parseTime(raw);
-    if (!/^\d{1,3}$/.test(raw)) return Number.NaN;
-    return Number.parseInt(raw, 10);
-  }, [mode, raw]);
   const pickerHasValue = typeof pickerValue === "number" && Number.isFinite(pickerValue);
-  const parsedHasValue = typeof parsed === "number" && Number.isFinite(parsed);
-  const effectiveInputValue = pickerHasValue ? pickerValue : parsedHasValue ? parsed : null;
-  const hasInputError = raw.length > 0 && !pickerHasValue && (parsed === null || Number.isNaN(parsed));
+  const effectiveInputValue = pickerHasValue ? pickerValue : null;
 
-  const pickerStep = mode === "time" ? 0.1 : 1;
-  const pickerValueLabel =
-    effectiveInputValue === null
-      ? mode === "time"
-        ? "기록을 골라주세요"
-        : "등수를 골라주세요"
-      : mode === "time"
-        ? formatSeconds(effectiveInputValue)
-        : `${formatRank(effectiveInputValue)}등`;
-  const presetValues = useMemo(() => {
-    if (edges && edges.length > 0) {
-      const normalized = edges.map((value) => normalizeValueByMode(value, mode));
-      return uniqueNumbers(normalized);
-    }
-    if (mode === "rank") return [1, 3, 5, 10, 15, 20];
-    if (distance !== null && distance >= 1000) return [90, 100, 110, 120];
-    if (distance !== null && distance >= 500) return [45, 50, 55, 60];
-    return [20, 25, 30, 35];
-  }, [distance, edges, mode]);
+  const upperBound = edges ? edges[4] : 0;
+  const needsMinutes = upperBound >= 60;
+  const timeSlots = useMemo(() => buildTimeSlots(needsMinutes, upperBound), [needsMinutes, upperBound]);
+  const slotIndex = Math.min(activeSlot, timeSlots.length - 1);
+  const digits = decomposeSeconds(effectiveInputValue ?? 0, needsMinutes);
+  const activeDef = timeSlots[slotIndex];
+  const keyValues = useMemo(
+    () => Array.from({ length: (activeDef?.max ?? 9) + 1 }, (_, index) => index),
+    [activeDef?.max],
+  );
+  const rankValues = useMemo(
+    () => Array.from({ length: 18 }, (_, index) => index + 1 + rankPage * 18),
+    [rankPage],
+  );
+
+  const setDigit = (digit: number) => {
+    if (!activeDef) return;
+    const next = { ...digits, [activeDef.key]: digit };
+    setPickerValue(normalizeValueByMode(composeSeconds(next), "time"));
+    if (slotIndex < timeSlots.length - 1) setActiveSlot(slotIndex + 1);
+  };
 
   useEffect(() => {
     if (!edges || edges.length === 0) {
@@ -232,7 +224,7 @@ export default function DistributionTool(props: Props) {
     const markerPos = bandPos(edges, effectiveInputValue);
 
     const mid = edges[2];
-    const inputVerb = pickerHasValue ? "고른" : "입력한";
+    const inputVerb = "고른";
     let detail = "";
     if (mode === "time") {
       const gap = mid - effectiveInputValue;
@@ -299,22 +291,12 @@ export default function DistributionTool(props: Props) {
 
     actions.push(
       mode === "time"
-        ? { label: "등수로 바꿔서 보기", onClick: () => { setMode("rank"); setInput(""); setPickerValue(null); } }
-        : { label: "기록으로 바꿔서 보기", onClick: () => { setMode("time"); setInput(""); setPickerValue(null); } },
+        ? { label: "등수로 바꿔서 보기", onClick: () => { setMode("rank"); setPickerValue(null); setActiveSlot(0); } }
+        : { label: "기록으로 바꿔서 보기", onClick: () => { setMode("time"); setPickerValue(null); setActiveSlot(0); } },
     );
 
     return actions.slice(0, 2);
   }, [allRows, availableDistances, distance, gender, mode, targetBirthYear]);
-
-  const nudgePickerValue = (direction: 1 | -1) => {
-    const fallbackBase = presetValues[2] ?? presetValues[0] ?? (mode === "time" ? 50 : 10);
-    const currentBase = effectiveInputValue ?? fallbackBase;
-    const nextRaw = currentBase + direction * pickerStep;
-    const nextValue = normalizeValueByMode(nextRaw, mode);
-    if (mode === "rank" && nextValue < 1) return;
-    if (mode === "time" && nextValue < 0) return;
-    setPickerValue(nextValue);
-  };
 
   return (
     <div className="dist-tool">
@@ -324,7 +306,7 @@ export default function DistributionTool(props: Props) {
             <br />
             또래 중에 어디쯤일까요?
           </h1>
-          <p>비교할 조건을 고르고 기록이나 등수를 넣으면, 또래 중 어디쯤인지 한 줄로 알려드려요.</p>
+          <p>비교할 조건을 고른 뒤 기록이나 등수를 눌러서 골라주세요. 또래 중 어디쯤인지 한 줄로 알려드려요.</p>
         </header>
       )}
 
@@ -423,7 +405,7 @@ export default function DistributionTool(props: Props) {
         <div className="dist-step-divider">
           <div className="dist-stage-title">
             <span className="dist-stage-badge">2단계</span>
-            <b>아이 기록을 넣어주세요</b>
+            <b>아이 기록을 골라주세요</b>
           </div>
 
           <div className="dist-seg-wrap" role="group" aria-label="무엇으로 견줄까요">
@@ -432,8 +414,8 @@ export default function DistributionTool(props: Props) {
               className={`dist-seg-button${mode === "time" ? " is-active" : ""}`}
               onClick={() => {
                 setMode("time");
-                setInput("");
                 setPickerValue(null);
+                setActiveSlot(0);
               }}
               aria-pressed={mode === "time"}
             >
@@ -444,8 +426,8 @@ export default function DistributionTool(props: Props) {
               className={`dist-seg-button${mode === "rank" ? " is-active" : ""}`}
               onClick={() => {
                 setMode("rank");
-                setInput("");
                 setPickerValue(null);
+                setActiveSlot(0);
               }}
               aria-pressed={mode === "rank"}
             >
@@ -453,86 +435,65 @@ export default function DistributionTool(props: Props) {
             </button>
           </div>
 
-          <div className="dist-group-label">먼저 숫자를 골라주세요</div>
-          <div className="dist-chip-row dist-chip-row-wrap" role="group" aria-label={mode === "time" ? "추천 기록" : "추천 등수"}>
-            {presetValues.map((value) => {
-              const selected = effectiveInputValue !== null && Math.abs(effectiveInputValue - value) < 0.0001;
-              return (
-                <button
-                  key={`${mode}-${value}`}
-                  type="button"
-                  className={`dist-chip${selected ? " is-active" : ""}`}
-                  onClick={() => {
-                    setPickerValue(value);
-                    setInput("");
-                  }}
-                  aria-pressed={selected}
-                >
-                  {mode === "time" ? formatSeconds(value) : `${formatRank(value)}등`}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="dist-stepper" role="group" aria-label={mode === "time" ? "기록 미세 조정" : "등수 미세 조정"}>
-            <button type="button" className="dist-stepper-button" onClick={() => nudgePickerValue(mode === "time" ? 1 : -1)}>
-              {mode === "time" ? "느리게 +0.1초" : "앞으로 -1등"}
-            </button>
-            <div className="dist-stepper-value" aria-live="polite" aria-atomic="true">
-              {pickerValueLabel}
-            </div>
-            <button type="button" className="dist-stepper-button" onClick={() => nudgePickerValue(mode === "time" ? -1 : 1)}>
-              {mode === "time" ? "빠르게 -0.1초" : "뒤로 +1등"}
-            </button>
-          </div>
-
-          <p className="dist-input-guide">
-            {mode === "time"
-              ? "추천값을 누른 뒤 버튼으로 0.1초씩 맞춰보세요."
-              : "추천값을 누른 뒤 버튼으로 1등씩 맞춰보세요."}
-          </p>
-
-          <details className="dist-manual-input">
-            <summary className="dist-manual-input-summary">직접 입력하기</summary>
-            <div className="dist-input-row">
-              <label className="dist-input-box">
-                <input
-                  id={performanceInputId}
-                  type="text"
-                  value={input}
-                  onChange={(event) => {
-                    setInput(event.target.value);
-                    setPickerValue(null);
-                  }}
-                  placeholder={mode === "time" ? (distance === 500 ? "예: 52.4" : "예: 1:49.20") : "예: 12"}
-                  inputMode={mode === "time" ? "decimal" : "numeric"}
-                  aria-label={mode === "time" ? "예선 기록 직접 입력" : "결승 등수 직접 입력"}
-                  aria-invalid={hasInputError || undefined}
-                  aria-describedby={performanceMessageId}
-                />
-                <span>{mode === "time" ? "분:초" : "등"}</span>
-              </label>
-              {raw && (
-                <button type="button" className="dist-clear-button" onClick={() => setInput("")}>
-                  지우기
-                </button>
-              )}
-            </div>
-
-            {hasInputError ? (
-              <div id={performanceMessageId} className="dist-error-text" role="alert">
-                {mode === "time"
-                  ? "2분 29초 15는 2:29.15, 45초 8은 45.8처럼 적어주세요."
-                  : "숫자만 적어주세요. 12등이면 12처럼요."}
+          {mode === "time" ? (
+            <div className="numpick">
+              <div className="numpick-readout" role="group" aria-label="기록 자리 고르기">
+                {timeSlots.map((slot, index) => (
+                  <Fragment key={slot.key}>
+                    <button
+                      type="button"
+                      className={`numpick-slot${index === slotIndex ? " is-active" : ""}`}
+                      onClick={() => setActiveSlot(index)}
+                      aria-pressed={index === slotIndex}
+                      aria-label={`${slot.name} 고치기`}
+                    >
+                      {digits[slot.key]}
+                    </button>
+                    {slot.unit && <span className="numpick-unit">{slot.unit}</span>}
+                  </Fragment>
+                ))}
               </div>
-            ) : (
-              <p id={performanceMessageId} className="dist-age-mode-note">
-                {mode === "time"
-                  ? "기록을 직접 넣으려면 분:초 형식으로 적어주세요."
-                  : "등수를 직접 넣으려면 숫자로 적어주세요."}
-              </p>
-            )}
-          </details>
+              <p className="numpick-hint">{activeDef?.hint}</p>
+              <div className="numpick-grid" role="group" aria-label={activeDef?.name}>
+                {keyValues.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`numpick-key${activeDef && digits[activeDef.key] === value ? " is-active" : ""}`}
+                    onClick={() => setDigit(value)}
+                    aria-pressed={Boolean(activeDef) && digits[activeDef!.key] === value}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="numpick">
+              <div className="numpick-readout">
+                <div className={`numpick-value${effectiveInputValue === null ? " is-empty" : ""}`} aria-live="polite">
+                  {effectiveInputValue === null ? "등수를 눌러서 골라주세요" : `${formatRank(effectiveInputValue)}등`}
+                </div>
+              </div>
+              <p className="numpick-hint">아이가 받은 등수를 눌러주세요</p>
+              <div className="numpick-grid is-rank" role="group" aria-label="등수">
+                {rankValues.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`numpick-key${effectiveInputValue === value ? " is-active" : ""}`}
+                    onClick={() => setPickerValue(value)}
+                    aria-pressed={effectiveInputValue === value}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="numpick-more" onClick={() => setRankPage(rankPage === 0 ? 1 : 0)}>
+                {rankPage === 0 ? "19등부터 보기" : "1~18등 보기"}
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -754,18 +715,6 @@ function buildEdges(row: PeerDistributionRow | undefined, mode: InputMode): numb
   return [p10, row.rankP25, row.rankP50, row.rankP75, p90];
 }
 
-function parseTime(raw: string): number | null {
-  const text = String(raw).trim();
-  if (!text) return null;
-  let matched = text.match(/^(\d+):(\d{1,2}(?:\.\d+)?)$/);
-  if (matched) return Number.parseInt(matched[1], 10) * 60 + Number.parseFloat(matched[2]);
-  matched = text.match(/^(\d+)분\s*(\d{1,2}(?:\.\d+)?)초?$/);
-  if (matched) return Number.parseInt(matched[1], 10) * 60 + Number.parseFloat(matched[2]);
-  matched = text.match(/^(\d{1,3}(?:\.\d+)?)초?$/);
-  if (matched) return Number.parseFloat(matched[1]);
-  return Number.NaN;
-}
-
 function percentOf(edges: number[], value: number, mode: InputMode): number {
   const percentiles = edgePercentiles(mode);
   if (value <= edges[0]) return 8;
@@ -802,17 +751,52 @@ function formatRank(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function uniqueNumbers(values: number[]): number[] {
-  const result: number[] = [];
-  for (const value of values) {
-    if (!result.some((item) => Math.abs(item - value) < 0.0001)) {
-      result.push(value);
-    }
-  }
-  return result;
-}
-
 function normalizeValueByMode(value: number, mode: InputMode): number {
   if (mode === "rank") return Math.max(1, Math.round(value));
   return Math.max(0, Math.round(value * 10) / 10);
+}
+
+type SlotKey = "min" | "tens" | "ones" | "tenth";
+
+interface TimeSlot {
+  key: SlotKey;
+  name: string;
+  unit: string;
+  hint: string;
+  max: number;
+}
+
+type TimeDigits = Record<SlotKey, number>;
+
+function buildTimeSlots(needsMinutes: boolean, upperBound: number): TimeSlot[] {
+  const slots: TimeSlot[] = [];
+  if (needsMinutes) {
+    slots.push({
+      key: "min",
+      name: "분",
+      unit: "분",
+      hint: "몇 분이었는지 골라주세요",
+      max: Math.max(1, Math.min(9, Math.floor(upperBound / 60) + 1)),
+    });
+  }
+  slots.push({ key: "tens", name: "초 앞자리", unit: "", hint: "초의 앞자리예요. 29초라면 2를 눌러주세요", max: 5 });
+  slots.push({ key: "ones", name: "초 뒷자리", unit: ".", hint: "초의 뒷자리예요. 29초라면 9를 눌러주세요", max: 9 });
+  slots.push({ key: "tenth", name: "소수점 첫자리", unit: "초", hint: "소수점 첫자리예요. 29.1초라면 1을 눌러주세요", max: 9 });
+  return slots;
+}
+
+function decomposeSeconds(value: number, needsMinutes: boolean): TimeDigits {
+  const totalTenths = Math.max(0, Math.round(value * 10));
+  const whole = Math.floor(totalTenths / 10);
+  const rest = needsMinutes ? whole % 60 : whole;
+  return {
+    min: needsMinutes ? Math.floor(whole / 60) : 0,
+    tens: Math.floor(rest / 10),
+    ones: rest % 10,
+    tenth: totalTenths % 10,
+  };
+}
+
+function composeSeconds(digits: TimeDigits): number {
+  return digits.min * 60 + digits.tens * 10 + digits.ones + digits.tenth / 10;
 }

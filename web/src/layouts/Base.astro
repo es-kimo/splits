@@ -865,125 +865,112 @@ const navItems = [
         border-top: 1px solid var(--line);
         padding-top: 18px;
       }
-      .dist-input-guide {
-        margin: 10px 0 0;
-        font-size: 15px;
-        color: var(--soft);
-      }
-      .dist-input-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 8px;
-      }
-      .dist-input-box {
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-height: 52px;
-        padding: 0 14px;
-        border-radius: 14px;
-        border: 1.5px solid var(--line-strong);
-        background: var(--surface);
-      }
-      .dist-input-box input {
-        flex: 1;
-        min-width: 0;
-        border: 0;
-        background: transparent;
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--ink);
-      }
-      .dist-input-box:focus-within {
-        border-color: var(--point);
-        box-shadow: 0 0 0 3px rgb(46 99 246 / 22%);
-      }
-      .dist-input-box span {
-        flex: none;
-        font-size: 13px;
-        color: var(--faint-2);
-      }
-      .dist-clear-button {
-        min-width: 64px;
-        min-height: 52px;
-        padding: 0 16px;
-        border: 0;
-        border-radius: 14px;
-        background: var(--fill);
-        color: var(--sub);
-        font-size: 14px;
-        font-weight: 600;
-        line-height: 1;
-        cursor: pointer;
-        white-space: nowrap;
-      }
       .dist-error-text {
         margin-top: 10px;
         font-size: 13.5px;
         color: var(--danger);
       }
-      .dist-stepper {
-        margin-top: 8px;
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr) auto;
-        gap: 8px;
-        align-items: stretch;
-      }
-      .dist-stepper-button {
-        min-height: 52px;
-        padding: 0 14px;
-        border: 0;
-        border-radius: 14px;
-        background: var(--fill);
-        color: var(--sub);
-        font-size: 13.5px;
-        font-weight: 700;
-        white-space: nowrap;
-        cursor: pointer;
-      }
-      .dist-stepper-value {
-        min-width: 0;
-        min-height: 52px;
-        border: 1.5px solid var(--line-strong);
-        border-radius: 14px;
-        background: var(--surface);
-        padding: 0 14px;
+
+      /* ---------- 숫자 고르기 ---------- */
+      .numpick {
         display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .numpick-readout {
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: center;
+        gap: 3px;
+        min-height: 60px;
+      }
+      .numpick-slot {
+        min-width: 54px;
+        min-height: 58px;
+        padding: 0 6px;
+        border: 0;
+        border-radius: 15px;
+        background: var(--fill);
+        color: var(--ink);
+        font-family: inherit;
+        font-size: 27px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+      }
+      .numpick-slot.is-active {
+        background: var(--point-bg-2);
+        color: var(--point);
+        box-shadow: inset 0 0 0 2px var(--point);
+      }
+      .numpick-unit {
+        flex: none;
+        padding: 12px 1px 0;
         font-size: 15px;
         font-weight: 700;
-        color: var(--ink);
-        font-variant-numeric: tabular-nums;
-        text-align: center;
-      }
-      .dist-manual-input {
-        margin-top: 10px;
-        border-top: 1px solid var(--line);
-        padding-top: 10px;
-      }
-      .dist-manual-input-summary {
-        list-style: none;
-        cursor: pointer;
-        min-height: 40px;
-        display: inline-flex;
-        align-items: center;
-        font-size: 14px;
-        font-weight: 700;
-        color: var(--text);
-      }
-      .dist-manual-input-summary::-webkit-details-marker {
-        display: none;
-      }
-      .dist-manual-input-summary::after {
-        content: "▾";
-        margin-left: 6px;
-        font-size: 12px;
         color: var(--soft);
       }
-      .dist-manual-input[open] .dist-manual-input-summary::after {
-        content: "▴";
+      .numpick-value {
+        font-size: 27px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+      .numpick-value.is-empty {
+        font-size: 16.5px;
+        font-weight: 700;
+        letter-spacing: 0;
+        color: var(--faint);
+      }
+      .numpick-hint {
+        margin: 0;
+        text-align: center;
+        font-size: 13.5px;
+        color: var(--faint);
+      }
+      .numpick-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .numpick-grid.is-rank {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+      .numpick-key {
+        min-height: 48px;
+        min-width: 0;
+        border: 0;
+        border-radius: 12px;
+        background: var(--fill);
+        color: var(--sub);
+        font-family: inherit;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+      }
+      .numpick-key.is-active,
+      .numpick-key.is-active:hover {
+        background: var(--ink);
+        color: #fff;
+      }
+      .numpick-more {
+        align-self: center;
+        min-height: 44px;
+        padding: 0 14px;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--point);
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
       }
       .dist-group-label {
         margin-bottom: 6px;
@@ -1262,13 +1249,8 @@ const navItems = [
         .dist-card {
           padding: 20px 16px;
         }
-        .dist-input-row,
-        .dist-stepper {
-          grid-template-columns: 1fr;
-        }
-        .dist-clear-button,
-        .dist-stepper-button {
-          width: 100%;
+        .numpick-slot {
+          min-width: 48px;
         }
         .metric-grid {
           grid-template-columns: repeat(3, minmax(0, 1fr));
