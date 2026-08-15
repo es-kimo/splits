@@ -59,7 +59,7 @@ for (const row of defaultRows) {
           <path d="M20 20l-4-4"></path>
         </svg>
       </span>
-      <input id="queryInput" type="text" placeholder="대회 이름이나 연도로 검색" autocomplete="off" />
+      <input id="queryInput" type="text" placeholder="대회 이름이나 연도로 검색" autocomplete="off" aria-label="대회 검색" />
       <button id="clearQueryButton" type="button" class="field-clear" aria-label="검색어 지우기" hidden>✕</button>
     </label>
 
@@ -68,7 +68,7 @@ for (const row of defaultRows) {
       <div id="kindChips" class="chip-row">
         {
           kindOptions.map((kind) => (
-            <button type="button" class={`chip${kind === "전체" ? " is-active" : ""}`} data-kind={kind}>
+            <button type="button" class={`chip${kind === "전체" ? " is-active" : ""}`} data-kind={kind} aria-pressed={kind === "전체"}>
               {kind}
             </button>
           ))
@@ -80,7 +80,12 @@ for (const row of defaultRows) {
       <div id="distChips" class="chip-row">
         {
           distanceOptions.map((distance) => (
-            <button type="button" class={`chip${distance === 0 ? " is-active" : ""}`} data-distance={distance}>
+            <button
+              type="button"
+              class={`chip${distance === 0 ? " is-active" : ""}`}
+              data-distance={distance}
+              aria-pressed={distance === 0}
+            >
               {distance === 0 ? "전체" : `${distance}m`}
             </button>
           ))
@@ -93,8 +98,8 @@ for (const row of defaultRows) {
   </section>
 
   <div class="result-row">
-    <span id="resultLabel">{totalMeets}개 대회</span>
-    <button id="toggleOrderButton" type="button">최신순 ↓</button>
+    <span id="resultLabel" role="status" aria-live="polite" aria-atomic="true">{totalMeets}개 대회</span>
+    <button id="toggleOrderButton" type="button" aria-pressed="true">최신순 ↓</button>
   </div>
 
   <section id="emptyState" class="card empty" hidden={totalMeets > 0}>
@@ -191,7 +196,7 @@ for (const row of defaultRows) {
         kindChips.innerHTML = kindOptions
           .map((kind) => {
             const active = state.kind === kind;
-            return `<button type="button" class="chip${active ? " is-active" : ""}" data-kind="${escapeHtml(kind)}">${escapeHtml(kind)}</button>`;
+            return `<button type="button" class="chip${active ? " is-active" : ""}" data-kind="${escapeHtml(kind)}" aria-pressed="${active}">${escapeHtml(kind)}</button>`;
           })
           .join("");
       };
@@ -201,7 +206,7 @@ for (const row of defaultRows) {
           .map((distance) => {
             const active = state.dist === distance;
             const label = distance === 0 ? "전체" : `${distance}m`;
-            return `<button type="button" class="chip${active ? " is-active" : ""}" data-distance="${distance}">${label}</button>`;
+            return `<button type="button" class="chip${active ? " is-active" : ""}" data-distance="${distance}" aria-pressed="${active}">${label}</button>`;
           })
           .join("");
       };
@@ -228,6 +233,7 @@ for (const row of defaultRows) {
 
         resultLabel.textContent = `${filtered.length}개 대회`;
         toggleOrderButton.textContent = state.newest ? "최신순 ↓" : "오래된순 ↑";
+        toggleOrderButton.setAttribute("aria-pressed", String(state.newest));
         clearQueryButton.hidden = state.query.length === 0;
         emptyState.hidden = filtered.length > 0;
 

@@ -27,6 +27,7 @@ const runs: string[] = [];
 const missing: number[] = [];
 const dots: { x: number; y: number; rank: number }[] = [];
 const labels: { x: number; y: number; rank: number }[] = [];
+const presentAges: number[] = [];
 
 let currentRun: string[] = [];
 for (const age of ages) {
@@ -40,13 +41,27 @@ for (const age of ages) {
   const x = xPos(age);
   const y = yPos(rank);
   currentRun.push(`${x},${y}`);
+  presentAges.push(age);
   dots.push({ x, y, rank });
   if (rank > 2) labels.push({ x: x + 6, y: y + 4, rank });
 }
 if (currentRun.length > 1) runs.push(currentRun.join(" "));
+
+const bestRank = dots.reduce((best, dot) => Math.min(best, dot.rank), Number.POSITIVE_INFINITY);
+const trajectoryLabel =
+  presentAges.length === 0
+    ? "나이별 기록이 없어 추이 그래프를 표시하지 않습니다."
+    : `${presentAges[0]}살부터 ${presentAges[presentAges.length - 1]}살까지 ${presentAges.length}개 나이 기록의 등수 추이 그래프, 최고 ${bestRank}등`;
 ---
 
-<svg viewBox="0 0 300 92" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;aspect-ratio:300/92;display:block;overflow:visible">
+<svg
+  viewBox="0 0 300 92"
+  preserveAspectRatio="xMidYMid meet"
+  style="width:100%;height:auto;aspect-ratio:300/92;display:block;overflow:visible"
+  role="img"
+  aria-label={trajectoryLabel}
+>
+  <title>{trajectoryLabel}</title>
   <line x1="0" y1="10" x2="300" y2="10" stroke="#E3E7ED" stroke-width="1"></line>
   <text x="0" y="7" font-size="9" fill="#B4B9C2">1등</text>
   {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useState } from "react";
 
 import type { DistributionDoc, PeerDistributionRow } from "../lib/types";
 
@@ -83,7 +83,11 @@ export default function DistributionTool(props: Props) {
   const [ageInputMode, setAgeInputMode] = useState<AgeInputMode>("grade");
   const [gradeId, setGradeId] = useState(defaultGradeId);
   const [manualBirthYearInput, setManualBirthYearInput] = useState(initialRow?.birthYear ? String(initialRow.birthYear) : "");
-  const [input, setInput] = useState("");
+  const [pickerValue, setPickerValue] = useState<number | null>(null);
+  const [activeSlot, setActiveSlot] = useState(0);
+  const [rankPage, setRankPage] = useState(0);
+  const birthYearFieldId = useId();
+  const birthYearMessageId = `${birthYearFieldId}-message`;
 
   const availableGenders = useMemo(
     () => props.filters.genders.filter((item) => allRows.some((row) => row.gender === item)),
@@ -160,23 +164,50 @@ export default function DistributionTool(props: Props) {
 
   const edges = useMemo(() => buildEdges(selectedRow, mode), [mode, selectedRow]);
 
-  const raw = input.trim();
-  const parsed = useMemo(() => {
-    if (!raw) return null;
-    if (mode === "time") return parseTime(raw);
-    if (!/^\d{1,3}$/.test(raw)) return Number.NaN;
-    return Number.parseInt(raw, 10);
-  }, [mode, raw]);
-  const hasInputError = raw.length > 0 && (parsed === null || Number.isNaN(parsed));
+  const pickerHasValue = typeof pickerValue === "number" && Number.isFinite(pickerValue);
+  const effectiveInputValue = pickerHasValue ? pickerValue : null;
+
+  const upperBound = edges ? edges[4] : 0;
+  const needsMinutes = upperBound >= 60;
+  const timeSlots = useMemo(() => buildTimeSlots(needsMinutes, upperBound), [needsMinutes, upperBound]);
+  const slotIndex = Math.min(activeSlot, timeSlots.length - 1);
+  const digits = decomposeSeconds(effectiveInputValue ?? 0, needsMinutes);
+  const activeDef = timeSlots[slotIndex];
+  const keyValues = useMemo(
+    () => Array.from({ length: (activeDef?.max ?? 9) + 1 }, (_, index) => index),
+    [activeDef?.max],
+  );
+  const rankValues = useMemo(
+    () => Array.from({ length: 18 }, (_, index) => index + 1 + rankPage * 18),
+    [rankPage],
+  );
+
+  const setDigit = (digit: number) => {
+    if (!activeDef) return;
+    const next = { ...digits, [activeDef.key]: digit };
+    setPickerValue(normalizeValueByMode(composeSeconds(next), "time"));
+    if (slotIndex < timeSlots.length - 1) setActiveSlot(slotIndex + 1);
+  };
+
+  useEffect(() => {
+    if (!edges || edges.length === 0) {
+      setPickerValue(null);
+      return;
+    }
+    setPickerValue((current) => {
+      if (typeof current === "number" && Number.isFinite(current)) return current;
+      return normalizeValueByMode(edges[2], mode);
+    });
+  }, [edges, mode]);
 
   const calc = useMemo(() => {
     if (!selectedRow || !edges || isInsufficient(selectedRow, mode)) return null;
 
     const countValue = countOf(selectedRow, mode);
     const countText = countValue ? `${countValue}명` : `${props.kAnonymityMin}명 미만`;
-    const hasParsed = typeof parsed === "number" && Number.isFinite(parsed);
+    const hasEffectiveValue = typeof effectiveInputValue === "number" && Number.isFinite(effectiveInputValue);
 
-    if (!hasParsed) {
+    if (!hasEffectiveValue) {
       return {
         showResult: true,
         conclusion: `또래 ${countText}은 이 정도였어요`,
@@ -189,34 +220,35 @@ export default function DistributionTool(props: Props) {
       };
     }
 
-    const percentile = Math.max(1, Math.min(99, Math.round(percentOf(edges, parsed, mode))));
-    const markerPos = bandPos(edges, parsed);
+    const percentile = Math.max(1, Math.min(99, Math.round(percentOf(edges, effectiveInputValue, mode))));
+    const markerPos = bandPos(edges, effectiveInputValue);
 
     const mid = edges[2];
+    const inputVerb = "고른";
     let detail = "";
     if (mode === "time") {
-      const gap = mid - parsed;
-      detail = `${formatSeconds(parsed)} · 또래 한가운데(${formatSeconds(mid)})보다 ${Math.abs(gap).toFixed(2)}초 ${gap >= 0 ? "빨라요" : "느려요"}.`;
+      const gap = mid - effectiveInputValue;
+      detail = `${formatSeconds(effectiveInputValue)} · 또래 한가운데(${formatSeconds(mid)})보다 ${Math.abs(gap).toFixed(2)}초 ${gap >= 0 ? "빨라요" : "느려요"}.`;
     } else {
-      const gap = mid - parsed;
+      const gap = mid - effectiveInputValue;
       const gapText = Number.isInteger(gap) ? `${Math.abs(gap)}` : `${Math.abs(gap).toFixed(1)}`;
       detail =
         gap === 0
-          ? `${parsed}등 · 또래 한가운데(${formatRank(mid)}등)와 비슷해요.`
-          : `${parsed}등 · 또래 한가운데(${formatRank(mid)}등)보다 ${gapText}계단 ${gap > 0 ? "앞서 있어요" : "뒤에 있어요"}.`;
+          ? `${formatRank(effectiveInputValue)}등 · 또래 한가운데(${formatRank(mid)}등)와 비슷해요.`
+          : `${formatRank(effectiveInputValue)}등 · 또래 한가운데(${formatRank(mid)}등)보다 ${gapText}계단 ${gap > 0 ? "앞서 있어요" : "뒤에 있어요"}.`;
     }
 
     let rangeNote: string | null = null;
-    if (parsed < edges[0]) {
+    if (effectiveInputValue < edges[0]) {
       rangeNote =
         mode === "time"
-          ? `입력한 기록이 이 구간의 빠른 기준(${formatSeconds(edges[0])})보다 더 빨라요. 같은 학년·다른 종목도 함께 보면 현재 위치를 더 안정적으로 읽을 수 있어요.`
-          : `입력한 등수가 이 구간의 앞선 기준(${formatRank(edges[0])}등)보다 더 앞서 있어요. 같은 학년·다른 종목도 함께 보면 현재 위치를 더 안정적으로 읽을 수 있어요.`;
-    } else if (parsed > edges[4]) {
+          ? `${inputVerb} 기록이 이 구간의 빠른 기준(${formatSeconds(edges[0])})보다 더 빨라요. 같은 학년·다른 종목도 함께 보면 현재 위치를 더 안정적으로 읽을 수 있어요.`
+          : `${inputVerb} 등수가 이 구간의 앞선 기준(${formatRank(edges[0])}등)보다 더 앞서 있어요. 같은 학년·다른 종목도 함께 보면 현재 위치를 더 안정적으로 읽을 수 있어요.`;
+    } else if (effectiveInputValue > edges[4]) {
       rangeNote =
         mode === "time"
-          ? `입력한 기록이 이 구간의 느린 기준(${formatSeconds(edges[4])})보다 더 느려요. 종목을 바꾸거나 앞뒤 학년도 함께 보면서 비교 범위를 넓혀보세요.`
-          : `입력한 등수가 이 구간의 뒤쪽 기준(${formatRank(edges[4])}등)보다 더 뒤에 있어요. 종목을 바꾸거나 앞뒤 학년도 함께 보면서 비교 범위를 넓혀보세요.`;
+          ? `${inputVerb} 기록이 이 구간의 느린 기준(${formatSeconds(edges[4])})보다 더 느려요. 종목을 바꾸거나 앞뒤 학년도 함께 보면서 비교 범위를 넓혀보세요.`
+          : `${inputVerb} 등수가 이 구간의 뒤쪽 기준(${formatRank(edges[4])}등)보다 더 뒤에 있어요. 종목을 바꾸거나 앞뒤 학년도 함께 보면서 비교 범위를 넓혀보세요.`;
     }
 
     return {
@@ -226,7 +258,7 @@ export default function DistributionTool(props: Props) {
       markerPos,
       rangeNote,
     };
-  }, [edges, mode, parsed, props.kAnonymityMin, selectedRow]);
+  }, [edges, effectiveInputValue, mode, pickerHasValue, props.kAnonymityMin, selectedRow]);
 
   const readingGuide =
     mode === "time"
@@ -259,8 +291,8 @@ export default function DistributionTool(props: Props) {
 
     actions.push(
       mode === "time"
-        ? { label: "등수로 바꿔서 보기", onClick: () => { setMode("rank"); setInput(""); } }
-        : { label: "기록으로 바꿔서 보기", onClick: () => { setMode("time"); setInput(""); } },
+        ? { label: "등수로 바꿔서 보기", onClick: () => { setMode("rank"); setPickerValue(null); setActiveSlot(0); } }
+        : { label: "기록으로 바꿔서 보기", onClick: () => { setMode("time"); setPickerValue(null); setActiveSlot(0); } },
     );
 
     return actions.slice(0, 2);
@@ -274,7 +306,7 @@ export default function DistributionTool(props: Props) {
             <br />
             또래 중에 어디쯤일까요?
           </h1>
-          <p>비교할 조건을 고르고 기록이나 등수를 넣으면, 또래 중 어디쯤인지 한 줄로 알려드려요.</p>
+          <p>비교할 조건을 고른 뒤 기록이나 등수를 눌러서 골라주세요. 또래 중 어디쯤인지 한 줄로 알려드려요.</p>
         </header>
       )}
 
@@ -285,13 +317,14 @@ export default function DistributionTool(props: Props) {
             <b>누구와 견줄지 골라주세요</b>
           </div>
 
-          <div className="dist-seg-wrap" role="tablist" aria-label="성별">
+          <div className="dist-seg-wrap" role="group" aria-label="성별">
             {availableGenders.map((item) => (
               <button
                 key={item}
                 type="button"
                 className={`dist-seg-button${item === gender ? " is-active" : ""}`}
                 onClick={() => setGender(item)}
+                aria-pressed={item === gender}
               >
                 {item}자
               </button>
@@ -311,13 +344,14 @@ export default function DistributionTool(props: Props) {
 
           {ageInputMode === "grade" ? (
             <>
-              <div className="dist-chip-row">
+              <div className="dist-chip-row" role="group" aria-label="학년">
                 {GRADE_OPTIONS.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     className={`dist-chip${item.id === gradeId ? " is-active" : ""}`}
                     onClick={() => setGradeId(item.id)}
+                    aria-pressed={item.id === gradeId}
                   >
                     {item.label}
                   </button>
@@ -328,6 +362,7 @@ export default function DistributionTool(props: Props) {
           ) : (
             <label className="dist-year-select">
               <input
+                id={birthYearFieldId}
                 type="text"
                 inputMode="numeric"
                 maxLength={4}
@@ -335,23 +370,30 @@ export default function DistributionTool(props: Props) {
                 onChange={(event) => setManualBirthYearInput(event.target.value.replace(/[^\d]/g, ""))}
                 placeholder="예: 2013"
                 aria-label="출생연도"
+                aria-invalid={hasBirthYearError || undefined}
+                aria-describedby={birthYearMessageId}
               />
               {hasBirthYearError ? (
-                <div className="dist-error-text">태어난 해를 네 자리로 적어주세요. 2013년생이면 2013처럼요.</div>
+                <div id={birthYearMessageId} className="dist-error-text">
+                  태어난 해를 네 자리로 적어주세요. 2013년생이면 2013처럼요.
+                </div>
               ) : (
-                <p className="dist-age-mode-note">태어난 해를 네 자리로 적어주세요.</p>
+                <p id={birthYearMessageId} className="dist-age-mode-note">
+                  태어난 해를 네 자리로 적어주세요.
+                </p>
               )}
             </label>
           )}
 
           <div className="dist-group-label dist-group-label-spaced">종목</div>
-          <div className="dist-chip-row">
+          <div className="dist-chip-row" role="group" aria-label="종목">
             {availableDistances.map((item) => (
               <button
                 key={item}
                 type="button"
                 className={`dist-chip${item === distance ? " is-active" : ""}`}
                 onClick={() => setDistance(item)}
+                aria-pressed={item === distance}
               >
                 {item}m
               </button>
@@ -363,17 +405,19 @@ export default function DistributionTool(props: Props) {
         <div className="dist-step-divider">
           <div className="dist-stage-title">
             <span className="dist-stage-badge">2단계</span>
-            <b>아이 기록을 넣어주세요</b>
+            <b>아이 기록을 골라주세요</b>
           </div>
 
-          <div className="dist-seg-wrap" role="tablist" aria-label="무엇으로 견줄까요">
+          <div className="dist-seg-wrap" role="group" aria-label="무엇으로 견줄까요">
             <button
               type="button"
               className={`dist-seg-button${mode === "time" ? " is-active" : ""}`}
               onClick={() => {
                 setMode("time");
-                setInput("");
+                setPickerValue(null);
+                setActiveSlot(0);
               }}
+              aria-pressed={mode === "time"}
             >
               기록으로
             </button>
@@ -382,50 +426,79 @@ export default function DistributionTool(props: Props) {
               className={`dist-seg-button${mode === "rank" ? " is-active" : ""}`}
               onClick={() => {
                 setMode("rank");
-                setInput("");
+                setPickerValue(null);
+                setActiveSlot(0);
               }}
+              aria-pressed={mode === "rank"}
             >
               등수로
             </button>
           </div>
 
-          <div className="dist-input-row">
-            <label className="dist-input-box">
-              <input
-                type="text"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder={mode === "time" ? (distance === 500 ? "예: 52.4" : "예: 1:49.20") : "예: 12"}
-                inputMode="decimal"
-                aria-label={mode === "time" ? "예선 기록" : "결승 등수"}
-              />
-              <span>{mode === "time" ? "분:초" : "등"}</span>
-            </label>
-            {raw && (
-              <button type="button" className="dist-clear-button" onClick={() => setInput("")}>
-                지우기
-              </button>
-            )}
-          </div>
-
-          {hasInputError ? (
-            <div className="dist-error-text">
-              {mode === "time"
-                ? "2분 29초 15는 2:29.15, 45초 8은 45.8처럼 적어주세요."
-                : "숫자만 적어주세요. 12등이면 12처럼요."}
+          {mode === "time" ? (
+            <div className="numpick">
+              <div className="numpick-readout" role="group" aria-label="기록 자리 고르기">
+                {timeSlots.map((slot, index) => (
+                  <Fragment key={slot.key}>
+                    <button
+                      type="button"
+                      className={`numpick-slot${index === slotIndex ? " is-active" : ""}`}
+                      onClick={() => setActiveSlot(index)}
+                      aria-pressed={index === slotIndex}
+                      aria-label={`${slot.name} 고치기`}
+                    >
+                      {digits[slot.key]}
+                    </button>
+                    {slot.unit && <span className="numpick-unit">{slot.unit}</span>}
+                  </Fragment>
+                ))}
+              </div>
+              <p className="numpick-hint">{activeDef?.hint}</p>
+              <div className="numpick-grid" role="group" aria-label={activeDef?.name}>
+                {keyValues.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`numpick-key${activeDef && digits[activeDef.key] === value ? " is-active" : ""}`}
+                    onClick={() => setDigit(value)}
+                    aria-pressed={Boolean(activeDef) && digits[activeDef!.key] === value}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
-            <p className="dist-input-guide">
-              {mode === "time"
-                ? "예선 기록을 적어주세요. 2분 29초 15는 2:29.15, 45초 8은 45.8이에요."
-                : "결승에서 받은 등수를 숫자로 적어주세요."}
-            </p>
+            <div className="numpick">
+              <div className="numpick-readout">
+                <div className={`numpick-value${effectiveInputValue === null ? " is-empty" : ""}`} aria-live="polite">
+                  {effectiveInputValue === null ? "등수를 눌러서 골라주세요" : `${formatRank(effectiveInputValue)}등`}
+                </div>
+              </div>
+              <p className="numpick-hint">아이가 받은 등수를 눌러주세요</p>
+              <div className="numpick-grid is-rank" role="group" aria-label="등수">
+                {rankValues.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`numpick-key${effectiveInputValue === value ? " is-active" : ""}`}
+                    onClick={() => setPickerValue(value)}
+                    aria-pressed={effectiveInputValue === value}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="numpick-more" onClick={() => setRankPage(rankPage === 0 ? 1 : 0)}>
+                {rankPage === 0 ? "19등부터 보기" : "1~18등 보기"}
+              </button>
+            </div>
           )}
         </div>
       </section>
 
       {calc?.showResult && selectedRow && edges && (
-        <section className="dist-card">
+        <section className="dist-card" aria-live="polite" aria-atomic="true">
           <div className="dist-group-label">{groupLabel}</div>
           {fallbackNotice && <div className="dist-fallback-note">{fallbackNotice}</div>}
           <div className="dist-verdict">{calc.conclusion}</div>
@@ -478,7 +551,7 @@ export default function DistributionTool(props: Props) {
       )}
 
       {(noRowForSelection || rowInsufficient) && (
-        <section className="dist-card dist-thin-card">
+        <section className="dist-card dist-thin-card" role="status" aria-live="polite">
           {fallbackNotice && <div className="dist-fallback-note">{fallbackNotice}</div>}
           <div className="dist-thin-title">
             {noRowForSelection ? "견줄 또래를 찾지 못했어요" : "이 조건은 보여드릴 수 없어요"}
@@ -642,18 +715,6 @@ function buildEdges(row: PeerDistributionRow | undefined, mode: InputMode): numb
   return [p10, row.rankP25, row.rankP50, row.rankP75, p90];
 }
 
-function parseTime(raw: string): number | null {
-  const text = String(raw).trim();
-  if (!text) return null;
-  let matched = text.match(/^(\d+):(\d{1,2}(?:\.\d+)?)$/);
-  if (matched) return Number.parseInt(matched[1], 10) * 60 + Number.parseFloat(matched[2]);
-  matched = text.match(/^(\d+)분\s*(\d{1,2}(?:\.\d+)?)초?$/);
-  if (matched) return Number.parseInt(matched[1], 10) * 60 + Number.parseFloat(matched[2]);
-  matched = text.match(/^(\d{1,3}(?:\.\d+)?)초?$/);
-  if (matched) return Number.parseFloat(matched[1]);
-  return Number.NaN;
-}
-
 function percentOf(edges: number[], value: number, mode: InputMode): number {
   const percentiles = edgePercentiles(mode);
   if (value <= edges[0]) return 8;
@@ -688,4 +749,54 @@ function formatSeconds(seconds: number): string {
 
 function formatRank(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function normalizeValueByMode(value: number, mode: InputMode): number {
+  if (mode === "rank") return Math.max(1, Math.round(value));
+  return Math.max(0, Math.round(value * 10) / 10);
+}
+
+type SlotKey = "min" | "tens" | "ones" | "tenth";
+
+interface TimeSlot {
+  key: SlotKey;
+  name: string;
+  unit: string;
+  hint: string;
+  max: number;
+}
+
+type TimeDigits = Record<SlotKey, number>;
+
+function buildTimeSlots(needsMinutes: boolean, upperBound: number): TimeSlot[] {
+  const slots: TimeSlot[] = [];
+  if (needsMinutes) {
+    slots.push({
+      key: "min",
+      name: "분",
+      unit: "분",
+      hint: "몇 분이었는지 골라주세요",
+      max: Math.max(1, Math.min(9, Math.floor(upperBound / 60) + 1)),
+    });
+  }
+  slots.push({ key: "tens", name: "초 앞자리", unit: "", hint: "초의 앞자리예요. 29초라면 2를 눌러주세요", max: 5 });
+  slots.push({ key: "ones", name: "초 뒷자리", unit: ".", hint: "초의 뒷자리예요. 29초라면 9를 눌러주세요", max: 9 });
+  slots.push({ key: "tenth", name: "소수점 첫자리", unit: "초", hint: "소수점 첫자리예요. 29.1초라면 1을 눌러주세요", max: 9 });
+  return slots;
+}
+
+function decomposeSeconds(value: number, needsMinutes: boolean): TimeDigits {
+  const totalTenths = Math.max(0, Math.round(value * 10));
+  const whole = Math.floor(totalTenths / 10);
+  const rest = needsMinutes ? whole % 60 : whole;
+  return {
+    min: needsMinutes ? Math.floor(whole / 60) : 0,
+    tens: Math.floor(rest / 10),
+    ones: rest % 10,
+    tenth: totalTenths % 10,
+  };
+}
+
+function composeSeconds(digits: TimeDigits): number {
+  return digits.min * 60 + digits.tens * 10 + digits.ones + digits.tenth / 10;
 }
