@@ -36,35 +36,32 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
   title="대회 목록"
   description="국내 쇼트트랙 대회를 검색하고 조건별로 찾아볼 수 있는 대회 목록 페이지입니다."
   generatedAt={meta.generatedAt}
-  contentWidth="narrow"
-  contentLineHeight="compact"
-  pageBottomPadding="60px"
-  footerVariant="none"
 >
-  <div class="top-link"><a href={withBase()}>← 메인으로</a></div>
+  <header class="page-head">
+    <h1>대회 찾기</h1>
+    <p class="lead">2007년부터 열린 국내 쇼트트랙 대회 {totalMeets}개의 기록 요약이에요.</p>
+  </header>
 
-  <header class="hero card">
-    <div>
-      <h1>대회 찾기</h1>
-      <p>2007년부터 열린 국내 쇼트트랙 대회 {totalMeets}개의 기록 요약입니다.</p>
-    </div>
-    <label class="search-box">
-      <span class="search-icon" aria-hidden="true">
+  <section class="card">
+    <label class="field is-fill">
+      <span class="field-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" focusable="false">
           <circle cx="11" cy="11" r="7"></circle>
           <path d="M20 20l-4-4"></path>
         </svg>
       </span>
       <input id="queryInput" type="text" placeholder="대회 이름이나 연도로 검색" autocomplete="off" />
-      <button id="clearQueryButton" type="button" class="clear-btn" aria-label="검색어 지우기">✕</button>
+      <button id="clearQueryButton" type="button" class="field-clear" aria-label="검색어 지우기">✕</button>
     </label>
-  </header>
 
-  <section class="card filters-card">
-    <div class="filter-title">대회 종류</div>
-    <div id="kindChips" class="chip-row"></div>
-    <div class="filter-title dist-title">종목</div>
-    <div id="distChips" class="chip-row"></div>
+    <div class="filter-block">
+      <div class="filter-title">대회 종류</div>
+      <div id="kindChips" class="chip-row"></div>
+    </div>
+    <div class="filter-block">
+      <div class="filter-title">종목</div>
+      <div id="distChips" class="chip-row"></div>
+    </div>
   </section>
 
   <div class="result-row">
@@ -72,17 +69,12 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
     <button id="toggleOrderButton" type="button">최신순 ↓</button>
   </div>
 
-  <section id="emptyState" class="card empty-state" hidden>
-    <div class="empty-title">찾는 대회가 없습니다</div>
-    <div class="empty-sub">검색어를 지우거나 필터를 바꿔보세요.</div>
+  <section id="emptyState" class="card empty" hidden>
+    <b>찾는 대회가 없습니다</b>
+    <span>검색어를 지우거나 필터를 바꿔보세요.</span>
   </section>
 
   <section id="yearGroups" class="year-groups"></section>
-
-  <footer class="legacy-footer">
-    공개된 경기 결과를 정리한 페이지입니다. 개인이 특정될 수 있는 집계는 공개하지 않습니다.<br />
-    출처: 대한체육회 경기결과 시스템
-  </footer>
 
   <script type="application/json" id="meetListData" set:html={JSON.stringify(listPayload)}></script>
   <script type="application/json" id="meetKindOptions" set:html={JSON.stringify(kindOptions)}></script>
@@ -134,7 +126,7 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
         kindChips.innerHTML = kindOptions
           .map((kind) => {
             const active = state.kind === kind;
-            return `<button type="button" class="chip-btn${active ? " active" : ""}" data-kind="${escapeHtml(kind)}">${escapeHtml(kind)}</button>`;
+            return `<button type="button" class="chip${active ? " is-active" : ""}" data-kind="${escapeHtml(kind)}">${escapeHtml(kind)}</button>`;
           })
           .join("");
       };
@@ -144,7 +136,7 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
           .map((distance) => {
             const active = state.dist === distance;
             const label = distance === 0 ? "전체" : `${distance}m`;
-            return `<button type="button" class="chip-btn${active ? " active" : ""}" data-distance="${distance}">${label}</button>`;
+            return `<button type="button" class="chip${active ? " is-active" : ""}" data-distance="${distance}">${label}</button>`;
           })
           .join("");
       };
@@ -189,26 +181,22 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
           .map(([year, itemsByYear]) => {
             const cards = itemsByYear
               .map((item) => {
-                const distChipsText =
+                const distText =
                   item.distances.length === 0
-                    ? '<span class="dist-chip">종목 정보 없음</span>'
-                    : item.distances.map((distance) => `<span class="dist-chip">${distance}m</span>`).join("");
+                    ? '<span class="badge">종목 정보 없음</span>'
+                    : item.distances.map((distance) => `<span class="badge">${distance}m</span>`).join("");
                 return `
                   <a class="meet-card" href="${escapeHtml(item.href)}">
                     <div class="meet-body">
                       <div class="badge-row">
-                        <span class="kind-badge">${escapeHtml(item.kind)}</span>
-                        ${
-                          item.isNational
-                            ? '<span class="national-badge">전국 규모</span>'
-                            : ""
-                        }
+                        <span class="badge">${escapeHtml(item.kind)}</span>
+                        ${item.isNational ? '<span class="badge is-point">전국 규모</span>' : ""}
                       </div>
                       <b class="meet-title">${escapeHtml(item.short || item.meet)}</b>
-                      <div class="meta-text">${escapeHtml(item.when)}<br>${escapeHtml(item.where)}</div>
-                      <div class="dist-row">${distChipsText}</div>
+                      <div class="meet-meta">${escapeHtml(item.when)}<br>${escapeHtml(item.where)}</div>
+                      <div class="badge-row">${distText}</div>
                     </div>
-                    <span class="arrow">›</span>
+                    <span class="meet-arrow">›</span>
                   </a>
                 `;
               })
@@ -216,11 +204,11 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
 
             return `
               <section class="year-group">
-                <div class="year-head">
+                <div class="group-head">
                   <b>${year}년</b>
                   <span>${itemsByYear.length}개 대회</span>
                 </div>
-                <div class="year-card-list">${cards}</div>
+                <div class="list">${cards}</div>
               </section>
             `;
           })
@@ -272,203 +260,53 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
   </script>
 
   <style>
-    .top-link {
-      padding: 16px 2px 4px;
-    }
-    .top-link a {
-      font-size: 14px;
-      font-weight: 600;
-      color: #6b6f78;
-    }
-    .card {
-      background: #fff;
-      border-radius: 20px;
-      padding: 22px 20px;
-    }
-    .hero {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-    h1 {
-      margin: 0;
-      font-size: 29px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-    }
-    .hero p {
-      margin: 5px 0 0;
-      font-size: 15px;
-      color: #6b6f78;
-    }
-    .search-box {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: #f2f4f7;
-      border-radius: 14px;
-      padding: 0 14px;
-      min-height: 50px;
-    }
-    .search-icon {
-      width: 16px;
-      height: 16px;
-      color: #8a8f99;
-      flex: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .search-icon svg {
-      width: 16px;
-      height: 16px;
-      fill: none;
-      stroke: currentcolor;
-      stroke-width: 1.8;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .search-box input {
-      flex: 1;
-      border: 0;
-      background: transparent;
-      outline: none;
-      font-size: 15.5px;
-      color: #17181c;
-      min-width: 0;
-      font-family: inherit;
-    }
-    .clear-btn {
-      flex: none;
-      width: 28px;
-      height: 28px;
-      border: 0;
-      border-radius: 50%;
-      background: #d3d8e0;
-      color: #fff;
-      font-size: 14px;
-      cursor: pointer;
-      font-family: inherit;
-    }
-    .filters-card {
-      padding: 16px 4px 18px;
-      margin-top: 12px;
+    .filter-block {
+      margin-top: 16px;
     }
     .filter-title {
       font-size: 13px;
       font-weight: 700;
-      color: #8a8f99;
-      padding: 0 16px 8px;
-    }
-    .dist-title {
-      padding-top: 4px;
-    }
-    .chip-row {
-      display: flex;
-      gap: 6px;
-      overflow-x: auto;
-      padding: 0 16px 12px;
-      -webkit-overflow-scrolling: touch;
-    }
-    .chip-row:last-child {
-      padding-bottom: 0;
-    }
-    .chip-row :global(.chip-btn) {
-      flex: none;
-      min-height: 44px;
-      padding: 0 15px;
-      border: 0;
-      border-radius: 12px;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      white-space: nowrap;
-      background: #f2f4f7;
-      color: #5b5f68;
-    }
-    .chip-row :global(.chip-btn.active) {
-      background: #17181c;
-      color: #fff;
+      color: var(--soft);
+      margin-bottom: 8px;
     }
     .result-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 2px 6px;
-      margin-top: 2px;
+      padding: 0 6px;
     }
     .result-row span {
       font-size: 14px;
-      color: #6b6f78;
+      color: var(--sub-2);
     }
     .result-row button {
       border: 0;
       background: transparent;
-      font-family: inherit;
       font-size: 14px;
-      font-weight: 600;
-      color: #2e63f6;
+      font-weight: 700;
+      color: var(--point);
       cursor: pointer;
       min-height: 44px;
       padding: 0 4px;
-    }
-    .empty-state {
-      padding: 48px 20px;
-      text-align: center;
-      margin-top: 4px;
-    }
-    .empty-title {
-      font-size: 15.5px;
-      font-weight: 700;
-      margin-bottom: 4px;
-    }
-    .empty-sub {
-      font-size: 14px;
-      color: #8a8f99;
+      white-space: nowrap;
     }
     .year-groups {
       display: flex;
       flex-direction: column;
-      gap: 20px;
-      margin-top: 2px;
-    }
-    .year-groups :global(.year-head) {
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      background: #f3f5f8;
-      padding: 4px 6px 8px;
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-    }
-    .year-groups :global(.year-head b) {
-      font-size: 17px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-    .year-groups :global(.year-head span) {
-      font-size: 13px;
-      color: #9ba0aa;
-    }
-    .year-groups :global(.year-card-list) {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      gap: var(--gap-section);
     }
     .year-groups :global(.meet-card) {
-      background: #fff;
+      background: var(--surface);
       border-radius: 18px;
       padding: 16px;
       display: flex;
       align-items: center;
       gap: 12px;
-      text-decoration: none;
       color: inherit;
     }
     .year-groups :global(.meet-card:hover) {
       background: #fbfcfd;
+      color: inherit;
     }
     .year-groups :global(.meet-body) {
       flex: 1;
@@ -477,59 +315,21 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
       flex-direction: column;
       gap: 7px;
     }
-    .year-groups :global(.badge-row) {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-    }
-    .year-groups :global(.kind-badge),
-    .year-groups :global(.national-badge) {
-      font-size: 11.5px;
-      font-weight: 700;
-      border-radius: 7px;
-      padding: 3px 7px;
-    }
-    .year-groups :global(.kind-badge) {
-      color: #3a3d45;
-      background: #f2f4f7;
-    }
-    .year-groups :global(.national-badge) {
-      color: #2e63f6;
-      background: #e9f0ff;
-    }
     .year-groups :global(.meet-title) {
       font-size: 16px;
       font-weight: 700;
       letter-spacing: -0.01em;
       line-height: 1.4;
     }
-    .year-groups :global(.meta-text) {
+    .year-groups :global(.meet-meta) {
       font-size: 13px;
-      color: #8a8f99;
+      color: var(--soft);
       line-height: 1.5;
     }
-    .year-groups :global(.dist-row) {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-      margin-top: 1px;
-    }
-    .year-groups :global(.dist-chip) {
-      font-size: 12px;
-      color: #5b5f68;
-      background: #f2f4f7;
-      border-radius: 999px;
-      padding: 3px 9px;
-    }
-    .year-groups :global(.arrow) {
+    .year-groups :global(.meet-arrow) {
       flex: none;
-      color: #c6cbd4;
+      color: var(--faint-2);
       font-size: 20px;
-    }
-    .legacy-footer {
-      padding: 8px 6px 0;
-      font-size: 13px;
-      color: #9ba0aa;
     }
   </style>
 </Base>
