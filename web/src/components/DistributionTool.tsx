@@ -7,6 +7,8 @@ type AgeInputMode = "grade" | "birth-year";
 
 interface Props extends DistributionDoc {
   homeUrl?: string;
+  showTopLink?: boolean;
+  showHero?: boolean;
 }
 
 interface ThinAction {
@@ -70,6 +72,8 @@ const NOTES = [
 
 export default function DistributionTool(props: Props) {
   const allRows = props.rows;
+  const showTopLink = props.showTopLink ?? true;
+  const showHero = props.showHero ?? true;
   const initialRow = allRows.find((row) => !row.timeInsufficient || !row.rankInsufficient) ?? allRows[0];
 
   const defaultGradeId = useMemo(
@@ -286,14 +290,18 @@ export default function DistributionTool(props: Props) {
 
   return (
     <div className="dist-tool">
-      <div className="dist-top-link">
-        <a href={props.homeUrl ?? "../"}>← 메인으로</a>
-      </div>
+      {showTopLink && (
+        <div className="dist-top-link">
+          <a href={props.homeUrl ?? "../"}>← 메인으로</a>
+        </div>
+      )}
 
-      <header className="dist-hero">
-        <h1>우리 아이 기록, 또래 중에 어디쯤일까요?</h1>
-        <p>비교 조건을 먼저 고르고, 기록이나 등수를 넣으면 한 줄 결론으로 위치를 바로 확인할 수 있어요.</p>
-      </header>
+      {showHero && (
+        <header className="dist-hero">
+          <h1>우리 아이 기록, 또래 중에 어디쯤일까요?</h1>
+          <p>비교 조건을 먼저 고르고, 기록이나 등수를 넣으면 한 줄 결론으로 위치를 바로 확인할 수 있어요.</p>
+        </header>
+      )}
 
       <section className="dist-card">
         <div>
