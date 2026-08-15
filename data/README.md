@@ -28,7 +28,7 @@
 
 헤더(순서 고정):
 
-`toCd, 대회명, 대회연도, 일자, 종별, 학령구간, 거리, SF여부, 라운드, 라운드종류, 순위, 기록_초, 사유, 성별, 출생년도, 학년, 익명키`
+`toCd, classCd, 대회명, 대회연도, 일자, 종별, 학령구간, 거리, SF여부, 라운드, 라운드종류, 순위, 기록_초, 사유, 성별, 출생연도, 학년, 익명키`
 
 금지 컬럼:
 
@@ -36,6 +36,16 @@
 
 `toCd`는 `meet_index_inf201.csv`가 있으면 자동 매핑하고, 파일이 없거나 매칭이 애매하면 공백으로 둡니다.
 주간 자동 갱신은 이 파일을 기준으로 신규 대회를 식별합니다.
+
+`classCd`는 종목 구분값(`1`=스피드, `2`=쇼트트랙, `3`=피겨)이며 행 단위 규칙으로 산출합니다.
+
+1. `라운드종류`가 `기타`이고 `라운드`가 `N조` 형태이면 스피드(`1`)
+2. 대회명에 `스피드`가 있고 `쇼트트랙`이 없으면 스피드(`1`)
+3. 그 외에는 쇼트트랙(`2`)
+
+수집 원천(INF201)이 쇼트트랙 기준으로만 조회되어 응답의 `classCd`에는 종목 판별력이 없기 때문에 위 규칙을 사용합니다.
+스피드 행도 삭제하지 않고 그대로 보존하며, 통계 집계 단계에서만 `classCd=2`를 사용합니다.
+이미 커밋된 파일에 이 컬럼을 채울 때는 익명키를 유지하기 위해 `python3 scripts/backfill_records_anon_class_cd.py`를 사용합니다(재실행 가능).
 
 ## 4) 익명키 규칙
 
@@ -47,14 +57,17 @@
 ## 5) 생성 순서
 
 ```bash
-export SPLITS_ANON_SALT='로컬에서만 보관하는_충분히긴_무작위문자열'
-export SPLITS_MEET_INDEX_CSV='/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv'
+cat > .env.local <<'EOF'
+SPLITS_ANON_SALT=<충분히 긴 랜덤 문자열>
+SPLITS_MEET_INDEX_CSV=/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv
+EOF
 python3 analyze.py
 python3 build_data.py
 ```
 
 - `analyze.py`는 통계 CSV를 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
+- `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 
 ## 6) 커밋 전 검증
 
@@ -65,3 +78,26 @@ python3 scripts/check_data_commit_policy.py --mode tracked
 
 - `pre-commit` 훅은 스테이징 파일(`--mode staged`)을 자동 검사합니다.
 - CI는 추적 파일 전체(`--mode tracked`)를 검사합니다.
+
+## 7) 데이터 품질 점검
+
+```bash
+python3 scripts/audit_data_quality.py
+```
+
+익명 산출물(`records_anon.csv`, `stats_distribution.csv`, `site/data/distribution.json`)만 읽으므로
+원천 데이터나 SALT 없이 실행할 수 있습니다. 점검 항목은 다음과 같습니다.
+
+| 구분 | 확인 내용 |
+| --- | --- |
+| 스키마·개인정보 | 금지 컬럼 부재, 익명키 형식, `classCd` 도메인, 키 유일성 |
+| k-익명성 | 공개 셀의 최소 인원수, 비공개 셀의 마스킹 누락 |
+| 분위수 | 기록·순위 분위수 단조성, 순위 하한 |
+| 물리적 타당성 | 이상치 하한 적용 여부, 세계기록 대비 검사, 상식적 상한 |
+| 거리 정합성 | 같은 조건에서 짧은 거리가 더 빠른지, 평균 속도 범위 |
+| 도메인 신호 | 성별 기록 차이와 성장 곡선이 알려진 사실을 재현하는지 |
+| 표본 안정성 | 인접 출생연도 간 중앙값 급변, 공개 셀 표본 크기 |
+| 산출물 정합성 | CSV와 사이트 JSON의 행·키·값 일치 |
+| 커버리지 | 항목별 결측률, 공개 가능 조합 비율, 폴백 응답률 |
+
+`--strict`를 붙이면 경고도 실패로 처리합니다.

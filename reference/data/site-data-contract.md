@@ -142,22 +142,28 @@
   "filters": {
     "birthYears": [2008, 2009],
     "genders": ["남", "여"],
-    "schoolLevels": ["초등", "중등", "고등", "대학", "일반", "오픈"],
-    "distances": [500, 1000, 1500, 3000]
+    "distances": [500, 1000, 1500, 2000, 3000]
   },
   "rows": [
     {
       "birthYear": 2009,
       "gender": "남",
-      "schoolLevel": "중등",
       "distance": 1000,
-      "athleteCount": 24,
-      "insufficient": false,
+      "timeCount": 24,
+      "timeInsufficient": false,
+      "rankCount": 18,
+      "rankInsufficient": false,
+      "timeP05": 86.501,
       "timeP10": 87.123,
-      "timeP25": 88.014,
+      "timeP20": 87.640,
+      "timeP30": 88.201,
+      "timeP40": 88.870,
       "timeP50": 89.432,
-      "timeP75": 91.205,
+      "timeP60": 90.114,
+      "timeP70": 90.702,
+      "timeP80": 91.205,
       "timeP90": 93.114,
+      "timeP95": 95.002,
       "rankP25": 2.0,
       "rankP50": 4.0,
       "rankP75": 7.0
@@ -165,15 +171,22 @@
     {
       "birthYear": 1980,
       "gender": "여",
-      "schoolLevel": "일반",
       "distance": 3000,
-      "athleteCount": null,
-      "insufficient": true,
+      "timeCount": null,
+      "timeInsufficient": true,
+      "rankCount": null,
+      "rankInsufficient": true,
+      "timeP05": null,
       "timeP10": null,
-      "timeP25": null,
+      "timeP20": null,
+      "timeP30": null,
+      "timeP40": null,
       "timeP50": null,
-      "timeP75": null,
+      "timeP60": null,
+      "timeP70": null,
+      "timeP80": null,
       "timeP90": null,
+      "timeP95": null,
       "rankP25": null,
       "rankP50": null,
       "rankP75": null
@@ -182,8 +195,9 @@
 }
 ```
 
-- `rows`는 `출생연도+성별+학령구간+거리` 단위이며, 원본 CSV의 행 순서를 정규화해 제공합니다.
-- `insufficient=true`인 행은 `k` 기준 미달 구간이며, `athleteCount`와 지표 값은 모두 `null`입니다.
+- `rows`는 `출생연도+성별+거리` 단위이며, 실제 데이터가 있는 조합만 포함합니다. 존재하지 않는 조합은 행으로 만들지 않습니다.
+- 기록 통계는 쇼트트랙(`classCd=2`) 예선 기록만, 순위 통계는 쇼트트랙 학령 경기의 결승·채점종합만 사용합니다. 두 통계의 대상이 다르므로 인원수도 각각 제공합니다.
+- `timeInsufficient=true` 또는 `rankInsufficient=true`인 행은 해당 쪽만 `k` 기준 미달이며, 그쪽 인원수와 지표 값이 모두 `null`입니다. 반대쪽 통계는 그대로 사용할 수 있습니다.
 - `filters`는 클라이언트 UI 선택지 생성을 위한 사전 인덱스입니다.
 - 프런트엔드에서 "출생연도 포함 비교"와 "출생연도 통합 비교"를 모두 제공할 때는 `rows`를 기반으로 통합 모드 집계를 추가 계산해 사용할 수 있습니다.
 

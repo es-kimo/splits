@@ -20,6 +20,7 @@ from event_participants import (
     _find_table_by_caption,
     _parse_js_args,
 )
+from local_env import load_local_env
 from scrape import parse_athlete_info, parse_history
 
 BASE_URL = "https://result.sports.or.kr/SK"
@@ -2769,6 +2770,7 @@ def _run_export(args):
 
 
 def main():
+    load_local_env()
     parser = _build_arg_parser()
     args = parser.parse_args()
     command = args.command or "collect"

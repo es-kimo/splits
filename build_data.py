@@ -6,7 +6,13 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
-from analyze import best_placement, build_clean_records
+from analyze import (
+    SHORTTRACK_CLASS_CD,
+    best_placement,
+    build_clean_records,
+    classify_class_cd,
+)
+from local_env import load_local_env
 
 DATA_DIR = Path("data")
 SITE_DATA_DIR = Path("site/data")
@@ -37,32 +43,30 @@ PUBLIC_FIGURES_ALLOWED_STATUS = {"active", "removed"}
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 K_ANONYMITY_MIN = 10
 INSUFFICIENT_TEXT = "데이터 부족"
-STATS_DISTRIBUTION_REQUIRED_COLUMNS = [
-    "출생연도",
-    "성별",
-    "학령구간",
-    "거리",
-    "인원수",
-    "기록_p10",
-    "기록_p25",
-    "기록_p50",
-    "기록_p75",
-    "기록_p90",
-    "순위_p25",
-    "순위_p50",
-    "순위_p75",
-]
-SCHOOL_LEVEL_ORDER = ["유치부", "초등", "중등", "고등", "대학", "일반", "오픈"]
-PEER_METRIC_MAP = [
+TIME_METRIC_MAP = [
+    ("기록_p05", "timeP05", 3),
     ("기록_p10", "timeP10", 3),
-    ("기록_p25", "timeP25", 3),
+    ("기록_p20", "timeP20", 3),
+    ("기록_p30", "timeP30", 3),
+    ("기록_p40", "timeP40", 3),
     ("기록_p50", "timeP50", 3),
-    ("기록_p75", "timeP75", 3),
+    ("기록_p60", "timeP60", 3),
+    ("기록_p70", "timeP70", 3),
+    ("기록_p80", "timeP80", 3),
     ("기록_p90", "timeP90", 3),
+    ("기록_p95", "timeP95", 3),
+]
+RANK_METRIC_MAP = [
     ("순위_p25", "rankP25", 2),
     ("순위_p50", "rankP50", 2),
     ("순위_p75", "rankP75", 2),
 ]
+STATS_DISTRIBUTION_REQUIRED_COLUMNS = (
+    ["출생연도", "성별", "거리", "기록_인원수"]
+    + [source for source, _target, _digits in TIME_METRIC_MAP]
+    + ["순위_인원수"]
+    + [source for source, _target, _digits in RANK_METRIC_MAP]
+)
 DATE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ROUND_NUMBER_RE = re.compile(r"제\s*(\d+)\s*회")
 PHASE_NUMBER_RE = re.compile(r"(\d+)\s*차")
@@ -70,6 +74,7 @@ MEET_SLUG_SEED_MAX_BYTES = 48
 MEET_SLUG_HASH_LEN = 8
 RECORDS_ANON_REQUIRED_COLUMNS = [
     "toCd",
+    "classCd",
     "대회명",
     "대회연도",
     "일자",
@@ -83,7 +88,7 @@ RECORDS_ANON_REQUIRED_COLUMNS = [
     "기록_초",
     "사유",
     "성별",
-    "출생년도",
+    "출생연도",
     "학년",
     "익명키",
 ]
@@ -508,6 +513,7 @@ def build_records_anon(clean_records, salt):
         rows.append(
             {
                 "toCd": to_cd,
+                "classCd": as_text(row.get("classCd")) or classify_class_cd(meet_name, row.get("라운드"), row.get("라운드종류")),
                 "대회명": meet_name,
                 "대회연도": str(int(year_num)) if pd.notna(year_num) else "",
                 "일자": date_text,
@@ -521,7 +527,7 @@ def build_records_anon(clean_records, salt):
                 "기록_초": _format_float_text(row.get("기록_초"), digits=3),
                 "사유": "",
                 "성별": as_text(row.get("성별")),
-                "출생년도": str(as_int(row.get("출생년도")) or ""),
+                "출생연도": str(as_int(row.get("출생년도")) or ""),
                 "학년": _extract_grade_text(row.get("종별")),
                 "익명키": as_text(row.get("익명키")),
             }
@@ -557,6 +563,11 @@ def validate_records_anon(frame):
     if not invalid.empty:
         first_row_no = int(invalid.index[0]) + 2
         raise ValueError(f"[error] data/records_anon.csv {first_row_no}행 익명키 형식이 올바르지 않습니다.")
+    class_series = frame["classCd"].astype(str).str.strip()
+    invalid_class = frame[~class_series.isin({"1", "2", "3"})]
+    if not invalid_class.empty:
+        first_row_no = int(invalid_class.index[0]) + 2
+        raise ValueError(f"[error] data/records_anon.csv {first_row_no}행 classCd 값이 올바르지 않습니다.")
 
 
 def parse_public_figures(frame):
@@ -1039,80 +1050,74 @@ def _unique_in_order(values):
     return list(dict.fromkeys(values))
 
 
+def _read_metric_group(item, row_no, metric_map, count_text, count_label):
+    insufficient = count_text == INSUFFICIENT_TEXT
+    values = {}
+    count_value = None
+    if not count_text:
+        raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 {count_label} 값이 비어 있습니다.")
+    if insufficient:
+        for source_col, target_col, _round_digits in metric_map:
+            metric_text = str(item.get(source_col, "")).strip()
+            if metric_text != INSUFFICIENT_TEXT:
+                raise ValueError(
+                    f"[error] data/stats_distribution.csv {row_no}행: {count_label}=데이터 부족인데 {source_col} 값이 노출되었습니다."
+                )
+            values[target_col] = None
+    else:
+        count_value = as_int(count_text)
+        if count_value is None:
+            raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 {count_label} 값이 숫자가 아닙니다: {count_text}")
+        if count_value < K_ANONYMITY_MIN:
+            raise ValueError(
+                f"[error] data/stats_distribution.csv {row_no}행 {count_label}가 k-익명 기준 미만으로 노출되었습니다: {count_value}"
+            )
+        for source_col, target_col, round_digits in metric_map:
+            values[target_col] = round(_read_metric_value(item.get(source_col, ""), row_no, source_col), round_digits)
+    return count_value, insufficient, values
+
+
 def build_distribution(stats_distribution_frame):
     columns = list(stats_distribution_frame.columns)
     if columns != STATS_DISTRIBUTION_REQUIRED_COLUMNS:
         raise ValueError(f"[error] data/stats_distribution.csv 컬럼이 기대값과 다릅니다: {columns}")
 
-    school_level_order = {name: idx for idx, name in enumerate(SCHOOL_LEVEL_ORDER)}
     rows = []
     for idx, item in stats_distribution_frame.iterrows():
         row_no = idx + 2
         birth_year = as_int(item.get("출생연도", ""))
         gender = str(item.get("성별", "")).strip()
-        school_level = str(item.get("학령구간", "")).strip()
         distance = as_int(item.get("거리", ""))
         if birth_year is None:
             raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 출생연도 값이 올바르지 않습니다.")
         if not gender:
             raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 성별 값이 비어 있습니다.")
-        if not school_level:
-            raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 학령구간 값이 비어 있습니다.")
         if distance is None:
             raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 거리 값이 올바르지 않습니다.")
 
-        count_text = str(item.get("인원수", "")).strip()
-        insufficient = count_text == INSUFFICIENT_TEXT
-        if not count_text:
-            raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 인원수 값이 비어 있습니다.")
-
-        metric_values = {}
-        athlete_count = None
-        if insufficient:
-            for source_col, target_col, _round_digits in PEER_METRIC_MAP:
-                metric_text = str(item.get(source_col, "")).strip()
-                if metric_text != INSUFFICIENT_TEXT:
-                    raise ValueError(
-                        f"[error] data/stats_distribution.csv {row_no}행: 인원수=데이터 부족인데 {source_col} 값이 노출되었습니다."
-                    )
-                metric_values[target_col] = None
-        else:
-            athlete_count = as_int(count_text)
-            if athlete_count is None:
-                raise ValueError(f"[error] data/stats_distribution.csv {row_no}행 인원수 값이 숫자가 아닙니다: {count_text}")
-            if athlete_count < K_ANONYMITY_MIN:
-                raise ValueError(
-                    f"[error] data/stats_distribution.csv {row_no}행 인원수가 k-익명 기준 미만으로 노출되었습니다: {athlete_count}"
-                )
-            for source_col, target_col, round_digits in PEER_METRIC_MAP:
-                metric_value = _read_metric_value(item.get(source_col, ""), row_no, source_col)
-                metric_values[target_col] = round(metric_value, round_digits)
+        # 기록과 순위는 집계 필터가 달라 표본 크기가 다르므로 각각 독립으로 판정한다.
+        time_count, time_insufficient, time_values = _read_metric_group(
+            item, row_no, TIME_METRIC_MAP, str(item.get("기록_인원수", "")).strip(), "기록_인원수"
+        )
+        rank_count, rank_insufficient, rank_values = _read_metric_group(
+            item, row_no, RANK_METRIC_MAP, str(item.get("순위_인원수", "")).strip(), "순위_인원수"
+        )
 
         rows.append(
             {
                 "birthYear": birth_year,
                 "gender": gender,
-                "schoolLevel": school_level,
                 "distance": distance,
-                "athleteCount": athlete_count,
-                "insufficient": insufficient,
-                **metric_values,
+                "timeCount": time_count,
+                "timeInsufficient": time_insufficient,
+                "rankCount": rank_count,
+                "rankInsufficient": rank_insufficient,
+                **time_values,
+                **rank_values,
             }
         )
 
-    rows = sorted(
-        rows,
-        key=lambda row: (
-            row["birthYear"],
-            row["gender"],
-            school_level_order.get(row["schoolLevel"], len(school_level_order)),
-            row["schoolLevel"],
-            row["distance"],
-        ),
-    )
-    present_school_levels = _unique_in_order([row["schoolLevel"] for row in rows])
-    ordered_school_levels = [name for name in SCHOOL_LEVEL_ORDER if name in present_school_levels]
-    ordered_school_levels.extend(sorted([name for name in present_school_levels if name not in SCHOOL_LEVEL_ORDER]))
+    rows = sorted(rows, key=lambda row: (row["birthYear"], row["gender"], row["distance"]))
 
     return {
         "kAnonymityMin": K_ANONYMITY_MIN,
@@ -1120,7 +1125,6 @@ def build_distribution(stats_distribution_frame):
         "filters": {
             "birthYears": sorted({row["birthYear"] for row in rows}),
             "genders": _unique_in_order([row["gender"] for row in rows]),
-            "schoolLevels": ordered_school_levels,
             "distances": sorted({row["distance"] for row in rows}),
         },
         "rows": rows,
@@ -1143,6 +1147,7 @@ def assert_public_scope(athletes, active_id_set):
 
 
 def main():
+    load_local_env()
     try:
         frames = {name: read_csv(name) for name in INPUT_FILES}
         payload, placements_target, public_figures, active_id_set = build_athletes_payload(frames)
