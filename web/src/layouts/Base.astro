@@ -41,8 +41,31 @@ const pageStyle = `--page-bottom:${pageBottomPadding};`;
 const canonicalUrl = canonical ? toAbsoluteUrl(canonical) : Astro.url?.toString() ?? toAbsoluteUrl();
 const resolvedOgTitle = ogTitle ?? title;
 const resolvedOgDescription = ogDescription ?? description;
-const resolvedOgImage = toAbsoluteUrl(ogImage ?? "og/default.png");
+const resolvedOgImage = toAbsoluteUrl(ogImage ?? "og-default.png");
 const resolvedOgType = ogType ?? "website";
+const currentPath = Astro.url?.pathname ?? withBase();
+const basePath = withBase();
+
+function normalizePath(path: string): string {
+  const cleaned = String(path || "/").replace(/\/+$/, "");
+  return cleaned.length === 0 ? "/" : `${cleaned}/`;
+}
+
+function isNavActive(href: string): boolean {
+  const target = normalizePath(href);
+  const current = normalizePath(currentPath);
+  if (target === normalizePath(basePath)) {
+    return current === target;
+  }
+  return current.startsWith(target);
+}
+
+const navItems = [
+  { href: withBase(), label: "홈" },
+  { href: withBase("distribution/"), label: "분포" },
+  { href: withBase("meet/"), label: "대회" },
+  { href: withBase("athlete/"), label: "선수" },
+];
 ---
 
 <!doctype html>
@@ -57,7 +80,15 @@ const resolvedOgType = ogType ?? "website";
     <meta property="og:image" content={resolvedOgImage} />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:type" content={resolvedOgType} />
+    <meta property="og:site_name" content="스플릿" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" href={withBase("favicon.ico")} sizes="32x32" />
+    <link rel="icon" href={withBase("favicon.svg")} type="image/svg+xml" />
+    <link rel="apple-touch-icon" href={withBase("apple-touch-icon.png")} />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
@@ -73,6 +104,7 @@ const resolvedOgType = ogType ?? "website";
         --text-soft: #8a8f99;
         --line: #f0f2f5;
         --primary: #2e63f6;
+        --primary-dark: #6d95f9;
         --primary-hover: #1b47c4;
       }
       body {
@@ -102,10 +134,69 @@ const resolvedOgType = ogType ?? "website";
       :global(a:hover) {
         color: var(--primary-hover);
       }
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: rgb(243 245 248 / 94%);
+        backdrop-filter: blur(6px);
+        border-bottom: 1px solid var(--line);
+      }
+      .site-header-inner {
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 10px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .site-brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text-main);
+      }
+      .site-brand:hover {
+        color: var(--text-main);
+      }
+      .site-brand-wordmark {
+        font-size: 26px;
+        font-weight: 900;
+        letter-spacing: -0.055em;
+        line-height: 1;
+        color: var(--text-main);
+      }
+      .site-nav {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .site-nav-link {
+        min-height: 34px;
+        border-radius: 10px;
+        padding: 0 11px;
+        font-size: 13.5px;
+        font-weight: 700;
+        color: var(--text-sub);
+        display: inline-flex;
+        align-items: center;
+      }
+      .site-nav-link:hover {
+        color: var(--text-main);
+        background: var(--sub-surface);
+      }
+      .site-nav-link.is-active {
+        color: #fff;
+        background: var(--text-main);
+      }
+      .site-nav-link.is-active:hover {
+        color: #fff;
+      }
       .page {
         max-width: 700px;
         margin: 0 auto;
-        padding: 0 18px var(--page-bottom);
+        padding: 12px 18px var(--page-bottom);
       }
       .page.page-narrow {
         max-width: 560px;
@@ -127,8 +218,22 @@ const resolvedOgType = ogType ?? "website";
         font-weight: 700;
       }
       @media (max-width: 640px) {
+        .site-header-inner {
+          padding: 10px 14px;
+          flex-wrap: wrap;
+        }
+        .site-brand-wordmark {
+          font-size: 24px;
+        }
+        .site-nav {
+          width: 100%;
+        }
+        .site-nav-link {
+          flex: 1;
+          justify-content: center;
+        }
         .page {
-          padding: 0 14px 72px;
+          padding: 10px 14px 72px;
         }
         .page.page-narrow {
           padding-left: 14px;
@@ -138,6 +243,26 @@ const resolvedOgType = ogType ?? "website";
     </style>
   </head>
   <body>
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="site-brand" href={withBase()} aria-label="스플릿 홈">
+          <svg width="28" height="28" viewBox="0 0 64 64" role="img" aria-hidden="true">
+            <rect width="27" height="64" rx="5" fill="#2E63F6"></rect>
+            <rect x="35" width="29" height="64" rx="5" fill="#17181C"></rect>
+          </svg>
+          <span class="site-brand-wordmark">스플릿</span>
+        </a>
+        <nav class="site-nav" aria-label="주요 메뉴">
+          {
+            navItems.map((item) => (
+              <a class={`site-nav-link ${isNavActive(item.href) ? "is-active" : ""}`} href={item.href}>
+                {item.label}
+              </a>
+            ))
+          }
+        </nav>
+      </div>
+    </header>
     <main class={pageClass} style={pageStyle}>
       <slot />
       {

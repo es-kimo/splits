@@ -29,7 +29,7 @@ const ageMin = ages[0] ?? 7;
 const ageMid = ages[Math.floor(ages.length / 2)] ?? 12;
 const ageMax = ages[ages.length - 1] ?? 18;
 const birthText = athlete.birth !== null ? `${athlete.birth}년생` : "출생연도 미상";
-const pageTitle = `${athlete.name} 경기 기록 — splits`;
+const pageTitle = `${athlete.name} 경기 기록 — 스플릿`;
 const pageDescription = `${athlete.name}(${birthText}, ${athlete.team}) 쇼트트랙 경기 기록`;
 const canonicalUrl = `athlete/${athlete.slug}/`;
 const ogTitle = `${athlete.name} 경기 기록`;
@@ -106,7 +106,7 @@ const yearCards = [...groupedYears.values()]
   description={pageDescription}
   canonical={canonicalUrl}
   ogTitle={ogTitle}
-  ogImage="og/athlete.png"
+  ogImage="og-player.png"
   generatedAt={meta.generatedAt}
   contentWidth="narrow"
   contentLineHeight="compact"

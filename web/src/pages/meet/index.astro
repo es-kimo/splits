@@ -49,7 +49,12 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
       <p>2007년부터 열린 국내 쇼트트랙 대회 {totalMeets}개의 기록 요약입니다.</p>
     </div>
     <label class="search-box">
-      <span class="search-icon">🔍</span>
+      <span class="search-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <circle cx="11" cy="11" r="7"></circle>
+          <path d="M20 20l-4-4"></path>
+        </svg>
+      </span>
       <input id="queryInput" type="text" placeholder="대회 이름이나 연도로 검색" autocomplete="off" />
       <button id="clearQueryButton" type="button" class="clear-btn" aria-label="검색어 지우기">✕</button>
     </label>
@@ -117,16 +122,6 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
       const distanceOptions = JSON.parse(distOptionsEl.textContent || "[]");
       const state = { query: "", kind: "전체", dist: 0, newest: true };
 
-      const kindColor = {
-        "국가대표 선발": ["#2E63F6", "#E9F0FF"],
-        "전국체전": ["#B4700E", "#FDF1DC"],
-        선수권: ["#7A3FC4", "#F1E9FC"],
-        종별: ["#5B5F68", "#F2F4F7"],
-        회장배: ["#5B5F68", "#F2F4F7"],
-        국무총리배: ["#5B5F68", "#F2F4F7"],
-        기타: ["#5B5F68", "#F2F4F7"],
-      };
-
       const escapeHtml = (value) =>
         String(value)
           .replace(/&/g, "&amp;")
@@ -134,11 +129,6 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#39;");
-
-      const kindChipStyle = (kind) => {
-        const palette = kindColor[kind] || kindColor["기타"];
-        return `color:${palette[0]};background:${palette[1]};`;
-      };
 
       const renderKindChips = () => {
         kindChips.innerHTML = kindOptions
@@ -207,7 +197,7 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
                   <a class="meet-card" href="${escapeHtml(item.href)}">
                     <div class="meet-body">
                       <div class="badge-row">
-                        <span class="kind-badge" style="${kindChipStyle(item.kind)}">${escapeHtml(item.kind)}</span>
+                        <span class="kind-badge">${escapeHtml(item.kind)}</span>
                         ${
                           item.isNational
                             ? '<span class="national-badge">전국 규모</span>'
@@ -321,8 +311,22 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
       min-height: 50px;
     }
     .search-icon {
-      font-size: 16px;
-      color: #a9aeb8;
+      width: 16px;
+      height: 16px;
+      color: #8a8f99;
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .search-icon svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
     .search-box input {
       flex: 1;
@@ -485,9 +489,13 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
       border-radius: 7px;
       padding: 3px 7px;
     }
+    .year-groups :global(.kind-badge) {
+      color: #3a3d45;
+      background: #f2f4f7;
+    }
     .year-groups :global(.national-badge) {
-      color: #0e7a5f;
-      background: #e1f5ee;
+      color: #2e63f6;
+      background: #e9f0ff;
     }
     .year-groups :global(.meet-title) {
       font-size: 16px;
