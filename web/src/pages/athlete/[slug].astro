@@ -39,6 +39,8 @@ const missingNote =
     ? `${minYear - athlete.birth}살(${minYear}년) 이전 기록은 시스템에 남아 있지 않습니다. 대회에 나가지 않았다는 뜻은 아닙니다.`
     : "초기 시즌 기록은 시스템에 남아 있지 않습니다. 대회에 나가지 않았다는 뜻은 아닙니다.";
 
+const hasTrajectoryPoint = ages.some((age) => athlete.ages[String(age)] !== null && athlete.ages[String(age)] !== undefined);
+
 const yearBest = new Map<number, number>();
 for (const item of athlete.history) {
   if (item.sf || item.year === null || item.rank === null) continue;
@@ -135,7 +137,19 @@ const yearCards = [...groupedYears.values()]
     <div class="age-axis">
       <span>{ageMin}살</span><span>{ageMid}살</span><span>{ageMax}살</span>
     </div>
-    <p class="hint">비어 있는 구간은 해당 나이의 기록이 시스템에 없다는 뜻이에요.</p>
+    {
+      hasTrajectoryPoint ? (
+        <p class="hint">비어 있는 구간은 해당 나이의 기록이 시스템에 없다는 뜻이에요.</p>
+      ) : (
+        <div class="empty-box">
+          <div class="empty-box-title">나이별로 이어볼 성적이 아직 없습니다</div>
+          <p class="empty-box-body">
+            나이를 알 수 있는 결승·종합 성적이 시스템에 남아 있지 않아 궤적을 그리지 못했습니다. 대회에 나가지 않았다는 뜻은
+            아닙니다. 아래 전체 대회 기록에서 경기별 결과는 그대로 볼 수 있어요.
+          </p>
+        </div>
+      )
+    }
   </section>
 
   <section class="card">
@@ -143,23 +157,37 @@ const yearCards = [...groupedYears.values()]
     <p class="section-note">막대가 길수록 좋은 성적이에요. 진한 막대는 1등을 한 해예요.</p>
     <div class="year-best">
       {
-        yearBestRows.map(([year, best]) => {
-          const width = Math.max(((11 - Math.min(best, 10)) / 10) * 100, 6);
-          const isGold = best === 1;
-          return (
-            <div class="year-best-row">
-              <span class="year">{year}</span>
-              <span class="age">{athlete.birth !== null ? `${year - athlete.birth}살` : "-"}</span>
-              <div class="bar-wrap">
-                <span class="bar" style={`width:${width}%;background:${isGold ? "#2E63F6" : best <= 3 ? "#A9C3FA" : "#D3D8E0"}`}></span>
-              </div>
-              <span class="rank" style={`color:${isGold ? "#2E63F6" : "#5B5F68"}`}>{best}등</span>
+        yearBestRows.length === 0 ? (
+          <div class="empty-box">
+            <div class="empty-box-title">등수로 남은 기록이 없습니다</div>
+            <p class="empty-box-body">
+              이 선수는 결승·종합 순위로 집계된 기록이 시스템에 없습니다. 준결승만 남아 있는 경우에도 이 그래프에는 나오지
+              않습니다.
+            </p>
+            <div class="empty-box-actions">
+              <a href={withBase("athlete/")}>다른 공개 선수 보기</a>
+              <a href={withBase("meet/")}>대회 기록에서 찾아보기</a>
             </div>
-          );
-        })
+          </div>
+        ) : (
+          yearBestRows.map(([year, best]) => {
+            const width = Math.max(((11 - Math.min(best, 10)) / 10) * 100, 6);
+            const isGold = best === 1;
+            return (
+              <div class="year-best-row">
+                <span class="year">{year}</span>
+                <span class="age">{athlete.birth !== null ? `${year - athlete.birth}살` : "-"}</span>
+                <div class="bar-wrap">
+                  <span class="bar" style={`width:${width}%;background:${isGold ? "#2E63F6" : best <= 3 ? "#A9C3FA" : "#D3D8E0"}`} />
+                </div>
+                <span class="rank" style={`color:${isGold ? "#2E63F6" : "#5B5F68"}`}>{best}등</span>
+              </div>
+            );
+          })
+        )
       }
     </div>
-    <p class="hint">{missingNote}</p>
+    {yearBestRows.length > 0 && <p class="hint">{missingNote}</p>}
   </section>
 
   <section class="card">
@@ -167,7 +195,19 @@ const yearCards = [...groupedYears.values()]
     <p class="section-note">대회 하나가 카드 하나예요. 종목별 등수는 오른쪽에 나와요.</p>
     <div class="year-groups">
       {
-        yearCards.map((yearGroup) => (
+        yearCards.length === 0 ? (
+          <div class="empty-box">
+            <div class="empty-box-title">대회 기록이 남아 있지 않습니다</div>
+            <p class="empty-box-body">
+              공개 시스템에 이 선수의 경기 결과가 아직 올라와 있지 않습니다. 대회에 나가지 않았다는 뜻은 아닙니다.
+            </p>
+            <div class="empty-box-actions">
+              <a href={withBase("athlete/")}>다른 공개 선수 보기</a>
+              <a href={withBase("meet/")}>대회 목록 보기</a>
+            </div>
+          </div>
+        ) : (
+          yearCards.map((yearGroup) => (
           <article class="year-group">
             <div class="sticky">
               <b>{yearGroup.year}년</b>
@@ -195,6 +235,7 @@ const yearCards = [...groupedYears.values()]
             </div>
           </article>
         ))
+        )
       }
     </div>
   </section>
@@ -347,6 +388,39 @@ const yearCards = [...groupedYears.values()]
       margin: 16px 0 0;
       font-size: 13px;
       color: #9ba0aa;
+    }
+    .empty-box {
+      background: #f7f9fc;
+      border-radius: 16px;
+      padding: 18px 16px;
+    }
+    .empty-box-title {
+      margin-bottom: 6px;
+      font-size: 15.5px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      color: #17181c;
+    }
+    .empty-box-body {
+      margin: 0;
+      font-size: 13.5px;
+      color: #6b6f78;
+    }
+    .empty-box-actions {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .empty-box-actions a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 0 13px;
+      border-radius: 12px;
+      background: #ffffff;
+      font-size: 13.5px;
+      font-weight: 700;
     }
     .year-groups {
       display: flex;

@@ -30,6 +30,31 @@ const kindOrder = ["전체", "국가대표 선발", "전국체전", "선수권",
 const seenKinds = new Set(listPayload.map((item) => item.kind));
 const kindOptions = kindOrder.filter((kind) => kind === "전체" || seenKinds.has(kind));
 const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => item.distances))).sort((a, b) => a - b)];
+
+const kindColor: Record<string, [string, string]> = {
+  "국가대표 선발": ["#2E63F6", "#E9F0FF"],
+  전국체전: ["#B4700E", "#FDF1DC"],
+  선수권: ["#7A3FC4", "#F1E9FC"],
+  종별: ["#5B5F68", "#F2F4F7"],
+  회장배: ["#5B5F68", "#F2F4F7"],
+  국무총리배: ["#5B5F68", "#F2F4F7"],
+  기타: ["#5B5F68", "#F2F4F7"],
+};
+
+function kindChipStyle(kind: string): string {
+  const palette = kindColor[kind] ?? kindColor["기타"];
+  return `color:${palette[0]};background:${palette[1]};`;
+}
+
+const sortedPayload = listPayload
+  .slice()
+  .sort((a, b) => b.year - a.year || String(a.meet).localeCompare(String(b.meet), "ko"));
+const initialGroups = [...sortedPayload.reduce((acc, item) => {
+  const bucket = acc.get(item.year) ?? [];
+  bucket.push(item);
+  acc.set(item.year, bucket);
+  return acc;
+}, new Map<number, typeof sortedPayload>())].map(([year, items]) => ({ year, items }));
 ---
 
 <Base
@@ -57,22 +82,94 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
 
   <section class="card filters-card">
     <div class="filter-title">대회 종류</div>
-    <div id="kindChips" class="chip-row"></div>
+    <div id="kindChips" class="chip-row">
+      {
+        kindOptions.map((kind) => (
+          <button type="button" class={`chip-btn${kind === "전체" ? " active" : ""}`} data-kind={kind}>
+            {kind}
+          </button>
+        ))
+      }
+    </div>
     <div class="filter-title dist-title">종목</div>
-    <div id="distChips" class="chip-row"></div>
+    <div id="distChips" class="chip-row">
+      {
+        distanceOptions.map((distance) => (
+          <button type="button" class={`chip-btn${distance === 0 ? " active" : ""}`} data-distance={distance}>
+            {distance === 0 ? "전체" : `${distance}m`}
+          </button>
+        ))
+      }
+    </div>
+    <noscript>
+      <div class="noscript-note">
+        자바스크립트가 꺼져 있어 검색과 필터는 동작하지 않습니다. 아래에 전체 대회 {totalMeets}개가 최신순으로 그대로 나와
+        있어요.
+      </div>
+    </noscript>
   </section>
 
   <div class="result-row">
-    <span id="resultLabel">0개 대회</span>
+    <span id="resultLabel">{totalMeets}개 대회</span>
     <button id="toggleOrderButton" type="button">최신순 ↓</button>
   </div>
 
   <section id="emptyState" class="card empty-state" hidden>
     <div class="empty-title">찾는 대회가 없습니다</div>
-    <div class="empty-sub">검색어를 지우거나 필터를 바꿔보세요.</div>
+    <div class="empty-sub">검색어에 맞는 대회가 목록에 없습니다. 검색어를 지우거나 필터를 바꾸면 다시 볼 수 있어요.</div>
   </section>
 
-  <section id="yearGroups" class="year-groups"></section>
+  {
+    totalMeets === 0 && (
+      <section class="card empty-state">
+        <div class="empty-title">아직 정리된 대회가 없습니다</div>
+        <div class="empty-sub">
+          대회 결과를 모으는 중입니다. 그동안 또래 기록 분포로 우리 아이 위치를 확인해 볼 수 있어요.
+        </div>
+      </section>
+    )
+  }
+
+  <section id="yearGroups" class="year-groups">
+    {
+      initialGroups.map((group) => (
+        <section class="year-group">
+          <div class="year-head">
+            <b>{group.year}년</b>
+            <span>{group.items.length}개 대회</span>
+          </div>
+          <div class="year-card-list">
+            {group.items.map((item) => (
+              <a class="meet-card" href={item.href}>
+                <div class="meet-body">
+                  <div class="badge-row">
+                    <span class="kind-badge" style={kindChipStyle(item.kind)}>
+                      {item.kind}
+                    </span>
+                    {item.isNational && <span class="national-badge">전국 규모</span>}
+                  </div>
+                  <b class="meet-title">{item.short || item.meet}</b>
+                  <div class="meta-text">
+                    {item.when}
+                    <br />
+                    {item.where}
+                  </div>
+                  <div class="dist-row">
+                    {item.distances.length === 0 ? (
+                      <span class="dist-chip">종목 정보 없음</span>
+                    ) : (
+                      item.distances.map((distance) => <span class="dist-chip">{distance}m</span>)
+                    )}
+                  </div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ))
+    }
+  </section>
 
   <footer class="legacy-footer">
     공개된 경기 결과를 정리한 페이지입니다. 개인이 특정될 수 있는 집계는 공개하지 않습니다.<br />
@@ -422,6 +519,14 @@ const distanceOptions = [0, ...Array.from(new Set(listPayload.flatMap((item) => 
     .empty-sub {
       font-size: 14px;
       color: #8a8f99;
+    }
+    .noscript-note {
+      margin: 12px 14px 0;
+      background: #fff8e8;
+      border-radius: 12px;
+      padding: 12px 13px;
+      font-size: 13px;
+      color: #6b5528;
     }
     .year-groups {
       display: flex;

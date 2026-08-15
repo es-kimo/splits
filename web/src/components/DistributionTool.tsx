@@ -173,46 +173,62 @@ export default function DistributionTool(props: Props) {
     if (targetBirthYear === null) return null;
     if (exactDistanceOptions.length > 0) return null;
     if (nearbyDistanceOptions.length > 0) {
-      return `${targetBirthYear}년생 기준으로 공개 가능한 거리가 적어 ±2년 범위에서 선택 가능한 거리를 보여드려요.`;
+      return `${targetBirthYear}년생 기준으로 공개 가능한 거리가 적어 앞뒤 2년 범위에서 선택 가능한 거리를 보여드려요.`;
     }
-    return `${targetBirthYear}년생은 ±2년 범위에도 공개 가능한 거리가 없습니다.`;
+    return `${targetBirthYear}년생은 앞뒤 2년 범위에도 공개 가능한 거리가 없습니다.`;
   }, [exactDistanceOptions.length, nearbyDistanceOptions.length, targetBirthYear]);
 
   const edges = useMemo(() => buildEdges(selectedRow, mode), [mode, selectedRow]);
 
   const raw = input.trim();
-  const parsed = useMemo(() => {
-    if (!raw) return null;
-    if (mode === "time") return parseTime(raw);
-    if (!/^\d{1,3}$/.test(raw)) return Number.NaN;
-    return Number.parseInt(raw, 10);
-  }, [mode, raw]);
-  const hasInputError = raw.length > 0 && (parsed === null || Number.isNaN(parsed));
+  const inputState = useMemo(() => validateInput(raw, mode), [mode, raw]);
+  const parsed = inputState.status === "ok" ? inputState.value : null;
+  const inputErrorText = inputState.status === "invalid" ? inputState.message : null;
 
   const calc = useMemo(() => {
     if (!selectedRow || !edges || isInsufficient(selectedRow, mode)) return null;
 
     const countValue = countOf(selectedRow, mode);
     const countText = countValue ? `${countValue}명` : `${props.kAnonymityMin}명 미만`;
-    const hasParsed = typeof parsed === "number" && Number.isFinite(parsed);
 
-    if (!hasParsed) {
+    if (parsed === null) {
       return {
-        showResult: true,
         conclusion: `같은 조건 ${countText}의 분포예요`,
         detail:
           mode === "time"
             ? `빠른 쪽 10%는 ${formatSeconds(edges[0])} 안쪽, 가운데 구간은 ${formatSeconds(edges[2])} 전후입니다.`
             : `앞선 쪽 10%는 ${formatRank(edges[0])}등 안쪽, 가운데 구간은 ${formatRank(edges[2])}등 전후입니다.`,
         markerPos: null as number | null,
+        mismatch: false,
+      };
+    }
+
+    const mid = edges[2];
+    const markerPos = bandPos(edges, parsed);
+    const mismatch = isFarFromDistribution(edges, parsed, mode);
+
+    if (parsed < edges[0] || parsed > edges[4]) {
+      const beyondFast = parsed < edges[0];
+      const valueText = mode === "time" ? formatSeconds(parsed) : `${parsed}등`;
+      const conclusion =
+        mode === "time"
+          ? beyondFast
+            ? `같은 조건에서 가장 빠른 10%보다 빠른 기록이에요`
+            : `같은 조건에서 가장 느린 10%보다 느린 기록이에요`
+          : beyondFast
+            ? `같은 조건에서 가장 앞선 10%보다 앞선 등수예요`
+            : `같은 조건에서 가장 뒤쪽 10%보다 뒤에 있는 등수예요`;
+      return {
+        conclusion,
+        detail: `${valueText} · 이 바깥 구간은 비교할 사람이 너무 적어 상위 몇 %인지까지는 계산하지 않습니다. 같은 조건 ${countText}의 가운데는 ${mode === "time" ? formatSeconds(mid) : `${formatRank(mid)}등`}입니다.`,
+        markerPos,
+        mismatch,
       };
     }
 
     const percentile = Math.max(1, Math.min(99, Math.round(percentOf(edges, parsed, mode))));
-    const markerPos = bandPos(edges, parsed);
 
     let detail = "";
-    const mid = edges[2];
     if (mode === "time") {
       const gap = mid - parsed;
       detail = `${formatSeconds(parsed)} · 같은 조건 중앙값(${formatSeconds(mid)})보다 ${Math.abs(gap).toFixed(2)}초 ${gap >= 0 ? "빠릅니다" : "느립니다"}.`;
@@ -226,10 +242,10 @@ export default function DistributionTool(props: Props) {
     }
 
     return {
-      showResult: true,
       conclusion: `같은 조건 ${countText} 중 상위 ${percentile}%예요`,
       detail,
       markerPos,
+      mismatch,
     };
   }, [edges, mode, parsed, props.kAnonymityMin, selectedRow]);
 
@@ -246,47 +262,103 @@ export default function DistributionTool(props: Props) {
       value: mode === "time" ? formatSeconds(value) : `${formatRank(value)}등`,
     })) ?? [];
 
-  const selectionReady = !hasBirthYearError && targetBirthYear !== null && distance !== null && gender.length > 0;
-  const noRowForSelection = selectionReady && !selectedRow;
-  const rowInsufficient = selectionReady && selectedRow ? isInsufficient(selectedRow, mode) || !edges : false;
+  const showResultCard = Boolean(calc && selectedRow && edges);
 
-  const thinActions = useMemo<ThinAction[]>(() => {
-    const actions: ThinAction[] = [];
+  const ageModeAction = useMemo<ThinAction>(
+    () =>
+      ageInputMode === "grade"
+        ? { label: "출생연도로 직접 입력하기", onClick: () => setAgeInputMode("birth-year") }
+        : { label: "학년 입력으로 돌아가기", onClick: () => setAgeInputMode("grade") },
+    [ageInputMode],
+  );
 
-    if (targetBirthYear !== null && gender && distance !== null) {
-      const altDistance = availableDistances.find(
-        (item) =>
-          item !== distance &&
-          hasUsableRow({
-            rows: allRows,
-            gender,
-            distance: item,
-            targetBirthYear,
-            mode,
-          }),
-      );
-      if (typeof altDistance === "number") {
-        actions.push({
-          label: `${altDistance}m로 바꿔서 보기`,
-          onClick: () => setDistance(altDistance),
-        });
-      }
+  const alternateDistance = useMemo(() => {
+    if (targetBirthYear === null || !gender) return null;
+    const found = availableDistances.find(
+      (item) =>
+        item !== distance &&
+        hasUsableRow({
+          rows: allRows,
+          gender,
+          distance: item,
+          targetBirthYear,
+          mode,
+        }),
+    );
+    return typeof found === "number" ? found : null;
+  }, [allRows, availableDistances, distance, gender, mode, targetBirthYear]);
+
+  const distanceAction = useMemo<ThinAction | null>(() => {
+    if (alternateDistance === null) return null;
+    return {
+      label: `${alternateDistance}m로 바꿔서 보기`,
+      onClick: () => setDistance(alternateDistance),
+    };
+  }, [alternateDistance]);
+
+  const genderAction = useMemo<ThinAction | null>(() => {
+    const other = availableGenders.find((item) => item !== gender);
+    if (!other) return null;
+    return { label: `${other}자 기준으로 보기`, onClick: () => setGender(other) };
+  }, [availableGenders, gender]);
+
+  const emptyState = useMemo(() => {
+    if (showResultCard) return null;
+
+    if (hasBirthYearError) {
+      return {
+        title: "출생연도를 다시 확인해 주세요",
+        body: "출생연도는 2013처럼 네 자리 숫자로 입력해야 또래를 찾을 수 있습니다. 학년만 알고 있어도 비교할 수 있어요.",
+        actions: [ageModeAction],
+      };
     }
 
-    if (ageInputMode === "grade") {
-      actions.push({
-        label: "출생연도로 직접 입력하기",
-        onClick: () => setAgeInputMode("birth-year"),
-      });
-    } else {
-      actions.push({
-        label: "학년 입력으로 돌아가기",
-        onClick: () => setAgeInputMode("grade"),
-      });
+    if (targetBirthYear === null) {
+      return {
+        title: "출생연도를 넣으면 비교를 시작해요",
+        body: "비교할 또래를 정해야 기록 위치를 계산할 수 있습니다. 출생연도가 헷갈리면 학년으로도 고를 수 있어요.",
+        actions: [ageModeAction],
+      };
     }
 
-    return actions.slice(0, 2);
-  }, [ageInputMode, allRows, availableDistances, distance, gender, mode, targetBirthYear]);
+    if (availableDistances.length === 0) {
+      return {
+        title: `${targetBirthYear}년생 ${gender}자 기준으로 볼 수 있는 거리가 없습니다`,
+        body: "이 나이대에서 아직 실시하지 않는 거리이거나, 참가 인원이 적어 공개하지 않는 구간입니다. 기록이 없거나 실력이 낮다는 뜻은 아닙니다. 다른 조건으로 바꾸면 볼 수 있어요.",
+        actions: [ageModeAction, genderAction].filter(Boolean) as ThinAction[],
+      };
+    }
+
+    if (!selectedRow) {
+      return {
+        title: "가까운 연도에도 공개 가능한 데이터가 없습니다",
+        body: "현재 선택한 조건은 앞뒤 2년 범위에서도 공개 기준을 채운 기록이 없습니다. 거리나 나이를 바꾸면 비슷한 또래 기준으로 볼 수 있어요.",
+        actions: [distanceAction, ageModeAction].filter(Boolean) as ThinAction[],
+      };
+    }
+
+    return {
+      title: "이 조건은 공개하지 않습니다",
+      body: `이 조건에 해당하는 선수가 ${props.kAnonymityMin}명 미만이라 분포를 표시하지 않습니다. 개인이 특정될 수 있어 통계를 감추고 있습니다. 기록이 없거나 실력이 낮다는 뜻은 아닙니다.`,
+      actions: [distanceAction, ageModeAction].filter(Boolean) as ThinAction[],
+    };
+  }, [
+    ageModeAction,
+    availableDistances.length,
+    distanceAction,
+    gender,
+    genderAction,
+    hasBirthYearError,
+    props.kAnonymityMin,
+    selectedRow,
+    showResultCard,
+    targetBirthYear,
+  ]);
+
+  const mismatchActions = useMemo(
+    () => [distanceAction, ageModeAction].filter(Boolean) as ThinAction[],
+    [ageModeAction, distanceAction],
+  );
 
   return (
     <div className="dist-tool">
@@ -439,22 +511,34 @@ export default function DistributionTool(props: Props) {
             )}
           </div>
 
-          {hasInputError && (
-            <div className="dist-error-text">
-              {mode === "time"
-                ? "시간 형식을 확인해주세요. 2분 29초 15는 2:29.15, 45초 8은 45.8로 입력해주세요."
-                : "등수는 숫자만 입력해주세요. 12등이면 12처럼 입력하면 됩니다."}
-            </div>
-          )}
+          {inputErrorText && <div className="dist-error-text">{inputErrorText}</div>}
         </div>
       </section>
 
-      {calc?.showResult && selectedRow && edges && (
+      {showResultCard && calc && selectedRow && edges && (
         <section className="dist-card">
           <div className="dist-group-label">{groupLabel}</div>
           {fallbackNotice && <div className="dist-fallback-note">{fallbackNotice}</div>}
           <div className="dist-verdict">{calc.conclusion}</div>
           <div className="dist-verdict-detail">{calc.detail}</div>
+
+          {calc.mismatch && (
+            <div className="dist-mismatch-note">
+              <div className="dist-mismatch-title">입력한 값이 이 조건의 기록과 많이 다릅니다</div>
+              <div className="dist-mismatch-body">
+                거리나 나이를 다르게 고르셨거나, 입력이 잘못됐을 수 있습니다. 조건을 한 번 확인해 주세요.
+              </div>
+              {mismatchActions.length > 0 && (
+                <div className="dist-mismatch-actions">
+                  {mismatchActions.map((action) => (
+                    <button key={action.label} type="button" onClick={action.onClick}>
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <details className="dist-evidence">
             <summary className="dist-evidence-summary">근거 보기</summary>
@@ -501,20 +585,14 @@ export default function DistributionTool(props: Props) {
         </section>
       )}
 
-      {(noRowForSelection || rowInsufficient) && (
+      {emptyState && (
         <section className="dist-card dist-thin-card">
           {fallbackNotice && <div className="dist-fallback-note">{fallbackNotice}</div>}
-          <div className="dist-thin-title">
-            {noRowForSelection ? "가까운 연도에도 공개 가능한 데이터가 없습니다" : "이 조건은 공개하지 않습니다"}
-          </div>
-          <div className="dist-thin-body">
-            {noRowForSelection
-              ? "현재 선택한 조건은 ±2년 범위에서도 공개 기준을 충족한 데이터가 없습니다. 다른 거리나 나이 입력 방식으로 확인해주세요."
-              : "이 조건은 참가 선수가 적어 개인 기록이 짐작될 수 있어서 공개하지 않습니다. 기록이 없거나 실력이 낮다는 뜻은 아닙니다."}
-          </div>
-          {thinActions.length > 0 && (
+          <div className="dist-thin-title">{emptyState.title}</div>
+          <div className="dist-thin-body">{emptyState.body}</div>
+          {emptyState.actions.length > 0 && (
             <div className="dist-thin-actions">
-              {thinActions.map((action) => (
+              {emptyState.actions.map((action) => (
                 <button key={action.label} type="button" onClick={action.onClick}>
                   {action.label}
                 </button>
@@ -550,6 +628,62 @@ export default function DistributionTool(props: Props) {
 
 const TIME_EDGE_PERCENTILES = [10, 30, 50, 70, 90];
 const RANK_EDGE_PERCENTILES = [10, 25, 50, 75, 90];
+const MIN_PLAUSIBLE_SECONDS = 5;
+const MAX_PLAUSIBLE_SECONDS = 1800;
+const MAX_PLAUSIBLE_RANK = 300;
+
+type InputValidation =
+  | { status: "empty" }
+  | { status: "invalid"; message: string }
+  | { status: "ok"; value: number };
+
+function validateInput(raw: string, mode: InputMode): InputValidation {
+  if (!raw) return { status: "empty" };
+
+  if (mode === "rank") {
+    if (!/^\d{1,3}$/.test(raw)) {
+      return {
+        status: "invalid",
+        message: "등수는 숫자만 입력해주세요. 12등이면 12처럼 입력하면 됩니다.",
+      };
+    }
+    const value = Number.parseInt(raw, 10);
+    if (value < 1) {
+      return { status: "invalid", message: "등수는 1등부터 시작해요. 1 이상 숫자로 입력해주세요." };
+    }
+    if (value > MAX_PLAUSIBLE_RANK) {
+      return {
+        status: "invalid",
+        message: `${MAX_PLAUSIBLE_RANK}등을 넘는 등수는 실제 경기 결과로 보기 어려워 계산하지 않습니다. 입력을 다시 확인해 주세요.`,
+      };
+    }
+    return { status: "ok", value };
+  }
+
+  const parsedTime = parseTime(raw);
+  if (parsedTime === null || Number.isNaN(parsedTime)) {
+    return {
+      status: "invalid",
+      message: "시간 형식을 확인해주세요. 2분 29초 15는 2:29.15, 45초 8은 45.8로 입력해주세요.",
+    };
+  }
+  if (parsedTime < MIN_PLAUSIBLE_SECONDS || parsedTime > MAX_PLAUSIBLE_SECONDS) {
+    return {
+      status: "invalid",
+      message: "5초보다 빠르거나 30분보다 느린 기록은 실제 경기 기록으로 보기 어려워 계산하지 않습니다. 입력을 다시 확인해 주세요.",
+    };
+  }
+  return { status: "ok", value: parsedTime };
+}
+
+function isFarFromDistribution(edges: number[], value: number, mode: InputMode): boolean {
+  const mid = edges[2];
+  if (mode === "time") {
+    if (mid <= 0) return false;
+    return value < mid * 0.6 || value > mid * 1.8;
+  }
+  return value > Math.max(edges[4] * 3, edges[4] + 30);
+}
 
 function pickClosestGradeId(birthYear: number | null): string {
   if (birthYear === null) return GRADE_OPTIONS[0].id;
