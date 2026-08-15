@@ -142,6 +142,7 @@ RECORD_FIELDS = [
 DATE_DIGITS_RE = re.compile(r"^(19|20)\d{2}(0[1-9]|1[0-2])([0-2]\d|3[01])$")
 DATE_DOTTED_RE = re.compile(r"^((?:19|20)\d{2})[.\-/](0?[1-9]|1[0-2])[.\-/](0?[1-9]|[12]\d|3[01])$")
 FIRST_DATE_RE = re.compile(r"((?:19|20)\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})")
+KIND_CD_RE = re.compile(r"^\d{2}$")
 
 
 def _configure_data_paths(base_dir):
@@ -514,21 +515,24 @@ def _cache_path_inf201(page_index):
     return RAW_INF201_DIR / f"{int(page_index):03d}.html"
 
 
-def _cache_path_inf301_kind(to_cd):
-    return RAW_INF301_KIND_DIR / f"{_safe_fragment(to_cd)}.html"
+def _cache_path_inf301_kind(class_cd, to_cd):
+    return RAW_INF301_KIND_DIR / f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}.html"
 
 
 def _cache_path_detail_class_ajax(class_cd, to_cd, kind_cd):
     return RAW_DETAIL_AJAX_DIR / f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}.json"
 
 
-def _cache_path_inf301(to_cd, kind_cd, detail_class_cd):
-    return RAW_INF301_DIR / f"{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}_{_safe_fragment(detail_class_cd)}.html"
+def _cache_path_inf301(class_cd, to_cd, kind_cd, detail_class_cd):
+    return (
+        RAW_INF301_DIR
+        / f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}_{_safe_fragment(detail_class_cd)}.html"
+    )
 
 
-def _cache_path_inf310(to_cd, kind_cd, detail_class_cd, base_class_cd, rh_cd, pcnt_gbn):
+def _cache_path_inf310(class_cd, to_cd, kind_cd, detail_class_cd, base_class_cd, rh_cd, pcnt_gbn):
     return RAW_INF310_DIR / (
-        f"{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}_{_safe_fragment(detail_class_cd)}_"
+        f"{_safe_fragment(class_cd)}_{_safe_fragment(to_cd)}_{_safe_fragment(kind_cd)}_{_safe_fragment(detail_class_cd)}_"
         f"{_safe_fragment(base_class_cd)}_{_safe_fragment(rh_cd)}_{_safe_fragment(pcnt_gbn)}.html"
     )
 
@@ -639,6 +643,8 @@ def _parse_inf301_kind_options_html(html):
     for option in select.find_all("option"):
         kind_cd = _norm(option.get("value"))
         if not kind_cd or kind_cd in seen:
+            continue
+        if not KIND_CD_RE.fullmatch(kind_cd):
             continue
         seen.add(kind_cd)
         kinds.append({"kindCd": kind_cd, "kindNm": _norm(option.get_text(" ", strip=True))})
@@ -983,10 +989,10 @@ def _collect_event_route(
         html_kind, _, reason = _fetch_with_cache(
             session,
             request_type="inf301_kind",
-            request_key=f"inf301-kind:{to_cd}",
+            request_key=f"inf301-kind:{class_cd}:{to_cd}",
             endpoint=INF301_ENDPOINT,
             payload=payload_kind,
-            cache_path=_cache_path_inf301_kind(to_cd),
+            cache_path=_cache_path_inf301_kind(class_cd, to_cd),
             context=f"classCd={class_cd} toCd={to_cd}",
             refresh=refresh,
             request_gap_seconds=request_gap_seconds,
@@ -1003,10 +1009,13 @@ def _collect_event_route(
         if not kind_items:
             _set_meet_status(progress, event, "in_progress", stage="inf301_kind_parse_empty", error="kind_options_empty")
             continue
+        dropdown_kind_codes = sorted({_norm(item.get("kindCd")) for item in kind_items if _norm(item.get("kindCd"))})
+        requested_kind_codes = set()
 
         for kind_item in kind_items:
             kind_cd = _norm(kind_item.get("kindCd"))
             kind_nm = _norm(kind_item.get("kindNm"))
+            requested_kind_codes.add(kind_cd)
             payload_ajax = {"classCd": class_cd, "toCd": to_cd, "kindCd": kind_cd}
             ajax_text, _, ajax_reason = _fetch_with_cache(
                 session,
@@ -1030,7 +1039,7 @@ def _collect_event_route(
                 continue
             details = _parse_detail_class_list_json(ajax_text, kind_cd=kind_cd, kind_nm=kind_nm)
             if not details:
-                print(f"[warn] detail_class_ajax 파싱 결과 없음: toCd={to_cd} kindCd={kind_cd}")
+                print(f"[info] detail_class_ajax LIST 비어있음: toCd={to_cd} kindCd={kind_cd} (요청 스킵)")
                 continue
 
             for detail in details:
@@ -1053,7 +1062,7 @@ def _collect_event_route(
                     request_key=f"inf301:{to_cd}:{kind_cd}:{detail_class_cd}",
                     endpoint=INF301_ENDPOINT,
                     payload=payload_301,
-                    cache_path=_cache_path_inf301(to_cd, kind_cd, detail_class_cd),
+                    cache_path=_cache_path_inf301(class_cd, to_cd, kind_cd, detail_class_cd),
                     context=f"toCd={to_cd} kindCd={kind_cd} detailClassCd={detail_class_cd}",
                     refresh=refresh,
                     request_gap_seconds=request_gap_seconds,
@@ -1117,6 +1126,7 @@ def _collect_event_route(
                         endpoint=INF310_ENDPOINT,
                         payload=payload_310,
                         cache_path=_cache_path_inf310(
+                            class_cd=class_cd,
                             to_cd=to_cd,
                             kind_cd=kind_cd,
                             detail_class_cd=detail_class_cd,
@@ -1138,6 +1148,15 @@ def _collect_event_route(
                         )
                         continue
                     event_inf310_calls += 1
+        requested_kind_codes_sorted = sorted(requested_kind_codes)
+        extra_requested = sorted(set(requested_kind_codes_sorted) - set(dropdown_kind_codes))
+        subset_ok = len(extra_requested) == 0
+        print(f"[event {idx}/{total_events}] toCd={to_cd}")
+        print(f" 드롭다운 kindCd: {','.join(dropdown_kind_codes)} ({len(dropdown_kind_codes)}개)")
+        print(f" 요청 kindCd: {','.join(requested_kind_codes_sorted)} ({len(requested_kind_codes_sorted)}개)")
+        print(f" 집합 일치: {'OK' if subset_ok else 'MISMATCH'}")
+        if not subset_ok:
+            print(f"[warn] 요청 kindCd가 드롭다운 밖 값 포함: toCd={to_cd} extra={','.join(extra_requested)}")
 
         if event_inf310_calls <= 0:
             _set_meet_status(progress, event, "in_progress", stage="inf310_calls_empty", error="no_inf310_calls")
@@ -1261,7 +1280,7 @@ def _build_base_records(events):
         if event_name:
             to_cd_by_meet.setdefault(event_name, set()).add(to_cd)
         _, event_date_norm = _extract_event_date(event)
-        cache_kind = _cache_path_inf301_kind(to_cd)
+        cache_kind = _cache_path_inf301_kind(class_cd, to_cd)
         if not cache_kind.exists():
             add_detail_failure("", "", "", "", "inf301_kind_cache_missing", "INF301 kind 캐시 없음")
             event_status_rows.append(
@@ -1312,7 +1331,7 @@ def _build_base_records(events):
 
             details = _parse_detail_class_list_json(cache_detail.read_text(encoding="utf-8"), kind_cd=kind_cd, kind_nm=kind_nm)
             if not details:
-                add_detail_failure(kind_cd, "", kind_nm, "", "detail_class_parse", f"kindCd={kind_cd} detail_empty")
+                print(f"[info] detail_class_ajax LIST 비어있음(export): toCd={to_cd} kindCd={kind_cd} (정상 스킵)")
                 continue
             parse_stats["detail_class_count"] += len(details)
 
@@ -1323,7 +1342,7 @@ def _build_base_records(events):
                 event_detail_total += 1
                 detail_participant_rows = 0
 
-                cache_301 = _cache_path_inf301(to_cd, kind_cd, detail_class_cd)
+                cache_301 = _cache_path_inf301(class_cd, to_cd, kind_cd, detail_class_cd)
                 if not cache_301.exists():
                     add_detail_failure(
                         kind_cd,
@@ -1358,6 +1377,7 @@ def _build_base_records(events):
                 for call in calls:
                     pcnt_gbn = _norm(call.get("pcntGbn")) or "-"
                     cache_310 = _cache_path_inf310(
+                        class_cd=class_cd,
                         to_cd=to_cd,
                         kind_cd=kind_cd,
                         detail_class_cd=detail_class_cd,
@@ -1843,8 +1863,12 @@ def _invalidate_meet_cache(event):
     safe_class = _safe_fragment(class_cd)
     safe_to = _safe_fragment(to_cd)
     removed = 0
-    targets = [_cache_path_inf301_kind(to_cd)]
+    targets = [_cache_path_inf301_kind(class_cd, to_cd)]
     targets.extend(RAW_DETAIL_AJAX_DIR.glob(f"{safe_class}_{safe_to}_*.json"))
+    targets.extend(RAW_INF301_DIR.glob(f"{safe_class}_{safe_to}_*.html"))
+    targets.extend(RAW_INF310_DIR.glob(f"{safe_class}_{safe_to}_*.html"))
+    # legacy cache pattern purge (pre-classCd key)
+    targets.extend(RAW_INF301_KIND_DIR.glob(f"{safe_to}.html"))
     targets.extend(RAW_INF301_DIR.glob(f"{safe_to}_*.html"))
     targets.extend(RAW_INF310_DIR.glob(f"{safe_to}_*.html"))
     for path in targets:
