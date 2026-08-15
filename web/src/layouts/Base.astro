@@ -178,7 +178,7 @@ const navItems = [
         margin: 0 auto;
         padding: 10px var(--gutter);
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         align-items: center;
         justify-content: space-between;
         gap: 10px;
@@ -200,7 +200,10 @@ const navItems = [
       }
       .site-nav {
         display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
         align-items: center;
+        justify-content: flex-end;
         gap: 3px;
         max-width: 100%;
         overflow-x: auto;
@@ -1224,9 +1227,9 @@ const navItems = [
         }
         .site-header-inner {
           padding: 8px 14px;
+          gap: 8px;
         }
         .site-nav {
-          width: 100%;
           padding-bottom: 2px;
         }
         .site-brand {
