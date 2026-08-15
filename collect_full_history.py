@@ -7,9 +7,12 @@ import re
 import time
 from datetime import datetime
 
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from build_data import ANON_SALT_ENV, RECORDS_ANON_REQUIRED_COLUMNS, build_records_anon, validate_records_anon
+from analyze import build_clean_records
 from event_participants import (
     _base_payload,
     _extract_participant_entries,
@@ -54,12 +57,18 @@ PROGRESS_JSON = DATA_DIR / "collect_progress.json"
 REQUEST_FAILURES_CSV = DATA_DIR / "collect_request_failures.csv"
 MEET_FAILURES_CSV = DATA_DIR / "collect_failures.csv"
 DETAIL_FAILURES_CSV = DATA_DIR / "detail_failures.csv"
+MEET_INDEX_INF201_CSV = DATA_DIR / "meet_index_inf201.csv"
+WEEKLY_SUMMARY_JSON = DATA_DIR / "weekly_incremental_summary.json"
 SUSPICIOUS_IDS_CSV = DATA_DIR / "suspicious_ids.csv"
+RECORDS_ANON_CSV = DATA_DIR / "records_anon.csv"
 RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
 ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
 RECORDS_CSV = DATA_DIR / "records.csv"
 ATHLETE_INFO_CSV = DATA_DIR / "athlete_info.csv"
 RESOLVED_CSV = DATA_DIR / "resolved.csv"
+MEET_INDEX_FIELDS = ["classCd", "toCd", "searchAppYn", "대회명", "장소", "기간", "상태", "pageIndex", "updatedAt"]
+ANON_RECORD_KEY_FIELDS = ["익명키", "대회명", "종별", "거리", "SF여부", "라운드", "순위", "기록_초"]
+KNOWN_WARNING_STAGES = {"inf301_result_call_parse", "inf310_zero_participant"}
 
 FAILURE_FIELDS = [
     "requestType",
@@ -161,7 +170,10 @@ def _configure_data_paths(base_dir):
     global REQUEST_FAILURES_CSV
     global MEET_FAILURES_CSV
     global DETAIL_FAILURES_CSV
+    global MEET_INDEX_INF201_CSV
+    global WEEKLY_SUMMARY_JSON
     global SUSPICIOUS_IDS_CSV
+    global RECORDS_ANON_CSV
     global RECORDS_FULL_CSV
     global ATHLETE_INFO_FULL_CSV
     global RECORDS_CSV
@@ -181,7 +193,10 @@ def _configure_data_paths(base_dir):
     REQUEST_FAILURES_CSV = DATA_DIR / "collect_request_failures.csv"
     MEET_FAILURES_CSV = DATA_DIR / "collect_failures.csv"
     DETAIL_FAILURES_CSV = DATA_DIR / "detail_failures.csv"
+    MEET_INDEX_INF201_CSV = DATA_DIR / "meet_index_inf201.csv"
+    WEEKLY_SUMMARY_JSON = DATA_DIR / "weekly_incremental_summary.json"
     SUSPICIOUS_IDS_CSV = DATA_DIR / "suspicious_ids.csv"
+    RECORDS_ANON_CSV = DATA_DIR / "records_anon.csv"
     RECORDS_FULL_CSV = DATA_DIR / "records_full.csv"
     ATHLETE_INFO_FULL_CSV = DATA_DIR / "athlete_info_full.csv"
     RECORDS_CSV = DATA_DIR / "records.csv"
@@ -370,6 +385,187 @@ def _save_csv_rows(path, rows, fieldnames):
         writer.writeheader()
         writer.writerows(rows)
 
+
+def _build_meet_index_row(row, *, updated_at):
+    return {
+        "classCd": _norm(row.get("classCd")),
+        "toCd": _norm(row.get("toCd")),
+        "searchAppYn": _norm(row.get("searchAppYn")),
+        "대회명": _norm(row.get("대회명")),
+        "장소": _norm(row.get("장소")),
+        "기간": _norm(row.get("기간")),
+        "상태": _norm(row.get("상태")),
+        "pageIndex": _norm(row.get("pageIndex")),
+        "updatedAt": _norm(row.get("updatedAt")) or updated_at,
+    }
+
+
+def _meet_index_sort_key(row):
+    class_cd = _norm(row.get("classCd"))
+    to_cd = _norm(row.get("toCd"))
+    class_part = (0, int(class_cd)) if class_cd.isdigit() else (1, class_cd)
+    to_part = (0, int(to_cd)) if to_cd.isdigit() else (1, to_cd)
+    return class_part + to_part
+
+
+def _load_meet_index_rows():
+    rows = []
+    for row in _load_csv_rows(MEET_INDEX_INF201_CSV):
+        class_cd = _norm(row.get("classCd"))
+        to_cd = _norm(row.get("toCd"))
+        if not class_cd or not to_cd:
+            continue
+        rows.append(_build_meet_index_row(row, updated_at=_now_iso()))
+    return sorted(rows, key=_meet_index_sort_key)
+
+
+def _save_meet_index_rows(rows):
+    normalized = []
+    now_iso = _now_iso()
+    for row in rows:
+        class_cd = _norm(row.get("classCd"))
+        to_cd = _norm(row.get("toCd"))
+        if not class_cd or not to_cd:
+            continue
+        normalized.append(_build_meet_index_row(row, updated_at=now_iso))
+    normalized = sorted(normalized, key=_meet_index_sort_key)
+    _save_csv_rows(MEET_INDEX_INF201_CSV, normalized, MEET_INDEX_FIELDS)
+    return normalized
+
+
+def _merge_meet_index_rows(*row_sets):
+    merged = {}
+    now_iso = _now_iso()
+    for rows in row_sets:
+        for row in rows:
+            class_cd = _norm(row.get("classCd"))
+            to_cd = _norm(row.get("toCd"))
+            if not class_cd or not to_cd:
+                continue
+            key = _meet_key(class_cd, to_cd)
+            merged[key] = _build_meet_index_row(row, updated_at=now_iso)
+    return sorted(merged.values(), key=_meet_index_sort_key)
+
+
+def _seed_meet_index_from_records_anon():
+    if not RECORDS_ANON_CSV.exists():
+        return []
+    frame = pd.read_csv(RECORDS_ANON_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+    if "toCd" not in frame.columns or "대회명" not in frame.columns:
+        return []
+    base = frame.copy()
+    base["toCd"] = base["toCd"].astype(str).str.strip()
+    base["대회명"] = base["대회명"].astype(str).str.strip()
+    base["일자"] = base["일자"].astype(str).str.strip() if "일자" in base.columns else ""
+    base = base[(base["toCd"] != "") & (base["대회명"] != "")].copy()
+    if base.empty:
+        return []
+    rows = []
+    now_iso = _now_iso()
+    for to_cd, group in base.groupby(["toCd"], dropna=False, sort=True):
+        meet_counts = group["대회명"].value_counts()
+        meet_name = meet_counts.index[0] if not meet_counts.empty else ""
+        dates = sorted({value for value in group["일자"].tolist() if _norm(value)})
+        period = ""
+        if dates:
+            period = dates[0] if len(dates) == 1 else f"{dates[0]}~{dates[-1]}"
+        rows.append(
+            {
+                "classCd": "2",
+                "toCd": _norm(to_cd),
+                "searchAppYn": "",
+                "대회명": _norm(meet_name),
+                "장소": "",
+                "기간": period,
+                "상태": "",
+                "pageIndex": "",
+                "updatedAt": now_iso,
+            }
+        )
+    return sorted(rows, key=_meet_index_sort_key)
+
+
+def _ensure_meet_index_rows():
+    rows = _load_meet_index_rows()
+    if rows:
+        return rows, False
+    seeded = _seed_meet_index_from_records_anon()
+    if not seeded:
+        return [], False
+    saved = _save_meet_index_rows(seeded)
+    print(f"[weekly] meet_index 초기 시드 생성: {MEET_INDEX_INF201_CSV} ({len(saved)}건)")
+    return saved, True
+
+
+def _collect_inf201_page_events(session, page_index, *, refresh, request_gap_seconds, progress, failures):
+    cache_path = _cache_path_inf201(page_index)
+    payload = _base_payload()
+    payload["pageIndex"] = str(page_index)
+    request_key = f"inf201:{page_index}"
+    html, _, _reason = _fetch_with_cache(
+        session,
+        request_type="inf201",
+        request_key=request_key,
+        endpoint=INF201_ENDPOINT,
+        payload=payload,
+        cache_path=cache_path,
+        context=f"page={page_index}",
+        refresh=refresh,
+        request_gap_seconds=request_gap_seconds,
+        progress=progress,
+        failures=failures,
+    )
+    _bump_counter(progress, "inf201_pages_parsed")
+    _save_progress(progress)
+    if html is None:
+        return []
+    return _parse_inf201_events_html(html, page_index=page_index)
+
+
+def _append_records_anon_from_full():
+    if not RECORDS_FULL_CSV.exists() or not ATHLETE_INFO_FULL_CSV.exists():
+        raise FileNotFoundError(f"[error] 익명 append 입력이 없습니다: {RECORDS_FULL_CSV}, {ATHLETE_INFO_FULL_CSV}")
+
+    records_full = pd.read_csv(RECORDS_FULL_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+    athlete_full = pd.read_csv(ATHLETE_INFO_FULL_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+    clean_records = build_clean_records(records_full, athlete_full)
+    records_anon_new = build_records_anon(clean_records, os.environ.get(ANON_SALT_ENV, ""))
+    validate_records_anon(records_anon_new)
+
+    if RECORDS_ANON_CSV.exists():
+        existing = pd.read_csv(RECORDS_ANON_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+    else:
+        existing = pd.DataFrame(columns=RECORDS_ANON_REQUIRED_COLUMNS)
+    existing = existing.reindex(columns=RECORDS_ANON_REQUIRED_COLUMNS).fillna("")
+
+    key_sep = "\u241f"
+    existing_key = existing[ANON_RECORD_KEY_FIELDS].astype(str).agg(key_sep.join, axis=1)
+    new_key = records_anon_new[ANON_RECORD_KEY_FIELDS].astype(str).agg(key_sep.join, axis=1)
+    append_mask = ~new_key.isin(set(existing_key.tolist()))
+    appended_rows = records_anon_new.loc[append_mask].copy()
+    duplicate_rows = int((~append_mask).sum())
+
+    merged = pd.concat([existing, appended_rows[RECORDS_ANON_REQUIRED_COLUMNS]], ignore_index=True)
+    merged = merged.fillna("")
+    merged = merged.sort_values(["대회연도", "대회명", "일자", "거리", "라운드", "익명키"], na_position="last").reset_index(drop=True)
+    merged_key = merged[ANON_RECORD_KEY_FIELDS].astype(str).agg(key_sep.join, axis=1)
+    dup_count = int(merged_key.duplicated().sum())
+    if dup_count:
+        raise ValueError(f"[error] records_anon append 후 중복 키가 남았습니다: {dup_count}건")
+
+    merged.to_csv(RECORDS_ANON_CSV, index=False, encoding="utf-8-sig")
+    print(
+        "[weekly] records_anon append: 신규 {0:,}건 / 기존중복스킵 {1:,}건 / 총 {2:,}건".format(
+            int(len(appended_rows)),
+            duplicate_rows,
+            int(len(merged)),
+        )
+    )
+    return {
+        "appended_rows": int(len(appended_rows)),
+        "duplicate_skipped": duplicate_rows,
+        "total_rows": int(len(merged)),
+    }
 
 def _load_failures():
     failures = {}
@@ -1300,13 +1496,29 @@ def _build_base_records(events):
                 }
             )
 
-        def add_detail_warning(stage, reason):
+        def add_detail_warning(kind_cd, detail_class_cd, detail_category, detail_name, stage, reason):
             nonlocal event_detail_warned, first_warning_stage, first_warning_reason
             parse_stats["detail_warning_count"] += 1
             event_detail_warned += 1
             if not first_warning_stage:
                 first_warning_stage = _norm(stage)
                 first_warning_reason = _norm(reason)
+            detail_failures.append(
+                {
+                    "classCd": class_cd,
+                    "toCd": to_cd,
+                    "kindCd": _norm(kind_cd),
+                    "detailClassCd": _norm(detail_class_cd),
+                    "실패단계": _norm(stage),
+                    "단계": _norm(stage),
+                    "사유": _norm(reason),
+                    "대회명": event_name,
+                    "종별": _norm(detail_category),
+                    "세부종목": _norm(detail_name),
+                    "심각도": "warn",
+                    "최종시각": _now_iso(),
+                }
+            )
 
         is_winter = "동계체" in event_name
         if is_winter:
@@ -1402,16 +1614,33 @@ def _build_base_records(events):
                     reason_code, reason_detail = _classify_inf301_empty_calls(html_301)
                     if reason_code == "no_schedule_rows":
                         parse_stats["inf301_no_schedule_detail_count"] += 1
+                        add_detail_warning(
+                            kind_cd,
+                            detail_class_cd,
+                            detail_category,
+                            detail_name_seed,
+                            "inf301_result_call_parse",
+                            f"kindCd={kind_cd} detailClassCd={detail_class_cd} code={reason_code} {reason_detail}",
+                        )
                     elif reason_code == "parser_mismatch":
                         parse_stats["inf301_parser_mismatch_detail_count"] += 1
-                    add_detail_failure(
-                        kind_cd,
-                        detail_class_cd,
-                        detail_category,
-                        detail_name_seed,
-                        "inf301_result_call_parse",
-                        f"kindCd={kind_cd} detailClassCd={detail_class_cd} code={reason_code} {reason_detail}",
-                    )
+                        add_detail_failure(
+                            kind_cd,
+                            detail_class_cd,
+                            detail_category,
+                            detail_name_seed,
+                            "inf301_result_call_parse_unexpected",
+                            f"kindCd={kind_cd} detailClassCd={detail_class_cd} code={reason_code} {reason_detail}",
+                        )
+                    else:
+                        add_detail_failure(
+                            kind_cd,
+                            detail_class_cd,
+                            detail_category,
+                            detail_name_seed,
+                            "inf301_result_call_parse_unexpected",
+                            f"kindCd={kind_cd} detailClassCd={detail_class_cd} code={reason_code} {reason_detail}",
+                        )
                     continue
 
                 is_relay_detail = _is_relay_context(detail_class_cd, detail_name_seed, calls)
@@ -1546,7 +1775,11 @@ def _build_base_records(events):
                     if is_relay_detail:
                         parse_stats["inf310_zero_participant_relay_warning_count"] += 1
                         add_detail_warning(
-                            "inf310_zero_participant_relay",
+                            kind_cd,
+                            detail_class_cd,
+                            detail_category,
+                            detail_name_seed,
+                            "inf310_zero_participant",
                             f"kindCd={kind_cd} detailClassCd={detail_class_cd}",
                         )
                         print(
@@ -1560,7 +1793,7 @@ def _build_base_records(events):
                         detail_class_cd,
                         detail_category,
                         detail_name_seed,
-                        "inf310_zero_participant",
+                        "inf310_zero_participant_unexpected",
                         f"kindCd={kind_cd} detailClassCd={detail_class_cd}",
                     )
                     continue
@@ -1810,6 +2043,14 @@ def _export_full_csv(events, progress):
         dist_text = ", ".join(f"{length}자리 {count:,}건" for length, count in sorted(length_counts.items()))
         print(f"[export] idNo 비정상 길이 분포: {dist_text}")
     print(f"[export] 세부종목 실패 {len(detail_failures):,}건 → {DETAIL_FAILURES_CSV}")
+    detail_failure_summary = _summarize_detail_failures(detail_failures)
+    print(
+        "[export] 세부종목 실패 분류: known_warning {0:,} / unknown_warning {1:,} / unknown_failure {2:,}".format(
+            detail_failure_summary["known_warning_count"],
+            detail_failure_summary["unknown_warning_count"],
+            detail_failure_summary["unknown_failure_count"],
+        )
+    )
     print(
         "[export] INF310 파싱: data row {0:,} / 구분행 {1:,} / 참가자 없음 row {2:,}(결과행 추정 {3:,}) / table 미감지 {4:,} / header 미감지 {5:,} / 비정상 id {6:,}".format(
             parse_stats["inf310_data_row_count"],
@@ -1877,6 +2118,10 @@ def _export_full_csv(events, progress):
         "birth_year_covered": birth_year_ok,
         "winter_ids": len(winter_ids),
         "inf503_cache_missing": inf503_cache_missing,
+        "known_warning_count": detail_failure_summary["known_warning_count"],
+        "unknown_warning_count": detail_failure_summary["unknown_warning_count"],
+        "unknown_failure_count": detail_failure_summary["unknown_failure_count"],
+        "unknown_failure_rows": detail_failure_summary["unknown_failure_rows"],
         "suspicious_ids_count": len(suspicious_rows),
         "detail_failures": detail_failures,
         "event_status_rows": event_status_rows,
@@ -1889,6 +2134,39 @@ def _count_csv_data_rows(path):
         return 0
     with path.open("r", newline="", encoding="utf-8-sig") as f:
         return sum(1 for _ in csv.DictReader(f))
+
+
+def _classify_detail_failure(row):
+    stage = _norm(row.get("실패단계") or row.get("단계"))
+    severity = _norm(row.get("심각도")).lower()
+    if stage in KNOWN_WARNING_STAGES:
+        return "known_warning"
+    if severity == "warn":
+        return "unknown_warning"
+    return "unknown_failure"
+
+
+def _summarize_detail_failures(rows):
+    known_warning = 0
+    unknown_warning = 0
+    unknown_failure = 0
+    unknown_failure_rows = []
+    for row in rows:
+        kind = _classify_detail_failure(row)
+        if kind == "known_warning":
+            known_warning += 1
+            continue
+        if kind == "unknown_warning":
+            unknown_warning += 1
+            continue
+        unknown_failure += 1
+        unknown_failure_rows.append(row)
+    return {
+        "known_warning_count": int(known_warning),
+        "unknown_warning_count": int(unknown_warning),
+        "unknown_failure_count": int(unknown_failure),
+        "unknown_failure_rows": unknown_failure_rows,
+    }
 
 
 def _count_records_by_meet(path, meet_keys=None):
@@ -2122,6 +2400,26 @@ def _finalize_summary(progress, request_failures, meet_failures, mode, export_su
         print("[summary] 요청 실패 목록 없음")
 
 
+def _enforce_unknown_failure_policy(export_summary, *, fail_on_unknown_failures):
+    unknown_count = int(export_summary.get("unknown_failure_count", 0))
+    if unknown_count <= 0:
+        return
+    print(f"[summary] unknown failure {unknown_count}건 감지")
+    for row in export_summary.get("unknown_failure_rows", [])[:10]:
+        print(
+            "  - classCd={0} toCd={1} kindCd={2} detailClassCd={3} stage={4} reason={5}".format(
+                _norm(row.get("classCd")),
+                _norm(row.get("toCd")),
+                _norm(row.get("kindCd")),
+                _norm(row.get("detailClassCd")),
+                _norm(row.get("실패단계") or row.get("단계")),
+                _norm(row.get("사유")),
+            )
+        )
+    if fail_on_unknown_failures:
+        raise RuntimeError(f"[error] unknown failure {unknown_count}건 감지")
+
+
 def _build_arg_parser():
     parser = argparse.ArgumentParser(description="대회 중심( INF201→INF301/AJAX→INF310 ) + 전체 선수 INF503 보완 수집기")
     parser.add_argument(
@@ -2147,6 +2445,11 @@ def _build_arg_parser():
         default=None,
         help="테스트용: classCd=2 대회 최대 처리 수 제한",
     )
+    parser.add_argument(
+        "--fail-on-unknown-failures",
+        action="store_true",
+        help="known warning을 제외한 신규 실패 유형이 있으면 종료 코드 1로 실패 처리",
+    )
 
     sub = parser.add_subparsers(dest="command")
     collect_parser = sub.add_parser("collect", help="전수 수집 + 전체 선수 INF503 보완 + full CSV 생성")
@@ -2156,6 +2459,18 @@ def _build_arg_parser():
     retry_parser.add_argument("--refresh", action="store_true", help="재시도 시 캐시 무시")
 
     sub.add_parser("export", help="캐시 기반 full CSV 재생성 (네트워크 요청 없음)")
+    weekly_parser = sub.add_parser("weekly-incremental", help="주간 증분 수집 (INF201 1페이지 기준 신규 대회만)")
+    weekly_parser.add_argument(
+        "--max-new-pages",
+        type=int,
+        default=5,
+        help="신규 감지 시 추가 조회할 INF201 최대 페이지 수 (기본 5)",
+    )
+    weekly_parser.add_argument(
+        "--summary-json",
+        default=None,
+        help="주간 실행 요약 JSON 출력 경로 (기본: data/weekly_incremental_summary.json)",
+    )
     sub.add_parser("compare-resolved", help="기존 14명(resolved.csv) 기준 회귀 비교")
     sub.add_parser("cleanup-raw-cache", help="집계 후 raw HTML 캐시 정리")
     return parser
@@ -2170,6 +2485,134 @@ def _prepare_runtime(mode, data_dir, request_gap):
     progress["request_gap_seconds"] = request_gap
     _save_progress(progress)
     return progress, request_failures, meet_failures
+
+
+def _write_weekly_summary(payload, summary_json_path=None):
+    target = pathlib.Path(summary_json_path).expanduser() if summary_json_path else WEEKLY_SUMMARY_JSON
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"[weekly] 요약 저장: {target}")
+
+
+def _run_weekly_incremental(args):
+    if args.request_gap < 1.0:
+        raise ValueError("[error] --request-gap은 1.0 이상이어야 합니다.")
+    data_dir = args.data_dir or os.environ.get("SPLITS_DATA_DIR", str(DEFAULT_DATA_DIR))
+    progress, failures, meet_failures = _prepare_runtime("weekly-incremental", data_dir=data_dir, request_gap=args.request_gap)
+    print(f"[path] data_dir={DATA_DIR}")
+
+    meet_index_rows, seeded = _ensure_meet_index_rows()
+    known_meet_keys = {
+        _meet_key(row.get("classCd"), row.get("toCd"))
+        for row in meet_index_rows
+        if _norm(row.get("classCd")) == "2" and _norm(row.get("toCd"))
+    }
+    print(f"[weekly] known meets(classCd=2): {len(known_meet_keys):,}")
+
+    session = requests.Session()
+    max_new_pages = max(1, int(args.max_new_pages or 1))
+    fetched_class2_events = []
+    new_events = []
+    new_event_keys = set()
+    fetched_pages = 0
+
+    for page in range(1, max_new_pages + 1):
+        page_events = _collect_inf201_page_events(
+            session,
+            page,
+            refresh=True,
+            request_gap_seconds=args.request_gap,
+            progress=progress,
+            failures=failures,
+        )
+        if not page_events:
+            break
+        fetched_pages += 1
+        class2_page_events = [event for event in page_events if _norm(event.get("classCd")) == "2" and _norm(event.get("toCd"))]
+        if not class2_page_events:
+            break
+        fetched_class2_events.extend(class2_page_events)
+
+        page_new_count = 0
+        for event in class2_page_events:
+            key = _meet_key(event.get("classCd"), event.get("toCd"))
+            if key in known_meet_keys or key in new_event_keys:
+                continue
+            new_event_keys.add(key)
+            new_events.append(event)
+            page_new_count += 1
+
+        if page == 1 and page_new_count == 0:
+            break
+        if page > 1 and page_new_count == 0:
+            break
+
+    print(f"[weekly] INF201 조회 페이지: {fetched_pages} / 신규 대회: {len(new_events):,}")
+    summary_payload = {
+        "mode": "weekly-incremental",
+        "updatedAt": _now_iso(),
+        "seededMeetIndex": bool(seeded),
+        "fetchedPages": int(fetched_pages),
+        "fetchedClass2Events": int(len(fetched_class2_events)),
+        "newEventCount": int(len(new_events)),
+        "newEventKeys": sorted(new_event_keys),
+        "hasNewEvents": bool(new_events),
+        "recordsAnonAppended": 0,
+        "recordsAnonDuplicateSkipped": 0,
+        "recordsAnonTotalRows": 0,
+        "unknownFailureCount": 0,
+        "meetIndexUpdated": bool(seeded),
+        "shouldCommit": bool(seeded),
+    }
+
+    if not new_events:
+        _write_weekly_summary(summary_payload, summary_json_path=args.summary_json)
+        return
+
+    _collect_event_route(
+        session,
+        events=new_events,
+        refresh=True,
+        request_gap_seconds=args.request_gap,
+        progress=progress,
+        failures=failures,
+        meet_failures=meet_failures,
+    )
+    base_records, _, winter_ids, _, _, _, _, _ = _build_base_records(new_events)
+    inf310_ids = sorted({_norm(row.get("idNo")) for row in base_records if _norm(row.get("idNo"))})
+    print(f"[weekly] 신규 대회 INF503 보완 대상(전체) {len(inf310_ids):,}명 / 동계체전 참가자 {len(winter_ids):,}명")
+    _collect_inf503_for_ids(
+        session,
+        id_list=inf310_ids,
+        refresh=False,
+        request_gap_seconds=args.request_gap,
+        progress=progress,
+        failures=failures,
+    )
+
+    export_summary = _export_full_csv(new_events, progress=progress)
+    _apply_event_status_rows(progress, meet_failures, export_summary.get("event_status_rows", []))
+    _finalize_summary(progress, failures, meet_failures, mode="weekly-incremental", export_summary=export_summary)
+    _enforce_unknown_failure_policy(
+        export_summary,
+        fail_on_unknown_failures=bool(args.fail_on_unknown_failures),
+    )
+
+    append_summary = _append_records_anon_from_full()
+    merged_meet_index = _merge_meet_index_rows(meet_index_rows, fetched_class2_events)
+    _save_meet_index_rows(merged_meet_index)
+
+    summary_payload.update(
+        {
+            "recordsAnonAppended": int(append_summary["appended_rows"]),
+            "recordsAnonDuplicateSkipped": int(append_summary["duplicate_skipped"]),
+            "recordsAnonTotalRows": int(append_summary["total_rows"]),
+            "unknownFailureCount": int(export_summary.get("unknown_failure_count", 0)),
+            "meetIndexUpdated": True,
+            "shouldCommit": bool(append_summary["appended_rows"] > 0 or len(new_events) > 0),
+        }
+    )
+    _write_weekly_summary(summary_payload, summary_json_path=args.summary_json)
 
 
 def _run_collect(args):
@@ -2218,6 +2661,10 @@ def _run_collect(args):
     export_summary = _export_full_csv(events, progress=progress)
     _apply_event_status_rows(progress, meet_failures, export_summary.get("event_status_rows", []))
     _finalize_summary(progress, failures, meet_failures, mode="collect", export_summary=export_summary)
+    _enforce_unknown_failure_policy(
+        export_summary,
+        fail_on_unknown_failures=bool(args.fail_on_unknown_failures),
+    )
 
 
 def _run_retry_failures(args):
@@ -2297,6 +2744,10 @@ def _run_retry_failures(args):
             print(f"[retry] 대회 행수 변화 classCd={class_cd} toCd={to_cd}: {before:,} -> {after:,} ({delta:+,})")
         print(f"[retry] 행수 변화 발생 대회 {changed_meets:,}/{len(retry_keys):,}")
     _finalize_summary(progress, failures, meet_failures, mode="retry-failures", export_summary=export_summary)
+    _enforce_unknown_failure_policy(
+        export_summary,
+        fail_on_unknown_failures=bool(args.fail_on_unknown_failures),
+    )
 
 
 def _run_export(args):
@@ -2311,6 +2762,10 @@ def _run_export(args):
     export_summary = _export_full_csv(events, progress=progress)
     _apply_event_status_rows(progress, meet_failures, export_summary.get("event_status_rows", []))
     _finalize_summary(progress, failures, meet_failures, mode="export", export_summary=export_summary)
+    _enforce_unknown_failure_policy(
+        export_summary,
+        fail_on_unknown_failures=bool(args.fail_on_unknown_failures),
+    )
 
 
 def main():
@@ -2328,6 +2783,9 @@ def main():
         if command == "export":
             _run_export(args)
             return
+        if command == "weekly-incremental":
+            _run_weekly_incremental(args)
+            return
         if command == "compare-resolved":
             data_dir = args.data_dir or os.environ.get("SPLITS_DATA_DIR", str(DEFAULT_DATA_DIR))
             _configure_data_paths(data_dir)
@@ -2338,6 +2796,9 @@ def main():
             raise SystemExit(_cleanup_raw_cache())
         raise SystemExit(f"[error] 알 수 없는 명령어: {command}")
     except ValueError as exc:
+        print(str(exc))
+        raise SystemExit(1)
+    except RuntimeError as exc:
         print(str(exc))
         raise SystemExit(1)
     except KeyboardInterrupt:

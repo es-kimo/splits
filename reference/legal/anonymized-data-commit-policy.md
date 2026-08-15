@@ -14,6 +14,7 @@
 - `data/stats_participation.csv`
 - `data/public_figures.csv`
 - `data/coverage.csv`
+- `data/meet_index_inf201.csv`
 - `site/**`
 
 ## 3. 커밋 금지 범위

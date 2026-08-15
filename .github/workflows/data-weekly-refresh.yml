@@ -1,0 +1,120 @@
+name: data-weekly-refresh
+
+on:
+  schedule:
+    - cron: "0 19 * * 1"
+  workflow_dispatch:
+    inputs:
+      fail_on_unknown_failures:
+        description: "known warning 외 신규 실패 유형이 있으면 실패 처리"
+        required: true
+        default: true
+        type: boolean
+      self_test_commit_policy:
+        description: "커밋 정책 검증을 의도적으로 실패시켜 보호장치 점검"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  weekly-refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      SPLITS_ANON_SALT: ${{ secrets.SPLITS_ANON_SALT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          npm ci --prefix web
+
+      - name: Weekly incremental collect
+        id: collect
+        run: |
+          set -euo pipefail
+          FAIL_ON_UNKNOWN="true"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.fail_on_unknown_failures }}" = "false" ]; then
+            FAIL_ON_UNKNOWN="false"
+          fi
+
+          if [ "$FAIL_ON_UNKNOWN" = "true" ]; then
+            python3 collect_full_history.py --request-gap 1.0 --fail-on-unknown-failures weekly-incremental
+          else
+            python3 collect_full_history.py --request-gap 1.0 weekly-incremental
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary_path = Path("data/weekly_incremental_summary.json")
+          if not summary_path.exists():
+            raise SystemExit("[error] data/weekly_incremental_summary.json 파일이 없습니다.")
+          payload = json.loads(summary_path.read_text(encoding="utf-8"))
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fp:
+            fp.write(f"has_new_events={'true' if payload.get('hasNewEvents') else 'false'}\n")
+            fp.write(f"should_commit={'true' if payload.get('shouldCommit') else 'false'}\n")
+            fp.write(f"new_event_count={int(payload.get('newEventCount') or 0)}\n")
+            fp.write(f"unknown_failure_count={int(payload.get('unknownFailureCount') or 0)}\n")
+          PY
+
+      - name: Rebuild anonymous stats
+        if: ${{ steps.collect.outputs.should_commit == 'true' }}
+        run: python3 analyze.py
+
+      - name: Refresh site data for distribution
+        if: ${{ steps.collect.outputs.should_commit == 'true' }}
+        run: python3 scripts/refresh_site_distribution.py
+
+      - name: Build static site
+        if: ${{ steps.collect.outputs.should_commit == 'true' }}
+        run: python3 build_site.py
+
+      - name: Commit policy self-test
+        if: ${{ steps.collect.outputs.should_commit == 'true' && github.event_name == 'workflow_dispatch' && inputs.self_test_commit_policy }}
+        run: |
+          set -euo pipefail
+          cp data/records_anon.csv data/records_full.csv
+          git add -f data/records_full.csv
+          if python3 scripts/check_data_commit_policy.py --mode staged; then
+            echo "::error::커밋 정책 self-test 실패: 금지 파일이 통과됨"
+            exit 1
+          fi
+          git reset -- data/records_full.csv
+          rm -f data/records_full.csv
+
+      - name: Commit and push updates
+        if: ${{ steps.collect.outputs.should_commit == 'true' }}
+        run: |
+          set -euo pipefail
+          git add -A
+
+          python3 scripts/check_data_commit_policy.py --mode staged
+
+          if git diff --cached --quiet; then
+            echo "[info] 변경 없음: 커밋 생략"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(data): weekly refresh $(date -u +%Y-%m-%d)"
+          git push

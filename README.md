@@ -61,6 +61,7 @@ python build_site.py
 | `python collect_full_history.py collect`           | 네트워크 원천(INF201→INF301(kind옵션)→detailClass AJAX→INF301→INF310), 기존 캐시/진행상태(`data/raw/**`, `data/collect_progress.json`)                                       | `data/raw/inf201/{page}.html`, `data/raw/inf301_kind/{classCd}_{toCd}.html`, `data/raw/detail_class_ajax/{classCd}_{toCd}_{kindCd}.json`, `data/raw/inf301/{classCd}_{toCd}_{kindCd}_{detailClassCd}.html`, `data/raw/inf310/{classCd}_{toCd}_{kindCd}_{detailClassCd}_{baseClassCd}_{rhCd}_{pcntGbn}.html`, `data/raw/inf503/{idNo}.html`, `data/collect_progress.json`, `data/collect_failures.csv`, `data/detail_failures.csv`, `data/collect_request_failures.csv`, `data/suspicious_ids.csv`, `data/records_full.csv`, `data/athlete_info_full.csv` | `analyze.py` 익명 통계 입력 우선, `build_data.py` 대회 집계 입력 우선 |
 | `python collect_full_history.py retry-failures`    | `data/collect_failures.csv`(부분완료/실패 대회 목록)                                                                                                                            | 위 `collect`와 동일 파일 갱신                                                                                                                                                                                                                                                                                                                       | 동일                                                        |
 | `python collect_full_history.py export`            | `data/raw/inf201|inf301_kind|detail_class_ajax|inf301|inf310|inf503` 캐시                                                                                                      | `data/records_full.csv`, `data/athlete_info_full.csv`, `data/suspicious_ids.csv`, `data/detail_failures.csv` 재생성                                                                                                                                                                                                                                | 동일                                                        |
+| `python collect_full_history.py weekly-incremental` | `data/meet_index_inf201.csv`(신규 대회 판별 기준, 없으면 `records_anon.csv` 기반 시드 생성), INF201 1페이지 응답, 환경변수 `SPLITS_ANON_SALT`                                 | 신규 대회 캐시(`data/raw/**` 일부), `data/records_full.csv`, `data/athlete_info_full.csv`, `data/weekly_incremental_summary.json`, `data/records_anon.csv` append, `data/meet_index_inf201.csv` 갱신                                                                                                                                            | `analyze.py`(익명 통계 재집계), `build_site.py`            |
 | `python collect_full_history.py compare-resolved`  | `data/resolved.csv`, `data/records.csv`, `data/athlete_info.csv`, `data/records_full.csv`, `data/athlete_info_full.csv`                                                        | CSV 생성 없음(회귀 비교 로그)                                                                                                                                                                                                                                                                                                                       | 품질 점검                                                   |
 | `python collect_full_history.py cleanup-raw-cache` | `data/raw/**/*.html`                                                                                                                                                           | raw cache 삭제                                                                                                                                                                                                                                                                                                                                      | 저장 공간 정리                                              |
 | `python build_data.py`                             | `data/placements.csv`, `data/youth_summary.csv`, `data/age_matrix.csv`, `data/athlete_info.csv`, `data/coverage.csv`, `data/public_figures.csv`, `data/stats_distribution.csv` + **대회 집계용 원천 1쌍 필수**: `records_full.csv`+`athlete_info_full.csv`(1순위) 또는 `records.csv`+`athlete_info.csv`(2순위), 환경변수 `SPLITS_ANON_SALT` (선택: `SPLITS_MEET_INDEX_CSV`) | `data/records_anon.csv`, `site/data/athletes.json`, `site/data/meets.json`, `site/data/distribution.json`, `site/data/meta.json`                                                                                                                                                                                                                     | `build_site.py`                                             |
@@ -75,18 +76,22 @@ python build_site.py
 ```bash
 python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/data collect
 python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/data retry-failures
+python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/data weekly-incremental --fail-on-unknown-failures
 python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/data compare-resolved
 python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/data cleanup-raw-cache
 ```
 
 - `collect`: 미수집 대상 이어받기 수집 + full CSV 생성
 - `retry-failures`: 부분완료/실패 대회 캐시 무효화 후 재요청 + full CSV 재생성
+- `weekly-incremental`: INF201 1페이지 기준 신규 대회만 수집 + records_anon 증분 append
 - `export`: 네트워크 요청 없이 캐시만으로 full CSV 재생성
 - `compare-resolved`: 기존 resolved 기준 old/new 회귀 비교
 - `cleanup-raw-cache`: 집계 후 raw HTML 캐시만 삭제
 - `--data-dir` 미지정 시 `./data`(또는 `SPLITS_DATA_DIR`) 사용
 - 네트워크 요청 간격은 기본 1초(`--request-gap`), 캐시 히트 시 sleep 생략
 - `collect`는 classCd=2(쇼트트랙) 대회를 `INF201` 응답 기준으로 전수 시도하고, 대회 경로에서 발견된 전체 선수 id를 `INF503`로 보완 조회해 `채점종합`·출생년도·목록 외 대회 이력을 보강합니다.
+- 분기 전수 재수집 런북은 `reference/data/quarterly-full-recollection-runbook.md`를 따릅니다.
+- GitHub Actions 주간 자동화는 `.github/workflows/data-weekly-refresh.yml`(UTC 월 19시 = KST 화 04시)에서 관리합니다.
 
 ## 5) 파일 의미(핵심)
 
@@ -101,6 +106,7 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 | `data/collect_failures.csv`                             | 대회 상태 요약 중 부분완료/실패 목록(재시도 입력)              |
 | `data/detail_failures.csv`                              | 세부종목 단위 실패 로그(`classCd,toCd,kindCd,detailClassCd`)   |
 | `data/collect_request_failures.csv`                     | 요청 단위 실패 로그(HTTP/네트워크 진단)                        |
+| `data/meet_index_inf201.csv`                            | 주간 증분 신규 대회 판별용 INF201 인덱스                       |
 | `data/suspicious_ids.csv`                               | 규격 외 idNo(자리수/형식 이상) 감지 로그                        |
 | `data/id_merges.csv`                                   | 동일 선수 id 병합 확정표(부idNo→주idNo)                        |
 | `data/placements.csv`                                  | 선수·대회·거리 단위 대표 성적(라운드 해석 적용 결과)           |
@@ -111,7 +117,7 @@ python collect_full_history.py --data-dir /Users/kihyun/orgs/personal/splits/dat
 
 ## 6) 운영 원칙
 
-- `data/` 커밋 허용 파일은 `records_anon.csv`, `stats_distribution.csv`, `stats_participation.csv`, `public_figures.csv`, `coverage.csv`(및 `data/README.md`)로 제한합니다.
+- `data/` 커밋 허용 파일은 `records_anon.csv`, `stats_distribution.csv`, `stats_participation.csv`, `public_figures.csv`, `coverage.csv`, `meet_index_inf201.csv`(및 `data/README.md`)로 제한합니다.
 - 개인식별/원천 데이터(`records`, `records_full`, `athlete_info`, `athlete_info_full`, `athlete_index`, `id_merge_candidates`, `id_merges`, `raw/**`)는 Git에 커밋하지 않습니다.
 - SALT는 환경변수 `SPLITS_ANON_SALT`로만 주입하며 `.env*` 파일은 커밋하지 않습니다.
 - `python analyze.py`는 익명 통계 생성 시 `records_full/athlete_info_full`이 있으면 우선 사용하고, 없으면 `records/athlete_info`를 사용합니다. 선수 단계 산출물(`placements.csv` 등)은 항상 `records/athlete_info` 기준입니다.

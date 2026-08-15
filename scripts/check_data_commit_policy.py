@@ -13,6 +13,7 @@ ALLOWED_DATA_FILES = {
     "data/coverage.csv",
     "data/stats_distribution.csv",
     "data/stats_participation.csv",
+    "data/meet_index_inf201.csv",
 }
 FORBIDDEN_DATA_FILES = {
     "data/raw",
