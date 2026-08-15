@@ -17,15 +17,6 @@ const meta = loadMetaDoc();
   contentWidth="narrow"
   pageBottomPadding="64px"
 >
-  <noscript>
-    <div class="dist-noscript">
-      <b>지금은 조건을 바꿀 수 없어요</b>
-      아래 결과는 기본 조건으로 미리 계산해 둔 값입니다. 브라우저에서 자바스크립트가 꺼져 있어 조건 선택과 기록 입력이 동작하지
-      않습니다. 자바스크립트를 켜면 우리 아이 조건으로 바로 확인할 수 있어요. 지금도 <a href={withBase("meet/")}>대회 기록</a>과
-      <a href={withBase("athlete/")}>공개 선수 기록</a>은 그대로 볼 수 있어요.
-    </div>
-  </noscript>
-
   <DistributionTool
     client:visible
     homeUrl={withBase()}
@@ -280,54 +271,6 @@ const meta = loadMetaDoc();
       background: #f5f7fa;
       border-radius: 12px;
       padding: 10px 12px;
-    }
-    :global(.dist-mismatch-note) {
-      margin-top: 14px;
-      background: #fdf3f2;
-      border-radius: 14px;
-      padding: 14px 15px;
-    }
-    :global(.dist-mismatch-title) {
-      margin-bottom: 4px;
-      font-size: 14px;
-      font-weight: 700;
-      color: #b3453b;
-    }
-    :global(.dist-mismatch-body) {
-      font-size: 13.5px;
-      color: #6b6f78;
-    }
-    :global(.dist-mismatch-actions) {
-      margin-top: 12px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    :global(.dist-mismatch-actions button) {
-      min-height: 42px;
-      padding: 0 14px;
-      border: 0;
-      border-radius: 12px;
-      background: #ffffff;
-      color: #17181c;
-      font-size: 13.5px;
-      font-weight: 700;
-      font-family: inherit;
-      cursor: pointer;
-    }
-    :global(.dist-noscript) {
-      display: block;
-      background: #fff8e8;
-      border-radius: 16px;
-      padding: 16px 18px;
-      font-size: 14px;
-      color: #6b5528;
-    }
-    :global(.dist-noscript b) {
-      display: block;
-      margin-bottom: 4px;
-      font-size: 15px;
-      color: #4b3d1c;
     }
     :global(.dist-evidence) {
       margin-top: 16px;

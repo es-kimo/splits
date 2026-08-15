@@ -14,7 +14,6 @@ interface Props {
   contentLineHeight?: "default" | "compact";
   pageBottomPadding?: string;
   footerVariant?: "legal" | "none";
-  noindex?: boolean;
 }
 
 const {
@@ -30,7 +29,6 @@ const {
   contentLineHeight = "default",
   pageBottomPadding = "72px",
   footerVariant = "legal",
-  noindex = false,
 } = Astro.props;
 const pageClass = [
   "page",
@@ -54,7 +52,6 @@ const resolvedOgType = ogType ?? "website";
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    {noindex && <meta name="robots" content="noindex, follow" />}
     <meta property="og:title" content={resolvedOgTitle} />
     <meta property="og:description" content={resolvedOgDescription} />
     <meta property="og:image" content={resolvedOgImage} />
