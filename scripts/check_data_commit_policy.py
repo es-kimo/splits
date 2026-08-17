@@ -14,6 +14,11 @@ ALLOWED_DATA_FILES = {
     "data/stats_distribution.csv",
     "data/stats_participation.csv",
     "data/meet_index_inf201.csv",
+    "data/class_level_map.csv",
+    "data/class_level_year_category_counts.csv",
+    "data/class_level_ab_agreement_summary.csv",
+    "data/class_level_ab_mismatch_types.csv",
+    "data/class_level_year_readiness.csv",
 }
 FORBIDDEN_DATA_FILES = {
     "data/raw",

@@ -11,6 +11,11 @@
 - `data/public_figures.csv` (의도된 실명 명단)
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
+- `data/class_level_map.csv`
+- `data/class_level_year_category_counts.csv`
+- `data/class_level_ab_agreement_summary.csv`
+- `data/class_level_ab_mismatch_types.csv`
+- `data/class_level_year_readiness.csv`
 
 ## 2) 커밋 금지 파일
 
@@ -66,6 +71,7 @@ python3 build_data.py
 ```
 
 - `analyze.py`는 통계 CSV를 생성합니다.
+- `analyze.py`는 익명 통계 CSV와 단계 판정 진단 CSV를 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
 - `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 
@@ -101,6 +107,23 @@ python3 scripts/audit_data_quality.py
 | 커버리지 | 항목별 결측률, 공개 가능 조합 비율, 폴백 응답률 |
 
 `--strict`를 붙이면 경고도 실패로 처리합니다.
+
+## 9) 단계 판정 진단 산출물 (이슈 #78)
+
+`analyze.py`는 아래 진단 파일을 함께 생성합니다.
+
+- `data/class_level_map.csv`: `종별` 원문 전수 목록과 정규화 단계(A)
+- `data/class_level_year_category_counts.csv`: 연도 × 종별 행 수
+- `data/class_level_ab_agreement_summary.csv`: 종별 기반(A) vs 출생연도 계산(B) 요약
+- `data/class_level_ab_mismatch_types.csv`: A/B 불일치 유형별 건수
+- `data/class_level_year_readiness.csv`: 연도별 단계 분석 사용 가능 여부
+
+단계 계산(B) 기본식:
+
+`학년 = 시즌시작연도 - 출생연도 - 6` (시즌 시작월 7월 기준)
+
+- B를 기본 판정으로 사용하고, 출생연도 결측 시에만 A(종별 기반)로 폴백합니다.
+- `학년 <= 0`은 미취학/입력오류 구간으로 단계 분석에서 제외합니다.
 
 ## 8) 선수 식별키 신뢰도 점검 (이슈 #77)
 

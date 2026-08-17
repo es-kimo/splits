@@ -15,6 +15,11 @@
 - `data/public_figures.csv`
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
+- `data/class_level_map.csv`
+- `data/class_level_year_category_counts.csv`
+- `data/class_level_ab_agreement_summary.csv`
+- `data/class_level_ab_mismatch_types.csv`
+- `data/class_level_year_readiness.csv`
 - `site/**`
 
 ## 3. 커밋 금지 범위
