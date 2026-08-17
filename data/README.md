@@ -101,3 +101,16 @@ python3 scripts/audit_data_quality.py
 | 커버리지 | 항목별 결측률, 공개 가능 조합 비율, 폴백 응답률 |
 
 `--strict`를 붙이면 경고도 실패로 처리합니다.
+
+## 8) 선수 식별키 신뢰도 점검 (이슈 #77)
+
+```bash
+python3 scripts/audit_id_key_reliability.py
+# 또는 공유 원천 경로 명시
+python3 scripts/audit_id_key_reliability.py --data-dir /Users/kihyun/orgs/personal/splits/data
+```
+
+- 입력 우선순위: `records_full.csv + athlete_info_full.csv` → 없으면 `records.csv + athlete_info.csv`
+- 요약 산출물: `data/merge_audit_summary.md` (숫자/유형 통계만 기록)
+- 로컬 전용 private 산출물: `data/merge_audit_sample_private.csv`, `data/merge_audit_signals_private.csv`
+- private 산출물은 원천 식별자를 포함할 수 있으므로 Git 커밋 금지입니다.

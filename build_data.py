@@ -22,6 +22,10 @@ MEETS_JSON = SITE_DATA_DIR / "meets.json"
 DISTRIBUTION_JSON = SITE_DATA_DIR / "distribution.json"
 META_JSON = SITE_DATA_DIR / "meta.json"
 ANON_SALT_ENV = "SPLITS_ANON_SALT"
+ANON_KEY_ALGORITHM = "sha256"
+ANON_KEY_HEX_LENGTH = 12
+ANON_KEY_SOURCE_FIELD = "idNo"
+ANON_KEY_EXCLUDED_FIELDS = ("이름", "출생연도", "소속", "성별", "시도", "BIB", "레인")
 MEET_INDEX_CSV_ENV = "SPLITS_MEET_INDEX_CSV"
 DEFAULT_SHARED_MEET_INDEX_CSV = Path("/Users/kihyun/orgs/personal/splits/data/meet_index_inf201.csv")
 INPUT_FILES = [
@@ -287,11 +291,26 @@ def _load_meet_source():
     raise FileNotFoundError(f"[error] 대회 집계용 기록 파일이 없습니다: {missing_text}")
 
 
+def anon_key_spec():
+    return {
+        "algorithm": ANON_KEY_ALGORITHM,
+        "source_field": ANON_KEY_SOURCE_FIELD,
+        "salt_env": ANON_SALT_ENV,
+        "hex_length": ANON_KEY_HEX_LENGTH,
+        "formula": f"{ANON_KEY_ALGORITHM}({ANON_KEY_SOURCE_FIELD} + SALT)[:{ANON_KEY_HEX_LENGTH}]",
+        "excluded_fields": list(ANON_KEY_EXCLUDED_FIELDS),
+    }
+
+
 def _build_anon_key(id_no, salt):
     source = as_id(id_no)
     if not source:
         return ""
-    return hashlib.sha256(f"{source}{salt}".encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256(f"{source}{salt}".encode("utf-8")).hexdigest()[:ANON_KEY_HEX_LENGTH]
+
+
+def build_anon_key(id_no, salt):
+    return _build_anon_key(id_no, salt)
 
 
 def _extract_grade_text(category_text):
