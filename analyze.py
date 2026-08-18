@@ -28,6 +28,8 @@ SEASON_MONTH_HISTOGRAM_CSV = DATA_DIR / "season_month_histogram.csv"
 PARTICIPATION_CSV = DATA_DIR / "participation.csv"
 SEASON_ACTIVITY_COUNTS_CSV = DATA_DIR / "season_activity_counts.csv"
 CLASS_TRANSITION_SUMMARY_CSV = DATA_DIR / "class_transition_summary.csv"
+GAP_RETURN_RATES_CSV = DATA_DIR / "gap_return_rates.csv"
+RECORD_STOP_RULE_CSV = DATA_DIR / "record_stop_rule.csv"
 SCHOOL_RAW_LIST_TXT = DATA_DIR / "school_raw_list.txt"
 SCHOOL_ALIASES_CSV = DATA_DIR / "school_aliases.csv"
 SCHOOL_AMBIGUOUS_CSV = DATA_DIR / "school_ambiguous.csv"
@@ -126,6 +128,23 @@ CLASS_TRANSITION_OUTPUT_COLS = [
     "쇼트트랙중단수",
     "빙상중단수",
 ]
+GAP_RETURN_RATE_OUTPUT_COLS = ["구간", "공백시즌수", "사례수", "복귀사례", "복귀율(%)", "관측부족제외수"]
+RECORD_STOP_RULE_OUTPUT_COLS = [
+    "기준식",
+    "복귀율기준(%)",
+    "분모기준",
+    "확정n",
+    "근거구간",
+    "근거사례수",
+    "근거복귀사례",
+    "근거복귀율(%)",
+    "근거문장",
+]
+GAP_RETURN_SEGMENTS = [("전체", None), ("6→7", 6), ("9→10", 9), ("12→13", 12)]
+GAP_RETURN_BUCKETS = [("1", 1), ("2", 2), ("3", 3), ("4+", 4)]
+RECORD_STOP_RULE_TEXT = "n시즌 연속 미출전 = 기록 중단"
+RECORD_STOP_MAX_RETURN_RATE_PCT = 20.0
+RECORD_STOP_MIN_CASES = 100
 CLASS_LEVEL_MAP_COLS = ["종별", "종별정규화키", "단계_A", "A_판정규칙", "분석포함", "행수", "최초연도", "최신연도"]
 CLASS_LEVEL_YEAR_CATEGORY_COLS = ["대회연도", "종별", "단계_A", "행수"]
 CLASS_LEVEL_AGREEMENT_COLS = [
@@ -1429,7 +1448,14 @@ def build_stats_from_anon_records():
     coverage_df = build_coverage(clean_df)
     stats_distribution_df = build_stats_distribution(clean_df, athlete_df)
     stats_participation_df = build_stats_participation(summary_df, athlete_df)
-    season_month_histogram_df, participation_df, season_activity_df, transition_summary_df = build_participation_outputs(clean_df)
+    (
+        season_month_histogram_df,
+        participation_df,
+        season_activity_df,
+        transition_summary_df,
+        gap_return_rates_df,
+        record_stop_rule_df,
+    ) = build_participation_outputs(clean_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df
@@ -1447,6 +1473,8 @@ def build_stats_from_anon_records():
         participation_df,
         season_activity_df,
         transition_summary_df,
+        gap_return_rates_df,
+        record_stop_rule_df,
     )
 
 
@@ -2265,11 +2293,183 @@ def build_activity_and_transition_summary(participation_df):
     return season_activity, transition_summary
 
 
+def build_gap_return_episodes(participation_df):
+    columns = ["익명키", "시작시즌", "시작학년", "관측공백시즌수", "복귀여부", "복귀공백시즌수"]
+    if participation_df is None or participation_df.empty:
+        return pd.DataFrame(columns=columns)
+    base = participation_df.copy()
+    base["익명키"] = base.get("익명키", "").map(_norm_text)
+    base["시즌"] = pd.to_numeric(base.get("시즌"), errors="coerce").astype("Int64")
+    base["학년"] = pd.to_numeric(base.get("학년"), errors="coerce").astype("Int64")
+    base["classCd목록"] = base.get("classCd목록", "").map(_norm_text)
+    base = base[(base["익명키"] != "") & base["시즌"].notna()].copy()
+    if base.empty:
+        return pd.DataFrame(columns=columns)
+
+    max_season = int(base["시즌"].max())
+    rows = []
+    grouped = base.sort_values(["익명키", "시즌"], ascending=[True, True]).groupby("익명키", sort=False)
+    for anon_key, group in grouped:
+        entries = []
+        for _, row in group.iterrows():
+            season = _to_int_or_none(row.get("시즌"))
+            if season is None:
+                continue
+            entries.append(
+                {
+                    "시즌": season,
+                    "학년": _to_int_or_none(row.get("학년")),
+                    "class_codes": _parse_class_code_set(row.get("classCd목록", "")),
+                }
+            )
+        if not entries:
+            continue
+
+        for idx, current in enumerate(entries):
+            if SHORTTRACK_CLASS_CD not in current["class_codes"]:
+                continue
+            next_entry = entries[idx + 1] if idx + 1 < len(entries) else None
+            if next_entry is None:
+                observed_gap = max(0, max_season - current["시즌"])
+                returned = "N"
+                return_gap = pd.NA
+            else:
+                observed_gap = max(0, next_entry["시즌"] - current["시즌"] - 1)
+                returned = "Y"
+                return_gap = observed_gap
+            if observed_gap < 1:
+                continue
+            rows.append(
+                {
+                    "익명키": anon_key,
+                    "시작시즌": current["시즌"],
+                    "시작학년": current["학년"],
+                    "관측공백시즌수": observed_gap,
+                    "복귀여부": returned,
+                    "복귀공백시즌수": return_gap,
+                }
+            )
+
+    out = pd.DataFrame(rows, columns=columns)
+    if out.empty:
+        return out
+    for col in ["시작시즌", "시작학년", "관측공백시즌수", "복귀공백시즌수"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").astype("Int64")
+    return out
+
+
+def build_gap_return_rates(gap_episode_df):
+    out = pd.DataFrame(columns=GAP_RETURN_RATE_OUTPUT_COLS)
+    if gap_episode_df is None or gap_episode_df.empty:
+        return out
+
+    rows = []
+    for segment_label, start_grade in GAP_RETURN_SEGMENTS:
+        segment = gap_episode_df if start_grade is None else gap_episode_df[gap_episode_df["시작학년"] == start_grade]
+        total_cases = int(len(segment))
+        for bucket_label, min_gap in GAP_RETURN_BUCKETS:
+            eligible = segment[segment["관측공백시즌수"] >= min_gap]
+            case_count = int(len(eligible))
+            return_count = int((eligible["복귀여부"] == "Y").sum())
+            rows.append(
+                {
+                    "구간": segment_label,
+                    "공백시즌수": bucket_label,
+                    "사례수": case_count,
+                    "복귀사례": return_count,
+                    "복귀율(%)": _ratio_pct(return_count, case_count) if case_count else pd.NA,
+                    "관측부족제외수": int(total_cases - case_count),
+                }
+            )
+    out = pd.DataFrame(rows, columns=GAP_RETURN_RATE_OUTPUT_COLS)
+    for col in ["사례수", "복귀사례", "관측부족제외수"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").astype("Int64")
+    out["복귀율(%)"] = pd.to_numeric(out["복귀율(%)"], errors="coerce")
+    return out
+
+
+def build_record_stop_rule(gap_return_rates_df):
+    row = {
+        "기준식": RECORD_STOP_RULE_TEXT,
+        "복귀율기준(%)": RECORD_STOP_MAX_RETURN_RATE_PCT,
+        "분모기준": RECORD_STOP_MIN_CASES,
+        "확정n": "보류",
+        "근거구간": "",
+        "근거사례수": pd.NA,
+        "근거복귀사례": pd.NA,
+        "근거복귀율(%)": pd.NA,
+        "근거문장": "공백 복귀율 집계가 없어 기록 중단 기준을 확정하지 못했습니다.",
+    }
+    if gap_return_rates_df is None or gap_return_rates_df.empty:
+        return pd.DataFrame([row], columns=RECORD_STOP_RULE_OUTPUT_COLS)
+
+    overall = gap_return_rates_df[gap_return_rates_df["구간"] == "전체"].copy()
+    if overall.empty:
+        return pd.DataFrame([row], columns=RECORD_STOP_RULE_OUTPUT_COLS)
+    overall["최소공백시즌수"] = [
+        4 if _norm_text(label) == "4+" else _to_int_or_none(label)
+        for label in overall["공백시즌수"].tolist()
+    ]
+    overall["사례수"] = pd.to_numeric(overall["사례수"], errors="coerce").astype("Int64")
+    overall["복귀사례"] = pd.to_numeric(overall["복귀사례"], errors="coerce").astype("Int64")
+    overall["복귀율(%)"] = pd.to_numeric(overall["복귀율(%)"], errors="coerce")
+    overall = overall[overall["최소공백시즌수"].notna()].copy()
+    if overall.empty:
+        return pd.DataFrame([row], columns=RECORD_STOP_RULE_OUTPUT_COLS)
+
+    eligible = overall[
+        overall["사례수"].notna()
+        & (overall["사례수"] >= RECORD_STOP_MIN_CASES)
+        & overall["복귀율(%)"].notna()
+        & (overall["복귀율(%)"] <= RECORD_STOP_MAX_RETURN_RATE_PCT)
+    ].copy()
+    if not eligible.empty:
+        selected = eligible.sort_values(["최소공백시즌수", "복귀율(%)"], ascending=[True, True]).iloc[0]
+        row["확정n"] = _norm_text(selected["공백시즌수"])
+        row["근거구간"] = _norm_text(selected["공백시즌수"])
+        row["근거사례수"] = int(selected["사례수"])
+        row["근거복귀사례"] = int(selected["복귀사례"])
+        row["근거복귀율(%)"] = round(float(selected["복귀율(%)"]), 2)
+        row["근거문장"] = (
+            f"공백 {row['근거구간']}시즌 이상 사례 {row['근거사례수']}건 중 복귀 {row['근거복귀사례']}건"
+            f"({row['근거복귀율(%)']}%)으로 기준(복귀율 ≤ {RECORD_STOP_MAX_RETURN_RATE_PCT}%, 분모 ≥ {RECORD_STOP_MIN_CASES})을 충족해 "
+            f"기록 중단 기준을 {row['확정n']}시즌으로 확정했습니다."
+        )
+        return pd.DataFrame([row], columns=RECORD_STOP_RULE_OUTPUT_COLS)
+
+    denominator_ready = overall[
+        overall["사례수"].notna() & (overall["사례수"] >= RECORD_STOP_MIN_CASES) & overall["복귀율(%)"].notna()
+    ].copy()
+    if denominator_ready.empty:
+        row["근거문장"] = (
+            f"모든 공백 구간에서 분모 {RECORD_STOP_MIN_CASES}건 이상을 확보하지 못해 기록 중단 기준 확정을 보류했습니다."
+        )
+    else:
+        best = denominator_ready.sort_values(["복귀율(%)", "최소공백시즌수"], ascending=[True, True]).iloc[0]
+        best_label = _norm_text(best["공백시즌수"])
+        best_rate = round(float(best["복귀율(%)"]), 2)
+        row["근거문장"] = (
+            f"분모 기준(≥ {RECORD_STOP_MIN_CASES})을 만족한 구간 중 최저 복귀율은 공백 {best_label}시즌 {best_rate}%로, "
+            f"복귀율 기준(≤ {RECORD_STOP_MAX_RETURN_RATE_PCT}%)을 충족하지 못해 기록 중단 기준 확정을 보류했습니다."
+        )
+    return pd.DataFrame([row], columns=RECORD_STOP_RULE_OUTPUT_COLS)
+
+
 def build_participation_outputs(clean_df):
     season_month_histogram_df = build_season_month_histogram(clean_df)
     participation_df = build_participation_table(clean_df)
     season_activity_df, transition_summary_df = build_activity_and_transition_summary(participation_df)
-    return season_month_histogram_df, participation_df, season_activity_df, transition_summary_df
+    gap_episode_df = build_gap_return_episodes(participation_df)
+    gap_return_rates_df = build_gap_return_rates(gap_episode_df)
+    record_stop_rule_df = build_record_stop_rule(gap_return_rates_df)
+    return (
+        season_month_histogram_df,
+        participation_df,
+        season_activity_df,
+        transition_summary_df,
+        gap_return_rates_df,
+        record_stop_rule_df,
+    )
 
 
 def print_season_boundary_evidence(season_month_histogram_df):
@@ -2374,6 +2574,8 @@ def main():
             participation_df,
             season_activity_df,
             transition_summary_df,
+            gap_return_rates_df,
+            record_stop_rule_df,
         ) = build_stats_from_anon_records()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
@@ -2383,6 +2585,8 @@ def main():
         participation_df.to_csv(PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
         season_activity_df.to_csv(SEASON_ACTIVITY_COUNTS_CSV, index=False, encoding="utf-8-sig")
         transition_summary_df.to_csv(CLASS_TRANSITION_SUMMARY_CSV, index=False, encoding="utf-8-sig")
+        gap_return_rates_df.to_csv(GAP_RETURN_RATES_CSV, index=False, encoding="utf-8-sig")
+        record_stop_rule_df.to_csv(RECORD_STOP_RULE_CSV, index=False, encoding="utf-8-sig")
         class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
         class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
         class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
@@ -2397,6 +2601,10 @@ def main():
         print(f"참가 이력 저장 완료: {PARTICIPATION_CSV} ({len(participation_df)}행)")
         print(f"시즌별 활동 선수수 저장 완료: {SEASON_ACTIVITY_COUNTS_CSV} ({len(season_activity_df)}행)")
         print(f"종목 전환 요약 저장 완료: {CLASS_TRANSITION_SUMMARY_CSV} ({len(transition_summary_df)}행)")
+        print(f"공백 복귀율 저장 완료: {GAP_RETURN_RATES_CSV} ({len(gap_return_rates_df)}행)")
+        print(f"기록 중단 기준 저장 완료: {RECORD_STOP_RULE_CSV} ({len(record_stop_rule_df)}행)")
+        if not record_stop_rule_df.empty:
+            print(record_stop_rule_df.iloc[0].get("근거문장", ""))
         print(f"종별 단계 매핑 저장 완료: {CLASS_LEVEL_MAP_CSV} ({len(class_level_map_df)}행)")
         print(f"연도×종별 집계 저장 완료: {CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV} ({len(class_level_year_category_df)}행)")
         print(f"단계 A/B 요약 저장 완료: {CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV}")
@@ -2443,7 +2651,14 @@ def main():
     participation_clean_df, participation_source_label = select_participation_source(records_merged_df, athlete_merged_df, id_merge_map)
     stats_distribution_df = build_stats_distribution(stats_clean_df, stats_athlete_df)
     stats_participation_df = build_stats_participation(stats_summary_df, stats_athlete_df)
-    season_month_histogram_df, participation_df, season_activity_df, transition_summary_df = build_participation_outputs(participation_clean_df)
+    (
+        season_month_histogram_df,
+        participation_df,
+        season_activity_df,
+        transition_summary_df,
+        gap_return_rates_df,
+        record_stop_rule_df,
+    ) = build_participation_outputs(participation_clean_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df, id_merge_candidates_df
@@ -2470,6 +2685,8 @@ def main():
     participation_df.to_csv(PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
     season_activity_df.to_csv(SEASON_ACTIVITY_COUNTS_CSV, index=False, encoding="utf-8-sig")
     transition_summary_df.to_csv(CLASS_TRANSITION_SUMMARY_CSV, index=False, encoding="utf-8-sig")
+    gap_return_rates_df.to_csv(GAP_RETURN_RATES_CSV, index=False, encoding="utf-8-sig")
+    record_stop_rule_df.to_csv(RECORD_STOP_RULE_CSV, index=False, encoding="utf-8-sig")
     class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
     class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
     class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
@@ -2515,6 +2732,10 @@ def main():
     print(f"참가 이력 저장 완료: {PARTICIPATION_CSV} ({len(participation_df)}행)")
     print(f"시즌별 활동 선수수 저장 완료: {SEASON_ACTIVITY_COUNTS_CSV} ({len(season_activity_df)}행)")
     print(f"종목 전환 요약 저장 완료: {CLASS_TRANSITION_SUMMARY_CSV} ({len(transition_summary_df)}행)")
+    print(f"공백 복귀율 저장 완료: {GAP_RETURN_RATES_CSV} ({len(gap_return_rates_df)}행)")
+    print(f"기록 중단 기준 저장 완료: {RECORD_STOP_RULE_CSV} ({len(record_stop_rule_df)}행)")
+    if not record_stop_rule_df.empty:
+        print(record_stop_rule_df.iloc[0].get("근거문장", ""))
     print(f"종별 단계 매핑 저장 완료: {CLASS_LEVEL_MAP_CSV} ({len(class_level_map_df)}행)")
     print(f"연도×종별 집계 저장 완료: {CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV} ({len(class_level_year_category_df)}행)")
     print(f"단계 A/B 요약 저장 완료: {CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV}")
