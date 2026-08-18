@@ -12,6 +12,10 @@
 - `data/records_anon.csv`
 - `data/stats_distribution.csv`
 - `data/stats_participation.csv`
+- `data/season_month_histogram.csv`
+- `data/participation.csv`
+- `data/season_activity_counts.csv`
+- `data/class_transition_summary.csv`
 - `data/public_figures.csv`
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
@@ -49,6 +53,17 @@
 `이름, idNo, 소속, 시도, BIB, 레인`
 
 `toCd`는 별도 대회 인덱스(`meet_index_inf201.csv`)가 있을 때만 채웁니다. 인덱스가 없거나 매칭이 불명확한 경우에는 공백을 허용합니다.
+
+## 5-1. participation 스키마
+
+헤더:
+
+`익명키, 시즌, 출생연도, 성별, 학년, 단계, 종별_단계, 대회수, 경기수, classCd목록, 오픈참가`
+
+규칙:
+
+- `익명키`: 12자리 hex
+- `오픈참가`: `Y` 또는 `N`
 
 ## 6. 강제 장치
 

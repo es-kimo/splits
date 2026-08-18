@@ -1,3 +1,4 @@
+import hashlib
 import os
 import pathlib
 import re
@@ -23,6 +24,10 @@ AGE_MATRIX_CSV = DATA_DIR / "age_matrix.csv"
 BEST_HEAT_TIMES_CSV = DATA_DIR / "best_heat_times.csv"
 STATS_DISTRIBUTION_CSV = DATA_DIR / "stats_distribution.csv"
 STATS_PARTICIPATION_CSV = DATA_DIR / "stats_participation.csv"
+SEASON_MONTH_HISTOGRAM_CSV = DATA_DIR / "season_month_histogram.csv"
+PARTICIPATION_CSV = DATA_DIR / "participation.csv"
+SEASON_ACTIVITY_COUNTS_CSV = DATA_DIR / "season_activity_counts.csv"
+CLASS_TRANSITION_SUMMARY_CSV = DATA_DIR / "class_transition_summary.csv"
 SCHOOL_RAW_LIST_TXT = DATA_DIR / "school_raw_list.txt"
 SCHOOL_ALIASES_CSV = DATA_DIR / "school_aliases.csv"
 SCHOOL_AMBIGUOUS_CSV = DATA_DIR / "school_ambiguous.csv"
@@ -40,6 +45,7 @@ WINTER_GAME_ROUND_RE = re.compile(r"제\s*(\d+)\s*회")
 DATE_MONTH_RE = re.compile(r"^(?:19|20)\d{2}-(\d{2})-\d{2}$")
 DATE_MONTH_DOTTED_RE = re.compile(r"^(?:19|20)\d{2}[./](\d{1,2})[./]\d{1,2}$")
 CATEGORY_NORMALIZE_RE = re.compile(r"[\s\-_/·.]+")
+ANON_KEY_RE = re.compile(r"^[0-9a-f]{12}$")
 LOWER_BOUNDS = {500: 40, 1000: 82, 1500: 128, 3000: 260}
 OPEN_GENERAL_UPPER_BOUNDS = {500: 70, 1000: 140, 1500: 220}
 LOWER_NEAR_MARGIN = 2.0
@@ -94,6 +100,32 @@ DIST_OUTPUT_COLS = (
     ["출생연도", "성별", "거리", "기록_인원수"] + DIST_TIME_COLS + ["순위_인원수"] + DIST_RANK_COLS
 )
 PART_OUTPUT_COLS = ["출생연도", "성별", "최초출전나이_p25", "최초출전나이_p50", "최초출전나이_p75", "초등부출전수_p50", "인원수"]
+SEASON_MONTH_HISTOGRAM_COLS = ["월", "월라벨", "시즌구간", "대회수", "대회비율(%)"]
+PARTICIPATION_OUTPUT_COLS = [
+    "익명키",
+    "시즌",
+    "출생연도",
+    "성별",
+    "학년",
+    "단계",
+    "종별_단계",
+    "대회수",
+    "경기수",
+    "classCd목록",
+    "오픈참가",
+]
+SEASON_ACTIVITY_OUTPUT_COLS = ["시즌", "활동선수수"]
+CLASS_TRANSITION_OUTPUT_COLS = [
+    "시즌",
+    "활동선수수",
+    "쇼트트랙전용수",
+    "스피드전용수",
+    "병행수",
+    "전환수",
+    "기타수",
+    "쇼트트랙중단수",
+    "빙상중단수",
+]
 CLASS_LEVEL_MAP_COLS = ["종별", "종별정규화키", "단계_A", "A_판정규칙", "분석포함", "행수", "최초연도", "최신연도"]
 CLASS_LEVEL_YEAR_CATEGORY_COLS = ["대회연도", "종별", "단계_A", "행수"]
 CLASS_LEVEL_AGREEMENT_COLS = [
@@ -1280,6 +1312,20 @@ def select_stats_source(records_merged_df, athlete_merged_df, id_merge_map):
     return stats_clean, stats_placements, stats_summary, stats_athlete, source_label
 
 
+def select_participation_source(records_merged_df, athlete_merged_df, id_merge_map):
+    records = records_merged_df
+    athlete = athlete_merged_df
+    source_label = f"{RECORDS_CSV.name}, {ATHLETE_INFO_CSV.name}"
+    if RECORDS_FULL_CSV.exists() and ATHLETE_INFO_FULL_CSV.exists():
+        full_records_df = pd.read_csv(RECORDS_FULL_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+        full_athlete_df = pd.read_csv(ATHLETE_INFO_FULL_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+        records = apply_id_remap(full_records_df, id_merge_map, id_col="idNo")
+        athlete = apply_id_remap(full_athlete_df, id_merge_map, id_col="idNo")
+        source_label = f"{RECORDS_FULL_CSV.name}, {ATHLETE_INFO_FULL_CSV.name}"
+    clean = build_clean_records(records, athlete)
+    return clean, source_label
+
+
 def _load_anon_clean_records():
     anon_df = pd.read_csv(RECORDS_ANON_CSV, dtype=str, encoding="utf-8-sig").fillna("")
     columns = list(anon_df.columns)
@@ -1383,6 +1429,7 @@ def build_stats_from_anon_records():
     coverage_df = build_coverage(clean_df)
     stats_distribution_df = build_stats_distribution(clean_df, athlete_df)
     stats_participation_df = build_stats_participation(summary_df, athlete_df)
+    season_month_histogram_df, participation_df, season_activity_df, transition_summary_df = build_participation_outputs(clean_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df
@@ -1396,6 +1443,10 @@ def build_stats_from_anon_records():
         class_level_agreement_df,
         class_level_mismatch_df,
         class_level_year_readiness_df,
+        season_month_histogram_df,
+        participation_df,
+        season_activity_df,
+        transition_summary_df,
     )
 
 
@@ -1900,6 +1951,340 @@ def build_stats_participation(summary_df, athlete_df):
     return out.sort_values(["출생연도", "성별"], na_position="last")
 
 
+def _month_label(month):
+    if month is None:
+        return "미상"
+    return f"{int(month)}월"
+
+
+def _season_bucket_label(month):
+    if month is None:
+        return "미상"
+    if int(month) >= SEASON_START_MONTH:
+        return f"{SEASON_START_MONTH}~12월(시즌 시작 구간)"
+    return f"1~{SEASON_START_MONTH - 1}월(시즌 종료 구간)"
+
+
+def build_season_month_histogram(clean_df):
+    if clean_df is None or clean_df.empty:
+        out = pd.DataFrame(columns=SEASON_MONTH_HISTOGRAM_COLS)
+        out.attrs["known_meets"] = 0
+        out.attrs["unknown_meets"] = 0
+        out.attrs["start_bucket_meets"] = 0
+        out.attrs["end_bucket_meets"] = 0
+        return out
+    base = clean_df.copy()
+    base["대회명"] = base.get("대회명", "").map(_norm_text)
+    base["대회연도"] = pd.to_numeric(base.get("대회연도"), errors="coerce").astype("Int64")
+    base["일자_정규화"] = base.get("일자_정규화", "").map(_norm_text)
+    base["일자"] = base.get("일자", "").map(_norm_text)
+    base = base[base["대회명"] != ""].copy()
+    if base.empty:
+        out = pd.DataFrame(columns=SEASON_MONTH_HISTOGRAM_COLS)
+        out.attrs["known_meets"] = 0
+        out.attrs["unknown_meets"] = 0
+        out.attrs["start_bucket_meets"] = 0
+        out.attrs["end_bucket_meets"] = 0
+        return out
+
+    base["대회연도_key"] = base["대회연도"].fillna(-1).astype("Int64")
+    month_rows = []
+    for (meet_year, meet_name), group in base.groupby(["대회연도_key", "대회명"], sort=False, dropna=False):
+        months = []
+        for normalized_date, raw_date in zip(group["일자_정규화"], group["일자"]):
+            month = _extract_month_from_date(normalized_date, raw_date)
+            if month is not None:
+                months.append(month)
+        selected_month = min(months) if months else None
+        month_rows.append({"대회연도_key": int(meet_year), "대회명": meet_name, "월": selected_month})
+
+    month_df = pd.DataFrame(month_rows)
+    if month_df.empty:
+        out = pd.DataFrame(columns=SEASON_MONTH_HISTOGRAM_COLS)
+        out.attrs["known_meets"] = 0
+        out.attrs["unknown_meets"] = 0
+        out.attrs["start_bucket_meets"] = 0
+        out.attrs["end_bucket_meets"] = 0
+        return out
+
+    month_df["월_key"] = month_df["월"].apply(lambda value: int(value) if value is not None else 0)
+    month_counts = month_df.groupby("월_key", dropna=False).size().to_dict()
+    total_meets = int(sum(month_counts.values()))
+
+    rows = []
+    ordered_months = list(range(1, 13)) + ([0] if 0 in month_counts else [])
+    for month_key in ordered_months:
+        count = int(month_counts.get(month_key, 0))
+        if count <= 0:
+            continue
+        month_value = None if month_key == 0 else month_key
+        ratio = round((count / total_meets) * 100.0, 2) if total_meets else 0.0
+        rows.append(
+            {
+                "월": month_key,
+                "월라벨": _month_label(month_value),
+                "시즌구간": _season_bucket_label(month_value),
+                "대회수": count,
+                "대회비율(%)": ratio,
+            }
+        )
+    out = pd.DataFrame(rows, columns=SEASON_MONTH_HISTOGRAM_COLS)
+    if not out.empty:
+        out["월"] = pd.to_numeric(out["월"], errors="coerce").astype("Int64")
+        out["대회수"] = pd.to_numeric(out["대회수"], errors="coerce").astype("Int64")
+
+    known_meets = int(month_df["월"].notna().sum())
+    unknown_meets = int(month_df["월"].isna().sum())
+    start_bucket_meets = int(month_df[month_df["월"].fillna(0).astype(int) >= SEASON_START_MONTH].shape[0])
+    end_bucket_meets = int(month_df[(month_df["월"].fillna(0).astype(int) > 0) & (month_df["월"].fillna(0).astype(int) < SEASON_START_MONTH)].shape[0])
+    out.attrs["known_meets"] = known_meets
+    out.attrs["unknown_meets"] = unknown_meets
+    out.attrs["start_bucket_meets"] = start_bucket_meets
+    out.attrs["end_bucket_meets"] = end_bucket_meets
+    return out
+
+
+def _safe_bool_text(value):
+    return "Y" if bool(value) else "N"
+
+
+def _to_anon_key(id_no, anon_salt):
+    text = _norm_text(id_no)
+    if not text:
+        return ""
+    if ANON_KEY_RE.fullmatch(text):
+        return text
+    if anon_salt:
+        return hashlib.sha256(f"{text}{anon_salt}".encode("utf-8")).hexdigest()[:12]
+    return text
+
+
+def _resolve_category_stage(category_series):
+    stage_counts = {}
+    for value in category_series.tolist():
+        stage = classify_school_level_from_category(value).get("stage")
+        if stage == SCHOOL_LEVEL_OPEN:
+            continue
+        if stage not in SCHOOL_LEVEL_STAGES:
+            continue
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+    if not stage_counts:
+        return ""
+    ordered = sorted(stage_counts.items(), key=lambda item: (-item[1], SCHOOL_LEVEL_ORDER.get(item[0], 99), item[0]))
+    return ordered[0][0]
+
+
+def _sorted_class_codes(values):
+    code_set = {value for value in (_norm_text(item) for item in values) if value}
+    if not code_set:
+        return ""
+    numeric_codes = sorted([code for code in code_set if code.isdigit()], key=lambda code: int(code))
+    text_codes = sorted([code for code in code_set if not code.isdigit()])
+    return "|".join(numeric_codes + text_codes)
+
+
+def build_participation_table(clean_df):
+    if clean_df is None or clean_df.empty:
+        out = pd.DataFrame(columns=PARTICIPATION_OUTPUT_COLS)
+        out.attrs["excluded_birth_missing_rows"] = 0
+        out.attrs["excluded_grade_non_positive_rows"] = 0
+        out.attrs["excluded_missing_season_rows"] = 0
+        out.attrs["raw_key_rows"] = 0
+        return out
+
+    base = clean_df.copy()
+    base["idNo"] = base.get("idNo", "").astype(str).str.strip()
+    base["출생년도"] = pd.to_numeric(base.get("출생년도"), errors="coerce").astype("Int64")
+    base["성별"] = base.get("성별", "").map(_norm_text)
+    base["종별"] = base.get("종별", "").map(_norm_text)
+    base["classCd"] = base.get("classCd", "").map(_norm_text)
+    base["대회명"] = base.get("대회명", "").map(_norm_text)
+    base["대회연도"] = pd.to_numeric(base.get("대회연도"), errors="coerce").astype("Int64")
+    base["일자_정규화"] = base.get("일자_정규화", "").map(_norm_text)
+    base["일자"] = base.get("일자", "").map(_norm_text)
+    if "시즌시작연도" in base.columns:
+        base["시즌시작연도"] = pd.to_numeric(base["시즌시작연도"], errors="coerce").astype("Int64")
+    else:
+        base["시즌시작연도"] = pd.Series(
+            [infer_season_start_year(year, date_norm, date_raw) for year, date_norm, date_raw in zip(base["대회연도"], base["일자_정규화"], base["일자"])],
+            dtype="Int64",
+        )
+    base["학년"] = pd.Series([calculate_school_grade(season, birth) for season, birth in zip(base["시즌시작연도"], base["출생년도"])], dtype="Int64")
+    base["단계"] = [classify_school_level_from_grade(grade) for grade in base["학년"]]
+    category_stage = [classify_school_level_from_category(category).get("stage") for category in base["종별"]]
+    base["오픈행"] = [stage == SCHOOL_LEVEL_OPEN for stage in category_stage]
+
+    anon_salt = _norm_text(os.environ.get("SPLITS_ANON_SALT"))
+    base["익명키"] = [_to_anon_key(id_no, anon_salt) for id_no in base["idNo"]]
+    base["meet_key"] = [
+        "|".join(
+            [
+                _norm_text(meet_year),
+                _norm_text(meet_name),
+            ]
+        )
+        for meet_year, meet_name in zip(base["대회연도"], base["대회명"])
+    ]
+    base["meet_key"] = base["meet_key"].map(lambda value: value if value != "|" else "")
+
+    valid = (base["익명키"] != "") & base["시즌시작연도"].notna() & base["출생년도"].notna() & base["학년"].notna() & (base["학년"] > 0)
+    filtered = base[valid].copy()
+    if filtered.empty:
+        out = pd.DataFrame(columns=PARTICIPATION_OUTPUT_COLS)
+        out.attrs["excluded_birth_missing_rows"] = int(base["출생년도"].isna().sum())
+        out.attrs["excluded_grade_non_positive_rows"] = int((base["학년"].fillna(0) <= 0).sum())
+        out.attrs["excluded_missing_season_rows"] = int(base["시즌시작연도"].isna().sum())
+        out.attrs["raw_key_rows"] = int(
+            (base["익명키"].map(_norm_text).map(lambda value: bool(value) and not bool(ANON_KEY_RE.fullmatch(value)))).sum()
+        )
+        return out
+
+    rows = []
+    for (anon_key, season), group in filtered.groupby(["익명키", "시즌시작연도"], sort=True, dropna=False):
+        birth_year_values = pd.to_numeric(group["출생년도"], errors="coerce").dropna()
+        birth_year = int(birth_year_values.iloc[0]) if not birth_year_values.empty else None
+        gender = _first_non_empty(group["성별"])
+        grade_values = pd.to_numeric(group["학년"], errors="coerce").dropna()
+        grade = int(grade_values.iloc[0]) if not grade_values.empty else None
+        stage = classify_school_level_from_grade(grade)
+        meet_keys = [value for value in group["meet_key"].tolist() if _norm_text(value)]
+        rows.append(
+            {
+                "익명키": _norm_text(anon_key),
+                "시즌": int(season),
+                "출생연도": birth_year,
+                "성별": gender,
+                "학년": grade,
+                "단계": stage if stage in SCHOOL_LEVEL_STAGES else "",
+                "종별_단계": _resolve_category_stage(group["종별"]),
+                "대회수": len(set(meet_keys)),
+                "경기수": int(len(group)),
+                "classCd목록": _sorted_class_codes(group["classCd"].tolist()),
+                "오픈참가": _safe_bool_text(bool(group["오픈행"].any())),
+            }
+        )
+
+    out = pd.DataFrame(rows, columns=PARTICIPATION_OUTPUT_COLS)
+    if not out.empty:
+        for col in ["시즌", "출생연도", "학년", "대회수", "경기수"]:
+            out[col] = pd.to_numeric(out[col], errors="coerce").astype("Int64")
+        out = out.sort_values(["시즌", "익명키"], ascending=[True, True]).reset_index(drop=True)
+
+    raw_key_rows = int((out["익명키"].map(_norm_text).map(lambda value: bool(value) and not bool(ANON_KEY_RE.fullmatch(value)))).sum()) if not out.empty else 0
+    out.attrs["excluded_birth_missing_rows"] = int(base["출생년도"].isna().sum())
+    out.attrs["excluded_grade_non_positive_rows"] = int((base["학년"].fillna(0) <= 0).sum())
+    out.attrs["excluded_missing_season_rows"] = int(base["시즌시작연도"].isna().sum())
+    out.attrs["raw_key_rows"] = raw_key_rows
+    return out
+
+
+def _parse_class_code_set(value):
+    tokens = [token.strip() for token in re.split(r"[|,/]", _norm_text(value)) if token.strip()]
+    return set(tokens)
+
+
+def _class_profile_label(class_codes):
+    has_speed = SPEED_CLASS_CD in class_codes
+    has_short = SHORTTRACK_CLASS_CD in class_codes
+    if has_speed and has_short:
+        return "병행"
+    if has_short and not has_speed:
+        return "쇼트트랙 전용"
+    if has_speed and not has_short:
+        return "스피드 전용"
+    return "기타"
+
+
+def build_activity_and_transition_summary(participation_df):
+    if participation_df is None or participation_df.empty:
+        return pd.DataFrame(columns=SEASON_ACTIVITY_OUTPUT_COLS), pd.DataFrame(columns=CLASS_TRANSITION_OUTPUT_COLS)
+    base = participation_df.copy()
+    base["익명키"] = base.get("익명키", "").map(_norm_text)
+    base["시즌"] = pd.to_numeric(base.get("시즌"), errors="coerce").astype("Int64")
+    base = base[(base["익명키"] != "") & base["시즌"].notna()].copy()
+    if base.empty:
+        return pd.DataFrame(columns=SEASON_ACTIVITY_OUTPUT_COLS), pd.DataFrame(columns=CLASS_TRANSITION_OUTPUT_COLS)
+
+    season_activity = (
+        base.groupby("시즌", dropna=False)["익명키"].nunique().reset_index(name="활동선수수").sort_values("시즌").reset_index(drop=True)
+    )
+    season_activity["시즌"] = pd.to_numeric(season_activity["시즌"], errors="coerce").astype("Int64")
+    season_activity["활동선수수"] = pd.to_numeric(season_activity["활동선수수"], errors="coerce").astype("Int64")
+    season_activity = season_activity[SEASON_ACTIVITY_OUTPUT_COLS]
+
+    transition_rows = []
+    for anon_key, group in base.sort_values(["익명키", "시즌"], ascending=[True, True]).groupby("익명키", sort=False):
+        entries = []
+        for _, row in group.iterrows():
+            class_codes = _parse_class_code_set(row.get("classCd목록", ""))
+            entries.append(
+                {
+                    "시즌": int(row["시즌"]),
+                    "profile": _class_profile_label(class_codes),
+                    "class_codes": class_codes,
+                }
+            )
+        for index, current in enumerate(entries):
+            previous_profile = entries[index - 1]["profile"] if index > 0 else None
+            next_codes = entries[index + 1]["class_codes"] if index + 1 < len(entries) else None
+            status = "전환" if previous_profile and current["profile"] != previous_profile else current["profile"]
+            shorttrack_stop = int(SHORTTRACK_CLASS_CD in current["class_codes"] and (next_codes is None or SHORTTRACK_CLASS_CD not in next_codes))
+            skating_stop = int(next_codes is None)
+            transition_rows.append(
+                {
+                    "익명키": anon_key,
+                    "시즌": current["시즌"],
+                    "분류": status,
+                    "쇼트트랙중단": shorttrack_stop,
+                    "빙상중단": skating_stop,
+                }
+            )
+
+    transition_df = pd.DataFrame(transition_rows)
+    if transition_df.empty:
+        return season_activity, pd.DataFrame(columns=CLASS_TRANSITION_OUTPUT_COLS)
+
+    rows = []
+    for season, group in transition_df.groupby("시즌", sort=True):
+        rows.append(
+            {
+                "시즌": int(season),
+                "활동선수수": int(len(group)),
+                "쇼트트랙전용수": int((group["분류"] == "쇼트트랙 전용").sum()),
+                "스피드전용수": int((group["분류"] == "스피드 전용").sum()),
+                "병행수": int((group["분류"] == "병행").sum()),
+                "전환수": int((group["분류"] == "전환").sum()),
+                "기타수": int((group["분류"] == "기타").sum()),
+                "쇼트트랙중단수": int(group["쇼트트랙중단"].sum()),
+                "빙상중단수": int(group["빙상중단"].sum()),
+            }
+        )
+    transition_summary = pd.DataFrame(rows, columns=CLASS_TRANSITION_OUTPUT_COLS).sort_values("시즌").reset_index(drop=True)
+    for col in CLASS_TRANSITION_OUTPUT_COLS:
+        transition_summary[col] = pd.to_numeric(transition_summary[col], errors="coerce").astype("Int64")
+    return season_activity, transition_summary
+
+
+def build_participation_outputs(clean_df):
+    season_month_histogram_df = build_season_month_histogram(clean_df)
+    participation_df = build_participation_table(clean_df)
+    season_activity_df, transition_summary_df = build_activity_and_transition_summary(participation_df)
+    return season_month_histogram_df, participation_df, season_activity_df, transition_summary_df
+
+
+def print_season_boundary_evidence(season_month_histogram_df):
+    known_meets = int(season_month_histogram_df.attrs.get("known_meets", 0))
+    unknown_meets = int(season_month_histogram_df.attrs.get("unknown_meets", 0))
+    start_bucket_meets = int(season_month_histogram_df.attrs.get("start_bucket_meets", 0))
+    end_bucket_meets = int(season_month_histogram_df.attrs.get("end_bucket_meets", 0))
+    print(f"시즌 경계 근거(월별 대회): 확인 가능 {known_meets}개 / 일자 미확보 {unknown_meets}개")
+    if known_meets > 0:
+        ratio = round((start_bucket_meets / known_meets) * 100.0, 2)
+        print(
+            f"시즌 시작 구간({SEASON_START_MONTH}~12월) {start_bucket_meets}개 vs 종료 구간(1~{SEASON_START_MONTH - 1}월) {end_bucket_meets}개 ({ratio}%)"
+        )
+
+
 def validate_anonymous_stats(distribution_df, participation_df):
     def assert_schema(df, expected_cols, filename):
         if list(df.columns) != expected_cols:
@@ -1985,11 +2370,19 @@ def main():
             class_level_agreement_df,
             class_level_mismatch_df,
             class_level_year_readiness_df,
+            season_month_histogram_df,
+            participation_df,
+            season_activity_df,
+            transition_summary_df,
         ) = build_stats_from_anon_records()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
         stats_distribution_df.to_csv(STATS_DISTRIBUTION_CSV, index=False, encoding="utf-8-sig")
         stats_participation_df.to_csv(STATS_PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
+        season_month_histogram_df.to_csv(SEASON_MONTH_HISTOGRAM_CSV, index=False, encoding="utf-8-sig")
+        participation_df.to_csv(PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
+        season_activity_df.to_csv(SEASON_ACTIVITY_COUNTS_CSV, index=False, encoding="utf-8-sig")
+        transition_summary_df.to_csv(CLASS_TRANSITION_SUMMARY_CSV, index=False, encoding="utf-8-sig")
         class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
         class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
         class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
@@ -2000,11 +2393,25 @@ def main():
         print(f"데이터 커버리지 저장 완료: {COVERAGE_CSV}")
         print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
         print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
+        print(f"시즌 월별 히스토그램 저장 완료: {SEASON_MONTH_HISTOGRAM_CSV} ({len(season_month_histogram_df)}행)")
+        print(f"참가 이력 저장 완료: {PARTICIPATION_CSV} ({len(participation_df)}행)")
+        print(f"시즌별 활동 선수수 저장 완료: {SEASON_ACTIVITY_COUNTS_CSV} ({len(season_activity_df)}행)")
+        print(f"종목 전환 요약 저장 완료: {CLASS_TRANSITION_SUMMARY_CSV} ({len(transition_summary_df)}행)")
         print(f"종별 단계 매핑 저장 완료: {CLASS_LEVEL_MAP_CSV} ({len(class_level_map_df)}행)")
         print(f"연도×종별 집계 저장 완료: {CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV} ({len(class_level_year_category_df)}행)")
         print(f"단계 A/B 요약 저장 완료: {CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV}")
         print(f"단계 A/B 불일치 유형 저장 완료: {CLASS_LEVEL_AB_MISMATCH_TYPES_CSV} ({len(class_level_mismatch_df)}행)")
         print(f"연도별 단계 분석 사용성 저장 완료: {CLASS_LEVEL_YEAR_READINESS_CSV} ({len(class_level_year_readiness_df)}행)")
+        print_season_boundary_evidence(season_month_histogram_df)
+        print(
+            "참가 이력 제외 행수: 출생연도 결측 {0}행 / 학년<=0 {1}행 / 시즌결측 {2}행".format(
+                participation_df.attrs.get("excluded_birth_missing_rows", 0),
+                participation_df.attrs.get("excluded_grade_non_positive_rows", 0),
+                participation_df.attrs.get("excluded_missing_season_rows", 0),
+            )
+        )
+        if participation_df.attrs.get("raw_key_rows", 0):
+            print("[warn] participation.csv 익명키 중 12자리 hex 형식 미준수 행이 있습니다. 커밋 전 익명키 생성 경로를 확인하세요.")
         print(f"익명 통계 입력 소스: {RECORDS_ANON_CSV.name}")
         return
     records_df = pd.read_csv(RECORDS_CSV, dtype=str, encoding="utf-8-sig").fillna("")
@@ -2033,8 +2440,10 @@ def main():
     stats_clean_df, stats_placements_df, stats_summary_df, stats_athlete_df, stats_source_label = select_stats_source(
         records_merged_df, athlete_merged_df, id_merge_map
     )
+    participation_clean_df, participation_source_label = select_participation_source(records_merged_df, athlete_merged_df, id_merge_map)
     stats_distribution_df = build_stats_distribution(stats_clean_df, stats_athlete_df)
     stats_participation_df = build_stats_participation(stats_summary_df, stats_athlete_df)
+    season_month_histogram_df, participation_df, season_activity_df, transition_summary_df = build_participation_outputs(participation_clean_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df, id_merge_candidates_df
@@ -2057,6 +2466,10 @@ def main():
     best_heat_df.to_csv(BEST_HEAT_TIMES_CSV, index=False, encoding="utf-8-sig")
     stats_distribution_df.to_csv(STATS_DISTRIBUTION_CSV, index=False, encoding="utf-8-sig")
     stats_participation_df.to_csv(STATS_PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
+    season_month_histogram_df.to_csv(SEASON_MONTH_HISTOGRAM_CSV, index=False, encoding="utf-8-sig")
+    participation_df.to_csv(PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
+    season_activity_df.to_csv(SEASON_ACTIVITY_COUNTS_CSV, index=False, encoding="utf-8-sig")
+    transition_summary_df.to_csv(CLASS_TRANSITION_SUMMARY_CSV, index=False, encoding="utf-8-sig")
     class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
     class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
     class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
@@ -2098,12 +2511,27 @@ def main():
     print(f"id 병합 review 건수: {review_count}건")
     print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
     print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
+    print(f"시즌 월별 히스토그램 저장 완료: {SEASON_MONTH_HISTOGRAM_CSV} ({len(season_month_histogram_df)}행)")
+    print(f"참가 이력 저장 완료: {PARTICIPATION_CSV} ({len(participation_df)}행)")
+    print(f"시즌별 활동 선수수 저장 완료: {SEASON_ACTIVITY_COUNTS_CSV} ({len(season_activity_df)}행)")
+    print(f"종목 전환 요약 저장 완료: {CLASS_TRANSITION_SUMMARY_CSV} ({len(transition_summary_df)}행)")
     print(f"종별 단계 매핑 저장 완료: {CLASS_LEVEL_MAP_CSV} ({len(class_level_map_df)}행)")
     print(f"연도×종별 집계 저장 완료: {CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV} ({len(class_level_year_category_df)}행)")
     print(f"단계 A/B 요약 저장 완료: {CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV}")
     print(f"단계 A/B 불일치 유형 저장 완료: {CLASS_LEVEL_AB_MISMATCH_TYPES_CSV} ({len(class_level_mismatch_df)}행)")
     print(f"연도별 단계 분석 사용성 저장 완료: {CLASS_LEVEL_YEAR_READINESS_CSV} ({len(class_level_year_readiness_df)}행)")
     print(f"익명 통계 입력 소스: {stats_source_label}")
+    print(f"참가 이력 입력 소스: {participation_source_label}")
+    print_season_boundary_evidence(season_month_histogram_df)
+    print(
+        "참가 이력 제외 행수: 출생연도 결측 {0}행 / 학년<=0 {1}행 / 시즌결측 {2}행".format(
+            participation_df.attrs.get("excluded_birth_missing_rows", 0),
+            participation_df.attrs.get("excluded_grade_non_positive_rows", 0),
+            participation_df.attrs.get("excluded_missing_season_rows", 0),
+        )
+    )
+    if participation_df.attrs.get("raw_key_rows", 0):
+        print("[warn] participation.csv 익명키 중 12자리 hex 형식 미준수 행이 있습니다. 커밋 전 익명키 생성 경로를 확인하세요.")
     print_stats_filter_log(stats_distribution_df)
     print_class_level_diagnostics(class_level_agreement_df, class_level_year_readiness_df, class_level_mismatch_df)
 

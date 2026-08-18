@@ -5,6 +5,10 @@
 !/data/coverage.csv
 !/data/stats_distribution.csv
 !/data/stats_participation.csv
+!/data/season_month_histogram.csv
+!/data/participation.csv
+!/data/season_activity_counts.csv
+!/data/class_transition_summary.csv
 !/data/meet_index_inf201.csv
 !/data/class_level_map.csv
 !/data/class_level_year_category_counts.csv
