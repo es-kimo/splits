@@ -32,6 +32,8 @@ GAP_RETURN_RATES_CSV = DATA_DIR / "gap_return_rates.csv"
 RECORD_STOP_RULE_CSV = DATA_DIR / "record_stop_rule.csv"
 COHORT_CSV = DATA_DIR / "cohort.csv"
 COHORT_STAGE_SUMMARY_CSV = DATA_DIR / "cohort_stage_summary.csv"
+RETENTION_OVERALL_CSV = DATA_DIR / "retention_overall.csv"
+RETENTION_OVERALL_SVG = pathlib.Path("analysis") / "retention_overall.svg"
 SCHOOL_RAW_LIST_TXT = DATA_DIR / "school_raw_list.txt"
 SCHOOL_ALIASES_CSV = DATA_DIR / "school_aliases.csv"
 SCHOOL_AMBIGUOUS_CSV = DATA_DIR / "school_ambiguous.csv"
@@ -184,6 +186,41 @@ COHORT_STAGE_SUMMARY_COLS = [
     "N100미만",
     "신뢰한계문구",
 ]
+RETENTION_OUTPUT_COLS = [
+    "지표유형",
+    "기준",
+    "분리기준",
+    "분리값",
+    "학년",
+    "전환구간",
+    "잔존인원",
+    "잔존율(%)",
+    "신규진입인원",
+    "다음학년진입인원",
+    "학년이탈인원",
+    "학년이탈률(%)",
+    "도달단계",
+    "도달인원",
+    "도달률(%)",
+    "대상인원",
+    "병합의심률(%)",
+    "관측시즌범위",
+    "신뢰한계문구",
+]
+RETENTION_SPLIT_DEFS = [
+    ("전체", None),
+    ("성별", "성별"),
+    ("시작학년", "시작학년"),
+    ("시작시즌대", "시작시즌대"),
+]
+RETENTION_STAGE_DEFS = [("중등", "중등"), ("고등", "고등"), ("대학·일반", "대학")]
+RETENTION_SHORTTRACK_LABEL = "쇼트트랙 기준"
+RETENTION_ALL_SKATING_LABEL = "빙상 전체 기준"
+RETENTION_SEASON_BAND_SPAN = 4
+RETENTION_MIN_N = 100
+RETENTION_HOT_GRADES = {6, 9, 12}
+RETENTION_GRADE_MIN = 1
+RETENTION_GRADE_MAX = 13
 CLASS_LEVEL_MAP_COLS = ["종별", "종별정규화키", "단계_A", "A_판정규칙", "분석포함", "행수", "최초연도", "최신연도"]
 CLASS_LEVEL_YEAR_CATEGORY_COLS = ["대회연도", "종별", "단계_A", "행수"]
 CLASS_LEVEL_AGREEMENT_COLS = [
@@ -1496,6 +1533,7 @@ def build_stats_from_anon_records():
         record_stop_rule_df,
     ) = build_participation_outputs(clean_df)
     cohort_df, cohort_stage_summary_df = build_cohort_outputs(clean_df, participation_df, record_stop_rule_df)
+    retention_overall_df = build_retention_overall(participation_df, cohort_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df
@@ -1517,6 +1555,7 @@ def build_stats_from_anon_records():
         record_stop_rule_df,
         cohort_df,
         cohort_stage_summary_df,
+        retention_overall_df,
     )
 
 
@@ -2673,6 +2712,417 @@ def build_cohort_outputs(clean_df, participation_df, record_stop_rule_df):
     return cohort, summary_df
 
 
+def _format_retention_season_band(season, anchor, span=RETENTION_SEASON_BAND_SPAN):
+    season_num = _to_int_or_none(season)
+    anchor_num = _to_int_or_none(anchor)
+    if season_num is None or anchor_num is None:
+        return ""
+    offset = max(season_num - anchor_num, 0)
+    start = anchor_num + (offset // span) * span
+    end = start + span - 1
+    return f"{start}~{end}"
+
+
+def _build_trait_conflict_flags(participation_df):
+    flags = {}
+    if participation_df is None or participation_df.empty:
+        return flags
+    base = participation_df.copy()
+    base["익명키"] = base.get("익명키", "").map(_norm_text)
+    base["성별"] = base.get("성별", "").map(_norm_text)
+    base["출생연도"] = pd.to_numeric(base.get("출생연도"), errors="coerce").astype("Int64")
+    base = base[base["익명키"] != ""].copy()
+    if base.empty:
+        return flags
+    for anon_key, group in base.groupby("익명키", sort=False):
+        birth_years = pd.to_numeric(group["출생연도"], errors="coerce").dropna().astype(int).unique().tolist()
+        genders = sorted({value for value in group["성별"].tolist() if value})
+        flags[anon_key] = len(birth_years) > 1 or len(genders) > 1
+    return flags
+
+
+def _merge_suspect_rate(keys, conflict_flags):
+    key_list = [key for key in keys if key]
+    if not key_list:
+        return pd.NA
+    suspect_count = sum(1 for key in key_list if conflict_flags.get(key, False))
+    return round((suspect_count / len(key_list)) * 100.0, 2)
+
+
+def _iter_retention_segments(profile_df):
+    if profile_df is None or profile_df.empty:
+        return
+    for split_name, split_col in RETENTION_SPLIT_DEFS:
+        if split_col is None:
+            yield split_name, "전체", profile_df
+            continue
+        grouped = profile_df.groupby(split_col, sort=True, dropna=False)
+        for split_value, group in grouped:
+            label = _norm_text(split_value) or "미상"
+            yield split_name, label, group.copy()
+
+
+def _format_retention_note(denominator, grade, max_grade, merge_rate):
+    notes = []
+    base_n = _to_int_or_none(denominator) or 0
+    if base_n < RETENTION_MIN_N:
+        notes.append("표본이 100명 미만이라 해석 신뢰도가 낮습니다.")
+    if grade == max_grade:
+        notes.append("최신 학년은 관측기간 부족으로 이탈률이 과대 추정될 수 있습니다.")
+    merge_rate_value = pd.to_numeric(pd.Series([merge_rate]), errors="coerce").iloc[0]
+    if not pd.isna(merge_rate_value) and float(merge_rate_value) >= 5.0:
+        notes.append("선수 식별키 병합 의심 비율이 높아 해석에 주의가 필요합니다.")
+    return " ".join(notes)
+
+
+def _build_grade_retention_rows(profile_df, grade_df, conflict_flags, basis_label):
+    rows = []
+    if profile_df is None or profile_df.empty or grade_df is None or grade_df.empty:
+        return rows
+
+    for split_name, split_value, split_profile in _iter_retention_segments(profile_df):
+        segment_keys = set(split_profile["익명키"].tolist())
+        if not segment_keys:
+            continue
+        segment_grades = grade_df[grade_df["익명키"].isin(segment_keys)].copy()
+        if segment_grades.empty:
+            continue
+        grade_map = (
+            segment_grades.groupby("학년", sort=True)["익명키"]
+            .agg(lambda series: set(series.tolist()))
+            .to_dict()
+        )
+        if not grade_map:
+            continue
+        grade_list = sorted([grade for grade in grade_map.keys() if RETENTION_GRADE_MIN <= int(grade) <= RETENTION_GRADE_MAX])
+        if not grade_list:
+            continue
+        max_grade = max(grade_list)
+        season_range = _season_range_text(split_profile["시작시즌"])
+        merge_rate = _merge_suspect_rate(segment_keys, conflict_flags)
+        split_profile["시작학년"] = pd.to_numeric(split_profile["시작학년"], errors="coerce").astype("Int64")
+
+        for grade in grade_list:
+            retained_set = grade_map.get(grade, set())
+            retained_count = int(len(retained_set))
+            if retained_count <= 0:
+                continue
+            base_count = int((split_profile["시작학년"] <= grade).fillna(False).sum())
+            new_entry_count = int((split_profile["시작학년"] == grade).fillna(False).sum())
+            next_grade_count = int(len(retained_set.intersection(grade_map.get(grade + 1, set()))))
+            dropout_count = int(retained_count - next_grade_count)
+            transition_label = f"{grade}→{grade + 1}" if grade in RETENTION_HOT_GRADES else ""
+            reliability_note = _format_retention_note(base_count, grade, max_grade, merge_rate)
+            rows.append(
+                {
+                    "지표유형": "학년잔존",
+                    "기준": basis_label,
+                    "분리기준": split_name,
+                    "분리값": split_value,
+                    "학년": grade,
+                    "전환구간": transition_label,
+                    "잔존인원": retained_count,
+                    "잔존율(%)": _ratio_pct(retained_count, base_count) if base_count else pd.NA,
+                    "신규진입인원": new_entry_count,
+                    "다음학년진입인원": next_grade_count,
+                    "학년이탈인원": dropout_count,
+                    "학년이탈률(%)": _ratio_pct(dropout_count, retained_count) if retained_count else pd.NA,
+                    "도달단계": "",
+                    "도달인원": pd.NA,
+                    "도달률(%)": pd.NA,
+                    "대상인원": base_count,
+                    "병합의심률(%)": merge_rate,
+                    "관측시즌범위": season_range,
+                    "신뢰한계문구": reliability_note,
+                }
+            )
+    return rows
+
+
+def _build_stage_reach_rows(cohort_df, conflict_flags, basis_label, season_anchor):
+    rows = []
+    if cohort_df is None or cohort_df.empty:
+        return rows
+    base = cohort_df.copy()
+    base["익명키"] = base.get("익명키", "").map(_norm_text)
+    base["성별"] = base.get("성별", "").map(_norm_text)
+    base["첫학년"] = pd.to_numeric(base.get("첫학년"), errors="coerce").astype("Int64")
+    base["첫시즌"] = pd.to_numeric(base.get("첫시즌"), errors="coerce").astype("Int64")
+    base = base[base["익명키"] != ""].copy()
+    if base.empty:
+        return rows
+    base["시작학년"] = base["첫학년"]
+    base["시작시즌"] = base["첫시즌"]
+    base["시작시즌대"] = [_format_retention_season_band(value, season_anchor) for value in base["시작시즌"].tolist()]
+
+    for split_name, split_value, split_group in _iter_retention_segments(base):
+        keys = set(split_group["익명키"].tolist())
+        merge_rate = _merge_suspect_rate(keys, conflict_flags)
+        season_range = _season_range_text(split_group["시작시즌"])
+        for stage_label, stage_suffix in RETENTION_STAGE_DEFS:
+            reach_col = f"도달_{stage_suffix}"
+            target_col = f"분석대상_{stage_suffix}"
+            if reach_col not in split_group.columns or target_col not in split_group.columns:
+                continue
+            target_mask = split_group[target_col].map(_norm_text) == "Y"
+            target_count = int(target_mask.sum())
+            reached_count = int((target_mask & (split_group[reach_col].map(_norm_text) == "Y")).sum())
+            notes = []
+            if target_count < RETENTION_MIN_N:
+                notes.append("표본이 100명 미만이라 해석 신뢰도가 낮습니다.")
+            merge_rate_value = pd.to_numeric(pd.Series([merge_rate]), errors="coerce").iloc[0]
+            if not pd.isna(merge_rate_value) and float(merge_rate_value) >= 5.0:
+                notes.append("선수 식별키 병합 의심 비율이 높아 해석에 주의가 필요합니다.")
+            rows.append(
+                {
+                    "지표유형": "단계도달",
+                    "기준": basis_label,
+                    "분리기준": split_name,
+                    "분리값": split_value,
+                    "학년": pd.NA,
+                    "전환구간": "",
+                    "잔존인원": pd.NA,
+                    "잔존율(%)": pd.NA,
+                    "신규진입인원": pd.NA,
+                    "다음학년진입인원": pd.NA,
+                    "학년이탈인원": pd.NA,
+                    "학년이탈률(%)": pd.NA,
+                    "도달단계": stage_label,
+                    "도달인원": reached_count,
+                    "도달률(%)": _ratio_pct(reached_count, target_count) if target_count else pd.NA,
+                    "대상인원": target_count,
+                    "병합의심률(%)": merge_rate,
+                    "관측시즌범위": season_range,
+                    "신뢰한계문구": " ".join(notes),
+                }
+            )
+    return rows
+
+
+def build_retention_overall(participation_df, cohort_df):
+    out = pd.DataFrame(columns=RETENTION_OUTPUT_COLS)
+    if participation_df is None or participation_df.empty:
+        return out
+
+    base = participation_df.copy()
+    base["익명키"] = base.get("익명키", "").map(_norm_text)
+    base["시즌"] = pd.to_numeric(base.get("시즌"), errors="coerce").astype("Int64")
+    base["출생연도"] = pd.to_numeric(base.get("출생연도"), errors="coerce").astype("Int64")
+    base["학년"] = pd.to_numeric(base.get("학년"), errors="coerce").astype("Int64")
+    base["성별"] = base.get("성별", "").map(_norm_text)
+    base["classCd목록"] = base.get("classCd목록", "").map(_norm_text)
+    base["경기수"] = pd.to_numeric(base.get("경기수"), errors="coerce").astype("Int64")
+    base = base[(base["익명키"] != "") & base["시즌"].notna() & base["학년"].notna()].copy()
+    if base.empty:
+        return out
+
+    class_sets = [_parse_class_code_set(value) for value in base["classCd목록"].tolist()]
+    base["기준_쇼트트랙"] = [SHORTTRACK_CLASS_CD in code_set for code_set in class_sets]
+    base["기준_빙상전체"] = [
+        bool(code_set) or ((_to_int_or_none(race_count) or 0) > 0)
+        for code_set, race_count in zip(class_sets, base["경기수"].tolist())
+    ]
+    season_anchor = _to_int_or_none(base["시즌"].min())
+    if season_anchor is None:
+        return out
+
+    conflict_flags = _build_trait_conflict_flags(base)
+    cohort_base = pd.DataFrame(columns=COHORT_OUTPUT_COLS) if cohort_df is None else cohort_df.copy()
+    if not cohort_base.empty:
+        cohort_base["익명키"] = cohort_base.get("익명키", "").map(_norm_text)
+        cohort_base = cohort_base[cohort_base["익명키"] != ""].copy()
+
+    rows = []
+    basis_defs = [
+        (RETENTION_SHORTTRACK_LABEL, "기준_쇼트트랙"),
+        (RETENTION_ALL_SKATING_LABEL, "기준_빙상전체"),
+    ]
+    for basis_label, active_col in basis_defs:
+        basis_rows = base[base[active_col].fillna(False)].copy()
+        if basis_rows.empty:
+            continue
+        basis_rows = basis_rows.sort_values(["익명키", "시즌", "학년"], ascending=[True, True, True])
+        profile = basis_rows.groupby("익명키", sort=False).first().reset_index()
+        profile["시작학년"] = pd.to_numeric(profile.get("학년"), errors="coerce").astype("Int64")
+        profile["시작시즌"] = pd.to_numeric(profile.get("시즌"), errors="coerce").astype("Int64")
+        profile["시작시즌대"] = [_format_retention_season_band(value, season_anchor) for value in profile["시작시즌"].tolist()]
+        profile = profile[["익명키", "성별", "시작학년", "시작시즌", "시작시즌대"]]
+
+        grade_df = basis_rows[["익명키", "학년", "시즌"]].drop_duplicates(subset=["익명키", "학년"], keep="first")
+        rows.extend(_build_grade_retention_rows(profile, grade_df, conflict_flags, basis_label))
+
+        if cohort_base.empty:
+            continue
+        cohort_subset = cohort_base[cohort_base["익명키"].isin(set(profile["익명키"].tolist()))].copy()
+        rows.extend(_build_stage_reach_rows(cohort_subset, conflict_flags, basis_label, season_anchor))
+
+    if not rows:
+        return out
+    out = pd.DataFrame(rows, columns=RETENTION_OUTPUT_COLS)
+    out["학년"] = pd.to_numeric(out["학년"], errors="coerce").astype("Int64")
+    for col in ["잔존인원", "신규진입인원", "다음학년진입인원", "학년이탈인원", "도달인원", "대상인원"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").astype("Int64")
+    for col in ["잔존율(%)", "학년이탈률(%)", "도달률(%)", "병합의심률(%)"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    metric_order = {"학년잔존": 0, "단계도달": 1}
+    basis_order = {RETENTION_SHORTTRACK_LABEL: 0, RETENTION_ALL_SKATING_LABEL: 1}
+    split_order = {name: idx for idx, (name, _col) in enumerate(RETENTION_SPLIT_DEFS)}
+    stage_order = {name: idx for idx, (name, _suffix) in enumerate(RETENTION_STAGE_DEFS)}
+    out["_metric_order"] = [metric_order.get(_norm_text(value), 99) for value in out["지표유형"].tolist()]
+    out["_basis_order"] = [basis_order.get(_norm_text(value), 99) for value in out["기준"].tolist()]
+    out["_split_order"] = [split_order.get(_norm_text(value), 99) for value in out["분리기준"].tolist()]
+    out["_grade_order"] = pd.to_numeric(out["학년"], errors="coerce").fillna(999).astype(int)
+    out["_stage_order"] = [stage_order.get(_norm_text(value), 99) for value in out["도달단계"].tolist()]
+    out = out.sort_values(
+        ["_metric_order", "_basis_order", "_split_order", "분리값", "_grade_order", "_stage_order"],
+        ascending=[True, True, True, True, True, True],
+    ).drop(columns=["_metric_order", "_basis_order", "_split_order", "_grade_order", "_stage_order"])
+    return out.reset_index(drop=True)
+
+
+def build_retention_overall_svg(retention_df, output_path=RETENTION_OVERALL_SVG):
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    empty_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="920" height="280" viewBox="0 0 920 280">'
+        '<rect x="0" y="0" width="920" height="280" fill="white" />'
+        '<text x="460" y="140" text-anchor="middle" font-size="16" fill="#374151">지속률 그래프를 만들 데이터가 없습니다.</text>'
+        "</svg>\n"
+    )
+    if retention_df is None or retention_df.empty:
+        output_path.write_text(empty_svg, encoding="utf-8")
+        return
+
+    chart_df = retention_df[
+        (retention_df["지표유형"] == "학년잔존")
+        & (retention_df["분리기준"] == "전체")
+        & (retention_df["분리값"] == "전체")
+    ].copy()
+    if chart_df.empty:
+        output_path.write_text(empty_svg, encoding="utf-8")
+        return
+    chart_df["학년"] = pd.to_numeric(chart_df["학년"], errors="coerce")
+    chart_df["잔존율(%)"] = pd.to_numeric(chart_df["잔존율(%)"], errors="coerce")
+    chart_df = chart_df[chart_df["학년"].notna() & chart_df["잔존율(%)"].notna()].copy()
+    if chart_df.empty:
+        output_path.write_text(empty_svg, encoding="utf-8")
+        return
+
+    basis_style = {
+        RETENTION_SHORTTRACK_LABEL: "#0f766e",
+        RETENTION_ALL_SKATING_LABEL: "#1d4ed8",
+    }
+    all_grades = sorted({int(value) for value in chart_df["학년"].tolist()})
+    if not all_grades:
+        output_path.write_text(empty_svg, encoding="utf-8")
+        return
+
+    min_grade = min(all_grades)
+    max_grade = max(all_grades)
+    left, right = 70, 860
+    top, bottom = 60, 240
+    width = max(right - left, 1)
+    height = max(bottom - top, 1)
+    grade_span = max(max_grade - min_grade, 1)
+
+    def x_pos(grade):
+        return left + ((grade - min_grade) / grade_span) * width
+
+    def y_pos(rate):
+        clamped = max(0.0, min(100.0, float(rate)))
+        return bottom - (clamped / 100.0) * height
+
+    svg_parts = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="920" height="320" viewBox="0 0 920 320">',
+        '<rect x="0" y="0" width="920" height="320" fill="white" />',
+        '<text x="460" y="28" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">학년별 잔존율 곡선</text>',
+        '<text x="460" y="48" text-anchor="middle" font-size="12" fill="#4b5563">신규 진입 인원은 data/retention_overall.csv의 신규진입인원 열에서 함께 확인합니다.</text>',
+        f'<line x1="{left}" y1="{bottom}" x2="{right}" y2="{bottom}" stroke="#374151" stroke-width="1.5" />',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{bottom}" stroke="#374151" stroke-width="1.5" />',
+    ]
+    for y_tick in [0, 20, 40, 60, 80, 100]:
+        y = y_pos(y_tick)
+        svg_parts.append(f'<line x1="{left}" y1="{y:.2f}" x2="{right}" y2="{y:.2f}" stroke="#e5e7eb" stroke-width="1" />')
+        svg_parts.append(f'<text x="{left - 10}" y="{y + 4:.2f}" text-anchor="end" font-size="11" fill="#6b7280">{y_tick}%</text>')
+
+    for grade in all_grades:
+        x = x_pos(grade)
+        svg_parts.append(f'<line x1="{x:.2f}" y1="{bottom}" x2="{x:.2f}" y2="{bottom + 6}" stroke="#374151" stroke-width="1" />')
+        svg_parts.append(f'<text x="{x:.2f}" y="{bottom + 20}" text-anchor="middle" font-size="11" fill="#374151">{grade}</text>')
+        if grade in RETENTION_HOT_GRADES and grade < max_grade:
+            boundary = x_pos(grade + 0.5)
+            svg_parts.append(
+                f'<line x1="{boundary:.2f}" y1="{top}" x2="{boundary:.2f}" y2="{bottom}" stroke="#f59e0b" stroke-dasharray="4 3" stroke-width="1" />'
+            )
+
+    for basis_label, color in basis_style.items():
+        basis_df = chart_df[chart_df["기준"] == basis_label].copy()
+        if basis_df.empty:
+            continue
+        basis_df = basis_df.sort_values("학년")
+        points = " ".join([f"{x_pos(int(row['학년'])):.2f},{y_pos(row['잔존율(%)']):.2f}" for _, row in basis_df.iterrows()])
+        if points:
+            svg_parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2.5" points="{points}" />')
+        for _, row in basis_df.iterrows():
+            x = x_pos(int(row["학년"]))
+            y = y_pos(row["잔존율(%)"])
+            svg_parts.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3.5" fill="{color}" />')
+
+    legend_y = 275
+    legend_x = 120
+    for idx, (basis_label, color) in enumerate(basis_style.items()):
+        offset = idx * 250
+        svg_parts.append(f'<line x1="{legend_x + offset}" y1="{legend_y}" x2="{legend_x + offset + 24}" y2="{legend_y}" stroke="{color}" stroke-width="3" />')
+        svg_parts.append(
+            f'<text x="{legend_x + offset + 32}" y="{legend_y + 4}" text-anchor="start" font-size="12" fill="#1f2937">{basis_label}</text>'
+        )
+
+    svg_parts.append("</svg>\n")
+    output_path.write_text("".join(svg_parts), encoding="utf-8")
+
+
+def build_retention_summary_text(retention_df):
+    if retention_df is None or retention_df.empty:
+        return "지속률 요약을 만들 수 있는 데이터가 없습니다."
+
+    stage_df = retention_df[
+        (retention_df["지표유형"] == "단계도달")
+        & (retention_df["분리기준"] == "전체")
+        & (retention_df["분리값"] == "전체")
+        & (retention_df["도달단계"] == "고등")
+    ].copy()
+    if stage_df.empty:
+        return "고등 단계 도달률을 계산할 수 있는 데이터가 없습니다."
+
+    def _stage_text(row):
+        reached = _to_int_or_none(row.get("도달인원")) or 0
+        base = _to_int_or_none(row.get("대상인원")) or 0
+        rate_value = pd.to_numeric(pd.Series([row.get("도달률(%)")]), errors="coerce").iloc[0]
+        rate_text = "-" if pd.isna(rate_value) else f"{float(rate_value):.2f}%"
+        return reached, base, rate_text, _norm_text(row.get("신뢰한계문구"))
+
+    all_row = stage_df[stage_df["기준"] == RETENTION_ALL_SKATING_LABEL]
+    short_row = stage_df[stage_df["기준"] == RETENTION_SHORTTRACK_LABEL]
+    if all_row.empty and short_row.empty:
+        return "고등 단계 도달률을 계산할 수 있는 데이터가 없습니다."
+
+    parts = []
+    note = ""
+    if not all_row.empty:
+        reached, base, rate, row_note = _stage_text(all_row.iloc[0])
+        parts.append(f"빙상 전체 기준 {rate}({reached}/{base})")
+        note = note or row_note
+    if not short_row.empty:
+        reached, base, rate, row_note = _stage_text(short_row.iloc[0])
+        parts.append(f"쇼트트랙 기준 {rate}({reached}/{base})")
+        note = note or row_note
+
+    summary = "고등 도달률은 " + ", ".join(parts) + "입니다."
+    if note:
+        return f"{summary} {note}"
+    return summary
+
+
 def build_participation_outputs(clean_df):
     season_month_histogram_df = build_season_month_histogram(clean_df)
     participation_df = build_participation_table(clean_df)
@@ -2796,6 +3246,7 @@ def main():
             record_stop_rule_df,
             cohort_df,
             cohort_stage_summary_df,
+            retention_overall_df,
         ) = build_stats_from_anon_records()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
@@ -2809,6 +3260,8 @@ def main():
         record_stop_rule_df.to_csv(RECORD_STOP_RULE_CSV, index=False, encoding="utf-8-sig")
         cohort_df.to_csv(COHORT_CSV, index=False, encoding="utf-8-sig")
         cohort_stage_summary_df.to_csv(COHORT_STAGE_SUMMARY_CSV, index=False, encoding="utf-8-sig")
+        retention_overall_df.to_csv(RETENTION_OVERALL_CSV, index=False, encoding="utf-8-sig")
+        build_retention_overall_svg(retention_overall_df, RETENTION_OVERALL_SVG)
         class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
         class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
         class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
@@ -2827,6 +3280,9 @@ def main():
         print(f"기록 중단 기준 저장 완료: {RECORD_STOP_RULE_CSV} ({len(record_stop_rule_df)}행)")
         print(f"분석 대상 cohort 저장 완료: {COHORT_CSV} ({len(cohort_df)}행)")
         print(f"단계별 cohort 요약 저장 완료: {COHORT_STAGE_SUMMARY_CSV} ({len(cohort_stage_summary_df)}행)")
+        print(f"전체 지속률 저장 완료: {RETENTION_OVERALL_CSV} ({len(retention_overall_df)}행)")
+        print(f"학년별 잔존 곡선 그래프 저장 완료: {RETENTION_OVERALL_SVG}")
+        print(build_retention_summary_text(retention_overall_df))
         if not record_stop_rule_df.empty:
             print(record_stop_rule_df.iloc[0].get("근거문장", ""))
         for _, row in cohort_stage_summary_df.iterrows():
@@ -2890,6 +3346,7 @@ def main():
         record_stop_rule_df,
     ) = build_participation_outputs(participation_clean_df)
     cohort_df, cohort_stage_summary_df = build_cohort_outputs(participation_clean_df, participation_df, record_stop_rule_df)
+    retention_overall_df = build_retention_overall(participation_df, cohort_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df, id_merge_candidates_df
@@ -2920,6 +3377,8 @@ def main():
     record_stop_rule_df.to_csv(RECORD_STOP_RULE_CSV, index=False, encoding="utf-8-sig")
     cohort_df.to_csv(COHORT_CSV, index=False, encoding="utf-8-sig")
     cohort_stage_summary_df.to_csv(COHORT_STAGE_SUMMARY_CSV, index=False, encoding="utf-8-sig")
+    retention_overall_df.to_csv(RETENTION_OVERALL_CSV, index=False, encoding="utf-8-sig")
+    build_retention_overall_svg(retention_overall_df, RETENTION_OVERALL_SVG)
     class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
     class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
     class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
@@ -2969,6 +3428,9 @@ def main():
     print(f"기록 중단 기준 저장 완료: {RECORD_STOP_RULE_CSV} ({len(record_stop_rule_df)}행)")
     print(f"분석 대상 cohort 저장 완료: {COHORT_CSV} ({len(cohort_df)}행)")
     print(f"단계별 cohort 요약 저장 완료: {COHORT_STAGE_SUMMARY_CSV} ({len(cohort_stage_summary_df)}행)")
+    print(f"전체 지속률 저장 완료: {RETENTION_OVERALL_CSV} ({len(retention_overall_df)}행)")
+    print(f"학년별 잔존 곡선 그래프 저장 완료: {RETENTION_OVERALL_SVG}")
+    print(build_retention_summary_text(retention_overall_df))
     if not record_stop_rule_df.empty:
         print(record_stop_rule_df.iloc[0].get("근거문장", ""))
     for _, row in cohort_stage_summary_df.iterrows():

@@ -21,6 +21,7 @@ ALLOWED_DATA_FILES = {
     "data/record_stop_rule.csv",
     "data/cohort.csv",
     "data/cohort_stage_summary.csv",
+    "data/retention_overall.csv",
     "data/meet_index_inf201.csv",
     "data/class_level_map.csv",
     "data/class_level_year_category_counts.csv",
@@ -118,6 +119,27 @@ COHORT_STAGE_SUMMARY_COLUMNS = [
     "좌측절단제외N",
     "사용가능시즌범위",
     "N100미만",
+    "신뢰한계문구",
+]
+RETENTION_OVERALL_COLUMNS = [
+    "지표유형",
+    "기준",
+    "분리기준",
+    "분리값",
+    "학년",
+    "전환구간",
+    "잔존인원",
+    "잔존율(%)",
+    "신규진입인원",
+    "다음학년진입인원",
+    "학년이탈인원",
+    "학년이탈률(%)",
+    "도달단계",
+    "도달인원",
+    "도달률(%)",
+    "대상인원",
+    "병합의심률(%)",
+    "관측시즌범위",
     "신뢰한계문구",
 ]
 COHORT_FLAG_COLUMNS = [
@@ -330,6 +352,21 @@ def _validate_cohort_stage_summary(repo_root):
     return []
 
 
+def _validate_retention_overall(repo_root):
+    path = repo_root / "data" / "retention_overall.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/retention_overall.csv"]
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/retention_overall.csv가 비어 있습니다."]
+    if header != RETENTION_OVERALL_COLUMNS:
+        return [f"data/retention_overall.csv 헤더가 기대값과 다릅니다: {header}"]
+    return []
+
+
 def main():
     parser = argparse.ArgumentParser(description="익명 데이터 커밋 정책 검증")
     parser.add_argument("--mode", choices=["tracked", "staged"], default="tracked")
@@ -366,6 +403,9 @@ def main():
     should_validate_cohort_summary = "data/cohort_stage_summary.csv" in paths
     if should_validate_cohort_summary:
         errors.extend(_validate_cohort_stage_summary(repo_root))
+    should_validate_retention_overall = "data/retention_overall.csv" in paths
+    if should_validate_retention_overall:
+        errors.extend(_validate_retention_overall(repo_root))
 
     if errors:
         print("[error] 익명 데이터 커밋 정책 위반:")

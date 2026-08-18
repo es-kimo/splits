@@ -20,6 +20,7 @@
 - `data/record_stop_rule.csv`
 - `data/cohort.csv`
 - `data/cohort_stage_summary.csv`
+- `data/retention_overall.csv`
 - `data/public_figures.csv`
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
