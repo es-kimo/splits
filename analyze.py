@@ -30,6 +30,8 @@ SEASON_ACTIVITY_COUNTS_CSV = DATA_DIR / "season_activity_counts.csv"
 CLASS_TRANSITION_SUMMARY_CSV = DATA_DIR / "class_transition_summary.csv"
 GAP_RETURN_RATES_CSV = DATA_DIR / "gap_return_rates.csv"
 RECORD_STOP_RULE_CSV = DATA_DIR / "record_stop_rule.csv"
+COHORT_CSV = DATA_DIR / "cohort.csv"
+COHORT_STAGE_SUMMARY_CSV = DATA_DIR / "cohort_stage_summary.csv"
 SCHOOL_RAW_LIST_TXT = DATA_DIR / "school_raw_list.txt"
 SCHOOL_ALIASES_CSV = DATA_DIR / "school_aliases.csv"
 SCHOOL_AMBIGUOUS_CSV = DATA_DIR / "school_ambiguous.csv"
@@ -145,6 +147,43 @@ GAP_RETURN_BUCKETS = [("1", 1), ("2", 2), ("3", 3), ("4+", 4)]
 RECORD_STOP_RULE_TEXT = "n시즌 연속 미출전 = 기록 중단"
 RECORD_STOP_MAX_RETURN_RATE_PCT = 20.0
 RECORD_STOP_MIN_CASES = 100
+COHORT_RELIABILITY_MIN_N = 100
+COHORT_STAGE_TARGETS = [("중등", 7, "중등"), ("고등", 10, "고등"), ("대학·일반", 13, "대학")]
+COHORT_OUTPUT_COLS = [
+    "익명키",
+    "성별",
+    "출생연도",
+    "첫대회연도",
+    "첫시즌",
+    "첫학년",
+    "마지막시즌",
+    "기록중단기준n",
+    "좌측절단",
+    "도달_중등",
+    "도달_고등",
+    "도달_대학",
+    "관측충분_중등",
+    "관측충분_고등",
+    "관측충분_대학",
+    "분석대상_중등",
+    "분석대상_고등",
+    "분석대상_대학",
+]
+COHORT_STAGE_SUMMARY_COLS = [
+    "분석단계",
+    "목표진입학년",
+    "기록중단기준n",
+    "관측판정식",
+    "대상N",
+    "남자N",
+    "여자N",
+    "이미도달N",
+    "관측충분미도달N",
+    "좌측절단제외N",
+    "사용가능시즌범위",
+    "N100미만",
+    "신뢰한계문구",
+]
 CLASS_LEVEL_MAP_COLS = ["종별", "종별정규화키", "단계_A", "A_판정규칙", "분석포함", "행수", "최초연도", "최신연도"]
 CLASS_LEVEL_YEAR_CATEGORY_COLS = ["대회연도", "종별", "단계_A", "행수"]
 CLASS_LEVEL_AGREEMENT_COLS = [
@@ -1456,6 +1495,7 @@ def build_stats_from_anon_records():
         gap_return_rates_df,
         record_stop_rule_df,
     ) = build_participation_outputs(clean_df)
+    cohort_df, cohort_stage_summary_df = build_cohort_outputs(clean_df, participation_df, record_stop_rule_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df
@@ -1475,6 +1515,8 @@ def build_stats_from_anon_records():
         transition_summary_df,
         gap_return_rates_df,
         record_stop_rule_df,
+        cohort_df,
+        cohort_stage_summary_df,
     )
 
 
@@ -2455,6 +2497,182 @@ def build_record_stop_rule(gap_return_rates_df):
     return pd.DataFrame([row], columns=RECORD_STOP_RULE_OUTPUT_COLS)
 
 
+def _parse_record_stop_n(record_stop_rule_df):
+    if record_stop_rule_df is None or record_stop_rule_df.empty:
+        return None
+    text = _norm_text(record_stop_rule_df.iloc[0].get("확정n"))
+    if not text or text == "보류":
+        return None
+    if text == "4+":
+        return 4
+    return _to_int_or_none(text)
+
+
+def _has_grade_at_least(values, threshold):
+    grade_series = pd.to_numeric(pd.Series(values), errors="coerce")
+    return bool((grade_series >= threshold).fillna(False).any())
+
+
+def _observation_sufficient(first_season, first_grade, max_season, target_grade, stop_n):
+    start_season = _to_int_or_none(first_season)
+    start_grade = _to_int_or_none(first_grade)
+    if start_season is None or start_grade is None or max_season is None or stop_n is None:
+        return False
+    required_to_reach = max(target_grade - start_grade + 1, 1)
+    observed_span = max_season - start_season + 1
+    return observed_span >= (required_to_reach + stop_n)
+
+
+def _season_range_text(values):
+    season_series = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if season_series.empty:
+        return "-"
+    start = int(season_series.min())
+    end = int(season_series.max())
+    return f"{start}~{end}" if start != end else str(start)
+
+
+def build_cohort_outputs(clean_df, participation_df, record_stop_rule_df):
+    empty_cohort = pd.DataFrame(columns=COHORT_OUTPUT_COLS)
+    empty_summary = pd.DataFrame(columns=COHORT_STAGE_SUMMARY_COLS)
+    if participation_df is None or participation_df.empty:
+        return empty_cohort, empty_summary
+
+    stop_n = _parse_record_stop_n(record_stop_rule_df)
+    if stop_n is None:
+        raise ValueError("[error] record_stop_rule.csv의 확정n이 없어 cohort를 생성할 수 없습니다.")
+
+    base = participation_df.copy()
+    base["익명키"] = base.get("익명키", "").map(_norm_text)
+    base["성별"] = base.get("성별", "").map(_norm_text)
+    base["출생연도"] = pd.to_numeric(base.get("출생연도"), errors="coerce").astype("Int64")
+    base["시즌"] = pd.to_numeric(base.get("시즌"), errors="coerce").astype("Int64")
+    base["학년"] = pd.to_numeric(base.get("학년"), errors="coerce").astype("Int64")
+    base = base[(base["익명키"] != "") & base["시즌"].notna()].copy()
+    if base.empty:
+        return empty_cohort, empty_summary
+
+    max_season = int(base["시즌"].max())
+    sorted_base = base.sort_values(["익명키", "시즌"], ascending=[True, True])
+    first_rows = sorted_base.groupby("익명키", sort=False).first().reset_index()
+    last_season_df = sorted_base.groupby("익명키", sort=False)["시즌"].max().reset_index(name="마지막시즌")
+
+    reached_rows = []
+    for anon_key, group in base.groupby("익명키", sort=False):
+        grades = group["학년"].tolist()
+        reached_rows.append(
+            {
+                "익명키": anon_key,
+                "도달_중등": _safe_bool_text(_has_grade_at_least(grades, 7)),
+                "도달_고등": _safe_bool_text(_has_grade_at_least(grades, 10)),
+                "도달_대학": _safe_bool_text(_has_grade_at_least(grades, 13)),
+            }
+        )
+    reached_df = pd.DataFrame(reached_rows)
+
+    first_meet_df = pd.DataFrame(columns=["익명키", "첫대회연도"])
+    global_min_meet_year = None
+    if clean_df is not None and not clean_df.empty:
+        clean_base = clean_df.copy()
+        clean_base["idNo"] = clean_base.get("idNo", "").astype(str).str.strip()
+        clean_base["대회연도"] = pd.to_numeric(clean_base.get("대회연도"), errors="coerce").astype("Int64")
+        clean_base = clean_base[(clean_base["idNo"] != "") & clean_base["대회연도"].notna()].copy()
+        if not clean_base.empty:
+            anon_salt = _norm_text(os.environ.get("SPLITS_ANON_SALT"))
+            clean_base["익명키"] = [_to_anon_key(id_no, anon_salt) for id_no in clean_base["idNo"].tolist()]
+            clean_base = clean_base[clean_base["익명키"] != ""].copy()
+            if not clean_base.empty:
+                first_meet_df = clean_base.groupby("익명키", sort=False)["대회연도"].min().reset_index(name="첫대회연도")
+                global_min_meet_year = int(first_meet_df["첫대회연도"].min())
+
+    cohort = pd.DataFrame(
+        {
+            "익명키": first_rows["익명키"].map(_norm_text),
+            "성별": first_rows["성별"].map(_norm_text),
+            "출생연도": pd.to_numeric(first_rows["출생연도"], errors="coerce").astype("Int64"),
+            "첫시즌": pd.to_numeric(first_rows["시즌"], errors="coerce").astype("Int64"),
+            "첫학년": pd.to_numeric(first_rows["학년"], errors="coerce").astype("Int64"),
+        }
+    )
+    cohort = cohort.merge(last_season_df, on="익명키", how="left")
+    cohort = cohort.merge(first_meet_df, on="익명키", how="left")
+    cohort = cohort.merge(reached_df, on="익명키", how="left")
+    cohort["첫대회연도"] = pd.to_numeric(cohort["첫대회연도"], errors="coerce").astype("Int64")
+    cohort["마지막시즌"] = pd.to_numeric(cohort["마지막시즌"], errors="coerce").astype("Int64")
+    cohort["기록중단기준n"] = stop_n
+    cohort["좌측절단"] = [
+        _safe_bool_text(global_min_meet_year is not None and _to_int_or_none(meet_year) == global_min_meet_year)
+        for meet_year in cohort["첫대회연도"].tolist()
+    ]
+
+    summary_rows = []
+    for stage_name, target_grade, suffix in COHORT_STAGE_TARGETS:
+        reached_col = f"도달_{suffix}"
+        observed_col = f"관측충분_{suffix}"
+        target_col = f"분석대상_{suffix}"
+        reached_values = [_norm_text(value) == "Y" for value in cohort[reached_col].tolist()]
+        observed_values = [
+            _observation_sufficient(first_season, first_grade, max_season, target_grade, stop_n)
+            for first_season, first_grade in zip(cohort["첫시즌"], cohort["첫학년"])
+        ]
+        cohort[observed_col] = [_safe_bool_text(value) for value in observed_values]
+        cohort[target_col] = [
+            _safe_bool_text((is_reached or is_observed) and _norm_text(is_left) != "Y")
+            for is_reached, is_observed, is_left in zip(reached_values, observed_values, cohort["좌측절단"].tolist())
+        ]
+        target_group = cohort[cohort[target_col] == "Y"].copy()
+        target_count = int(len(target_group))
+        male_count = int((target_group["성별"] == "남").sum())
+        female_count = int((target_group["성별"] == "여").sum())
+        reached_count = int(((cohort[target_col] == "Y") & (cohort[reached_col] == "Y")).sum())
+        observed_only_count = int(((cohort[target_col] == "Y") & (cohort[reached_col] != "Y") & (cohort[observed_col] == "Y")).sum())
+        left_censored_excluded = int(
+            ((cohort["좌측절단"] == "Y") & ((cohort[reached_col] == "Y") | (cohort[observed_col] == "Y"))).sum()
+        )
+        n_low = target_count < COHORT_RELIABILITY_MIN_N
+        summary_rows.append(
+            {
+                "분석단계": stage_name,
+                "목표진입학년": target_grade,
+                "기록중단기준n": stop_n,
+                "관측판정식": f"(최신시즌-첫시즌+1) >= max({target_grade}-첫학년+1, 1) + {stop_n}",
+                "대상N": target_count,
+                "남자N": male_count,
+                "여자N": female_count,
+                "이미도달N": reached_count,
+                "관측충분미도달N": observed_only_count,
+                "좌측절단제외N": left_censored_excluded,
+                "사용가능시즌범위": _season_range_text(target_group["첫시즌"]),
+                "N100미만": _safe_bool_text(n_low),
+                "신뢰한계문구": "표본이 100명 미만이라 해석 신뢰도가 낮습니다." if n_low else "",
+            }
+        )
+
+    for col in [
+        "도달_중등",
+        "도달_고등",
+        "도달_대학",
+        "관측충분_중등",
+        "관측충분_고등",
+        "관측충분_대학",
+        "분석대상_중등",
+        "분석대상_고등",
+        "분석대상_대학",
+    ]:
+        if col not in cohort.columns:
+            cohort[col] = "N"
+        cohort[col] = cohort[col].map(_norm_text).replace("", "N")
+    for col in ["출생연도", "첫대회연도", "첫시즌", "첫학년", "마지막시즌", "기록중단기준n"]:
+        cohort[col] = pd.to_numeric(cohort[col], errors="coerce").astype("Int64")
+    cohort = cohort[COHORT_OUTPUT_COLS].sort_values(["첫시즌", "첫학년", "익명키"], na_position="last").reset_index(drop=True)
+
+    summary_df = pd.DataFrame(summary_rows, columns=COHORT_STAGE_SUMMARY_COLS)
+    if not summary_df.empty:
+        for col in ["목표진입학년", "기록중단기준n", "대상N", "남자N", "여자N", "이미도달N", "관측충분미도달N", "좌측절단제외N"]:
+            summary_df[col] = pd.to_numeric(summary_df[col], errors="coerce").astype("Int64")
+    return cohort, summary_df
+
+
 def build_participation_outputs(clean_df):
     season_month_histogram_df = build_season_month_histogram(clean_df)
     participation_df = build_participation_table(clean_df)
@@ -2576,6 +2794,8 @@ def main():
             transition_summary_df,
             gap_return_rates_df,
             record_stop_rule_df,
+            cohort_df,
+            cohort_stage_summary_df,
         ) = build_stats_from_anon_records()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
@@ -2587,6 +2807,8 @@ def main():
         transition_summary_df.to_csv(CLASS_TRANSITION_SUMMARY_CSV, index=False, encoding="utf-8-sig")
         gap_return_rates_df.to_csv(GAP_RETURN_RATES_CSV, index=False, encoding="utf-8-sig")
         record_stop_rule_df.to_csv(RECORD_STOP_RULE_CSV, index=False, encoding="utf-8-sig")
+        cohort_df.to_csv(COHORT_CSV, index=False, encoding="utf-8-sig")
+        cohort_stage_summary_df.to_csv(COHORT_STAGE_SUMMARY_CSV, index=False, encoding="utf-8-sig")
         class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
         class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
         class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
@@ -2603,8 +2825,16 @@ def main():
         print(f"종목 전환 요약 저장 완료: {CLASS_TRANSITION_SUMMARY_CSV} ({len(transition_summary_df)}행)")
         print(f"공백 복귀율 저장 완료: {GAP_RETURN_RATES_CSV} ({len(gap_return_rates_df)}행)")
         print(f"기록 중단 기준 저장 완료: {RECORD_STOP_RULE_CSV} ({len(record_stop_rule_df)}행)")
+        print(f"분석 대상 cohort 저장 완료: {COHORT_CSV} ({len(cohort_df)}행)")
+        print(f"단계별 cohort 요약 저장 완료: {COHORT_STAGE_SUMMARY_CSV} ({len(cohort_stage_summary_df)}행)")
         if not record_stop_rule_df.empty:
             print(record_stop_rule_df.iloc[0].get("근거문장", ""))
+        for _, row in cohort_stage_summary_df.iterrows():
+            stage = _norm_text(row.get("분석단계"))
+            count = _to_int_or_none(row.get("대상N")) or 0
+            print(f"[cohort] {stage}: 대상 N={count}, 첫시즌 범위 {row.get('사용가능시즌범위', '-')}")
+            if _norm_text(row.get("N100미만")) == "Y":
+                print(f"[warn] {stage} 분석: {row.get('신뢰한계문구', '')}")
         print(f"종별 단계 매핑 저장 완료: {CLASS_LEVEL_MAP_CSV} ({len(class_level_map_df)}행)")
         print(f"연도×종별 집계 저장 완료: {CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV} ({len(class_level_year_category_df)}행)")
         print(f"단계 A/B 요약 저장 완료: {CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV}")
@@ -2659,6 +2889,7 @@ def main():
         gap_return_rates_df,
         record_stop_rule_df,
     ) = build_participation_outputs(participation_clean_df)
+    cohort_df, cohort_stage_summary_df = build_cohort_outputs(participation_clean_df, participation_df, record_stop_rule_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df, id_merge_candidates_df
@@ -2687,6 +2918,8 @@ def main():
     transition_summary_df.to_csv(CLASS_TRANSITION_SUMMARY_CSV, index=False, encoding="utf-8-sig")
     gap_return_rates_df.to_csv(GAP_RETURN_RATES_CSV, index=False, encoding="utf-8-sig")
     record_stop_rule_df.to_csv(RECORD_STOP_RULE_CSV, index=False, encoding="utf-8-sig")
+    cohort_df.to_csv(COHORT_CSV, index=False, encoding="utf-8-sig")
+    cohort_stage_summary_df.to_csv(COHORT_STAGE_SUMMARY_CSV, index=False, encoding="utf-8-sig")
     class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
     class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
     class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
@@ -2734,8 +2967,16 @@ def main():
     print(f"종목 전환 요약 저장 완료: {CLASS_TRANSITION_SUMMARY_CSV} ({len(transition_summary_df)}행)")
     print(f"공백 복귀율 저장 완료: {GAP_RETURN_RATES_CSV} ({len(gap_return_rates_df)}행)")
     print(f"기록 중단 기준 저장 완료: {RECORD_STOP_RULE_CSV} ({len(record_stop_rule_df)}행)")
+    print(f"분석 대상 cohort 저장 완료: {COHORT_CSV} ({len(cohort_df)}행)")
+    print(f"단계별 cohort 요약 저장 완료: {COHORT_STAGE_SUMMARY_CSV} ({len(cohort_stage_summary_df)}행)")
     if not record_stop_rule_df.empty:
         print(record_stop_rule_df.iloc[0].get("근거문장", ""))
+    for _, row in cohort_stage_summary_df.iterrows():
+        stage = _norm_text(row.get("분석단계"))
+        count = _to_int_or_none(row.get("대상N")) or 0
+        print(f"[cohort] {stage}: 대상 N={count}, 첫시즌 범위 {row.get('사용가능시즌범위', '-')}")
+        if _norm_text(row.get("N100미만")) == "Y":
+            print(f"[warn] {stage} 분석: {row.get('신뢰한계문구', '')}")
     print(f"종별 단계 매핑 저장 완료: {CLASS_LEVEL_MAP_CSV} ({len(class_level_map_df)}행)")
     print(f"연도×종별 집계 저장 완료: {CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV} ({len(class_level_year_category_df)}행)")
     print(f"단계 A/B 요약 저장 완료: {CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV}")

@@ -18,6 +18,8 @@
 - `data/class_transition_summary.csv`
 - `data/gap_return_rates.csv`
 - `data/record_stop_rule.csv`
+- `data/cohort.csv`
+- `data/cohort_stage_summary.csv`
 - `data/public_figures.csv`
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
@@ -66,6 +68,17 @@
 
 - `익명키`: 12자리 hex
 - `오픈참가`: `Y` 또는 `N`
+
+## 5-2. cohort 스키마
+
+헤더:
+
+`익명키, 성별, 출생연도, 첫대회연도, 첫시즌, 첫학년, 마지막시즌, 기록중단기준n, 좌측절단, 도달_중등, 도달_고등, 도달_대학, 관측충분_중등, 관측충분_고등, 관측충분_대학, 분석대상_중등, 분석대상_고등, 분석대상_대학`
+
+규칙:
+
+- `익명키`: 12자리 hex
+- `좌측절단` 및 `*_중등/*_고등/*_대학` 플래그 컬럼: `Y` 또는 `N`
 
 ## 6. 강제 장치
 

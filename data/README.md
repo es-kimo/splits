@@ -14,6 +14,8 @@
 - `data/class_transition_summary.csv`
 - `data/gap_return_rates.csv`
 - `data/record_stop_rule.csv`
+- `data/cohort.csv`
+- `data/cohort_stage_summary.csv`
 - `data/public_figures.csv` (의도된 실명 명단)
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
@@ -93,6 +95,26 @@
 - `확정n`: 위 기준을 동시에 만족하는 최소 `n` (없으면 `보류`)
 - `근거문장`: 기준 확정/보류 사유를 사람이 읽을 수 있는 문장으로 기록
 
+## 3-4) cohort.csv 규격
+
+헤더(순서 고정):
+
+`익명키, 성별, 출생연도, 첫대회연도, 첫시즌, 첫학년, 마지막시즌, 기록중단기준n, 좌측절단, 도달_중등, 도달_고등, 도달_대학, 관측충분_중등, 관측충분_고등, 관측충분_대학, 분석대상_중등, 분석대상_고등, 분석대상_대학`
+
+- `좌측절단`: 첫 대회연도가 관측 시작연도(현재 데이터 기준 2007)인 선수 여부
+- `도달_*`: 해당 단계(중등/고등/대학·일반) 이상 학년에 실제 도달했는지 여부
+- `관측충분_*`: `진입학년 도달 필요 시즌 + 기록중단기준n` 조건을 충족해 미도달 판정이 가능한지 여부
+- `분석대상_*`: `도달_* 또는 관측충분_*`을 만족하고 좌측절단이 아닌 선수
+
+## 3-5) cohort_stage_summary.csv 규격
+
+헤더(순서 고정):
+
+`분석단계, 목표진입학년, 기록중단기준n, 관측판정식, 대상N, 남자N, 여자N, 이미도달N, 관측충분미도달N, 좌측절단제외N, 사용가능시즌범위, N100미만, 신뢰한계문구`
+
+- 단계별 분석대상 수(`대상N`)와 성별 분포를 기록합니다.
+- `N100미만=Y`인 경우 `신뢰한계문구`에 표본 부족 경고를 남깁니다.
+
 ## 4) 익명키 규칙
 
 - 생성식: `sha256(idNo + SALT)[:12]`
@@ -113,7 +135,7 @@ python3 build_data.py
 
 - `analyze.py`는 통계 CSV를 생성합니다.
 - `analyze.py`는 익명 통계 CSV와 단계 판정 진단 CSV를 생성합니다.
-- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`)을 함께 생성합니다.
+- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`, `cohort.csv`, `cohort_stage_summary.csv`)을 함께 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
 - `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 
