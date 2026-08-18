@@ -17,6 +17,8 @@ ALLOWED_DATA_FILES = {
     "data/participation.csv",
     "data/season_activity_counts.csv",
     "data/class_transition_summary.csv",
+    "data/gap_return_rates.csv",
+    "data/record_stop_rule.csv",
     "data/meet_index_inf201.csv",
     "data/class_level_map.csv",
     "data/class_level_year_category_counts.csv",
@@ -68,6 +70,18 @@ PARTICIPATION_COLUMNS = [
     "경기수",
     "classCd목록",
     "오픈참가",
+]
+GAP_RETURN_RATE_COLUMNS = ["구간", "공백시즌수", "사례수", "복귀사례", "복귀율(%)", "관측부족제외수"]
+RECORD_STOP_RULE_COLUMNS = [
+    "기준식",
+    "복귀율기준(%)",
+    "분모기준",
+    "확정n",
+    "근거구간",
+    "근거사례수",
+    "근거복귀사례",
+    "근거복귀율(%)",
+    "근거문장",
 ]
 PARTICIPATION_FORBIDDEN_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
 ANON_KEY_RE = re.compile(r"^[0-9a-f]{12}$")
@@ -185,6 +199,36 @@ def _validate_participation(repo_root):
         return errors
 
 
+def _validate_gap_return_rates(repo_root):
+    path = repo_root / "data" / "gap_return_rates.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/gap_return_rates.csv"]
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/gap_return_rates.csv가 비어 있습니다."]
+    if header != GAP_RETURN_RATE_COLUMNS:
+        return [f"data/gap_return_rates.csv 헤더가 기대값과 다릅니다: {header}"]
+    return []
+
+
+def _validate_record_stop_rule(repo_root):
+    path = repo_root / "data" / "record_stop_rule.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/record_stop_rule.csv"]
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/record_stop_rule.csv가 비어 있습니다."]
+    if header != RECORD_STOP_RULE_COLUMNS:
+        return [f"data/record_stop_rule.csv 헤더가 기대값과 다릅니다: {header}"]
+    return []
+
+
 def main():
     parser = argparse.ArgumentParser(description="익명 데이터 커밋 정책 검증")
     parser.add_argument("--mode", choices=["tracked", "staged"], default="tracked")
@@ -209,6 +253,12 @@ def main():
     should_validate_participation = "data/participation.csv" in paths
     if should_validate_participation:
         errors.extend(_validate_participation(repo_root))
+    should_validate_gap_return_rates = "data/gap_return_rates.csv" in paths
+    if should_validate_gap_return_rates:
+        errors.extend(_validate_gap_return_rates(repo_root))
+    should_validate_record_stop_rule = "data/record_stop_rule.csv" in paths
+    if should_validate_record_stop_rule:
+        errors.extend(_validate_record_stop_rule(repo_root))
 
     if errors:
         print("[error] 익명 데이터 커밋 정책 위반:")

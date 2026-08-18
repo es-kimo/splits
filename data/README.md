@@ -12,6 +12,8 @@
 - `data/participation.csv`
 - `data/season_activity_counts.csv`
 - `data/class_transition_summary.csv`
+- `data/gap_return_rates.csv`
+- `data/record_stop_rule.csv`
 - `data/public_figures.csv` (의도된 실명 명단)
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
@@ -66,6 +68,31 @@
 - `오픈참가`는 `Y`/`N` 값만 허용합니다.
 - `classCd목록`은 시즌 내 참가한 종목 코드를 `|`로 연결합니다(예: `1|2`).
 
+## 3-2) gap_return_rates.csv 규격
+
+헤더(순서 고정):
+
+`구간, 공백시즌수, 사례수, 복귀사례, 복귀율(%), 관측부족제외수`
+
+- `구간`: `전체`, `6→7`, `9→10`, `12→13`
+- `공백시즌수`: `1`, `2`, `3`, `4+` (각 `n시즌 이상` 구간)
+- `사례수`: 관측기간이 충분해 해당 구간 평가가 가능한 사례 수
+- `복귀사례`: 사례수 중 이후 시즌에 다시 활동이 확인된 사례 수
+- `관측부족제외수`: 분모 산정에서 제외된 사례 수
+
+복귀 판단은 `classCd목록` 기준으로 종목 전환(스피드 포함) 이후 활동도 `복귀`로 처리합니다.  
+즉, 스피드 전환 선수는 `기록 중단`으로 계산하지 않습니다.
+
+## 3-3) record_stop_rule.csv 규격
+
+헤더(순서 고정):
+
+`기준식, 복귀율기준(%), 분모기준, 확정n, 근거구간, 근거사례수, 근거복귀사례, 근거복귀율(%), 근거문장`
+
+- 기본 기준: `복귀율 <= 20%` 및 `분모 >= 100`
+- `확정n`: 위 기준을 동시에 만족하는 최소 `n` (없으면 `보류`)
+- `근거문장`: 기준 확정/보류 사유를 사람이 읽을 수 있는 문장으로 기록
+
 ## 4) 익명키 규칙
 
 - 생성식: `sha256(idNo + SALT)[:12]`
@@ -86,7 +113,7 @@ python3 build_data.py
 
 - `analyze.py`는 통계 CSV를 생성합니다.
 - `analyze.py`는 익명 통계 CSV와 단계 판정 진단 CSV를 생성합니다.
-- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`)을 함께 생성합니다.
+- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`)을 함께 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
 - `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 

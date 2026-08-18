@@ -16,6 +16,8 @@
 - `data/participation.csv`
 - `data/season_activity_counts.csv`
 - `data/class_transition_summary.csv`
+- `data/gap_return_rates.csv`
+- `data/record_stop_rule.csv`
 - `data/public_figures.csv`
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
