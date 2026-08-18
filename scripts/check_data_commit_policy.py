@@ -19,6 +19,8 @@ ALLOWED_DATA_FILES = {
     "data/class_transition_summary.csv",
     "data/gap_return_rates.csv",
     "data/record_stop_rule.csv",
+    "data/cohort.csv",
+    "data/cohort_stage_summary.csv",
     "data/meet_index_inf201.csv",
     "data/class_level_map.csv",
     "data/class_level_year_category_counts.csv",
@@ -82,6 +84,53 @@ RECORD_STOP_RULE_COLUMNS = [
     "근거복귀사례",
     "근거복귀율(%)",
     "근거문장",
+]
+COHORT_COLUMNS = [
+    "익명키",
+    "성별",
+    "출생연도",
+    "첫대회연도",
+    "첫시즌",
+    "첫학년",
+    "마지막시즌",
+    "기록중단기준n",
+    "좌측절단",
+    "도달_중등",
+    "도달_고등",
+    "도달_대학",
+    "관측충분_중등",
+    "관측충분_고등",
+    "관측충분_대학",
+    "분석대상_중등",
+    "분석대상_고등",
+    "분석대상_대학",
+]
+COHORT_STAGE_SUMMARY_COLUMNS = [
+    "분석단계",
+    "목표진입학년",
+    "기록중단기준n",
+    "관측판정식",
+    "대상N",
+    "남자N",
+    "여자N",
+    "이미도달N",
+    "관측충분미도달N",
+    "좌측절단제외N",
+    "사용가능시즌범위",
+    "N100미만",
+    "신뢰한계문구",
+]
+COHORT_FLAG_COLUMNS = [
+    "좌측절단",
+    "도달_중등",
+    "도달_고등",
+    "도달_대학",
+    "관측충분_중등",
+    "관측충분_고등",
+    "관측충분_대학",
+    "분석대상_중등",
+    "분석대상_고등",
+    "분석대상_대학",
 ]
 PARTICIPATION_FORBIDDEN_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
 ANON_KEY_RE = re.compile(r"^[0-9a-f]{12}$")
@@ -229,6 +278,58 @@ def _validate_record_stop_rule(repo_root):
     return []
 
 
+def _validate_cohort(repo_root):
+    path = repo_root / "data" / "cohort.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/cohort.csv"]
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/cohort.csv가 비어 있습니다."]
+        errors = []
+        if header != COHORT_COLUMNS:
+            errors.append(f"data/cohort.csv 헤더가 기대값과 다릅니다: {header}")
+            return errors
+        forbidden = PARTICIPATION_FORBIDDEN_COLUMNS.intersection(header)
+        if forbidden:
+            errors.append(f"data/cohort.csv에 금지 컬럼이 포함되었습니다: {', '.join(sorted(forbidden))}")
+            return errors
+        key_index = header.index("익명키")
+        flag_indexes = {name: header.index(name) for name in COHORT_FLAG_COLUMNS}
+        for row_no, row in enumerate(reader, start=2):
+            if len(row) <= key_index:
+                errors.append(f"data/cohort.csv {row_no}행 익명키 컬럼이 누락되었습니다.")
+                continue
+            key = row[key_index].strip()
+            if not ANON_KEY_RE.fullmatch(key):
+                errors.append(f"data/cohort.csv {row_no}행 익명키 형식이 올바르지 않습니다.")
+            for name, index in flag_indexes.items():
+                if len(row) <= index:
+                    errors.append(f"data/cohort.csv {row_no}행 {name} 컬럼이 누락되었습니다.")
+                    continue
+                flag = row[index].strip()
+                if flag not in {"Y", "N"}:
+                    errors.append(f"data/cohort.csv {row_no}행 {name} 값은 Y/N 이어야 합니다.")
+        return errors
+
+
+def _validate_cohort_stage_summary(repo_root):
+    path = repo_root / "data" / "cohort_stage_summary.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/cohort_stage_summary.csv"]
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/cohort_stage_summary.csv가 비어 있습니다."]
+    if header != COHORT_STAGE_SUMMARY_COLUMNS:
+        return [f"data/cohort_stage_summary.csv 헤더가 기대값과 다릅니다: {header}"]
+    return []
+
+
 def main():
     parser = argparse.ArgumentParser(description="익명 데이터 커밋 정책 검증")
     parser.add_argument("--mode", choices=["tracked", "staged"], default="tracked")
@@ -259,6 +360,12 @@ def main():
     should_validate_record_stop_rule = "data/record_stop_rule.csv" in paths
     if should_validate_record_stop_rule:
         errors.extend(_validate_record_stop_rule(repo_root))
+    should_validate_cohort = "data/cohort.csv" in paths
+    if should_validate_cohort:
+        errors.extend(_validate_cohort(repo_root))
+    should_validate_cohort_summary = "data/cohort_stage_summary.csv" in paths
+    if should_validate_cohort_summary:
+        errors.extend(_validate_cohort_stage_summary(repo_root))
 
     if errors:
         print("[error] 익명 데이터 커밋 정책 위반:")
