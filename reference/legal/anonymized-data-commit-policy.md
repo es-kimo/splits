@@ -21,6 +21,8 @@
 - `data/cohort.csv`
 - `data/cohort_stage_summary.csv`
 - `data/retention_overall.csv`
+- `data/retention_band.csv`
+- `data/improvement_rate.csv`
 - `data/public_figures.csv`
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`

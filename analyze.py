@@ -1,4 +1,5 @@
 import hashlib
+import math
 import os
 import pathlib
 import re
@@ -34,6 +35,8 @@ COHORT_CSV = DATA_DIR / "cohort.csv"
 COHORT_STAGE_SUMMARY_CSV = DATA_DIR / "cohort_stage_summary.csv"
 RETENTION_OVERALL_CSV = DATA_DIR / "retention_overall.csv"
 RETENTION_OVERALL_SVG = pathlib.Path("analysis") / "retention_overall.svg"
+RETENTION_BAND_CSV = DATA_DIR / "retention_band.csv"
+IMPROVEMENT_RATE_CSV = DATA_DIR / "improvement_rate.csv"
 SCHOOL_RAW_LIST_TXT = DATA_DIR / "school_raw_list.txt"
 SCHOOL_ALIASES_CSV = DATA_DIR / "school_aliases.csv"
 SCHOOL_AMBIGUOUS_CSV = DATA_DIR / "school_ambiguous.csv"
@@ -221,6 +224,58 @@ RETENTION_MIN_N = 100
 RETENTION_HOT_GRADES = {6, 9, 12}
 RETENTION_GRADE_MIN = 1
 RETENTION_GRADE_MAX = 13
+BASELINE_GRADE_MIN = 5
+BASELINE_GRADE_MAX = 6
+PERCENTILE_FALLBACK_MIN_N = 20
+RETENTION_BAND_MIN_N = 30
+RELAY_TEXT_RE = re.compile(r"(?:릴레이|RELAY|계주)", re.IGNORECASE)
+PERFORMANCE_BAND_LABELS = ["상위 10%", "10~30%", "30~50%", "50% 이하"]
+PERFORMANCE_STAGE_DEFS = [("중등", "중등"), ("고등", "고등"), ("대학일반", "대학")]
+RETENTION_BAND_OUTPUT_COLS = [
+    "기준유형",
+    "성별",
+    "구간수",
+    "백분위구간",
+    "구간정렬값",
+    "병합규칙",
+    "표본N",
+    "중등대상N",
+    "중등도달N",
+    "중등도달률(%)",
+    "중등도달CI하한(%)",
+    "중등도달CI상한(%)",
+    "고등대상N",
+    "고등도달N",
+    "고등도달률(%)",
+    "고등도달CI하한(%)",
+    "고등도달CI상한(%)",
+    "대학일반대상N",
+    "대학일반도달N",
+    "대학일반도달률(%)",
+    "대학일반도달CI하한(%)",
+    "대학일반도달CI상한(%)",
+    "기록대비방향일치_중등",
+    "기록대비방향일치_고등",
+    "기록대비방향일치_대학일반",
+    "신뢰한계문구",
+]
+IMPROVEMENT_RATE_OUTPUT_COLS = [
+    "지표유형",
+    "성별",
+    "거리",
+    "학년",
+    "백분위구간",
+    "표본N",
+    "향상폭_p25(초)",
+    "향상폭_p50(초)",
+    "향상폭_p75(초)",
+    "평균향상폭(초)",
+    "예측단계",
+    "향상속도_AUC(%)",
+    "백분위_AUC(%)",
+    "예측력차이(AUC%p)",
+    "신뢰한계문구",
+]
 CLASS_LEVEL_MAP_COLS = ["종별", "종별정규화키", "단계_A", "A_판정규칙", "분석포함", "행수", "최초연도", "최신연도"]
 CLASS_LEVEL_YEAR_CATEGORY_COLS = ["대회연도", "종별", "단계_A", "행수"]
 CLASS_LEVEL_AGREEMENT_COLS = [
@@ -1534,6 +1589,8 @@ def build_stats_from_anon_records():
     ) = build_participation_outputs(clean_df)
     cohort_df, cohort_stage_summary_df = build_cohort_outputs(clean_df, participation_df, record_stop_rule_df)
     retention_overall_df = build_retention_overall(participation_df, cohort_df)
+    retention_band_df = build_retention_band(clean_df, cohort_df)
+    improvement_rate_df = build_improvement_rate(clean_df, cohort_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df
@@ -1556,6 +1613,8 @@ def build_stats_from_anon_records():
         cohort_df,
         cohort_stage_summary_df,
         retention_overall_df,
+        retention_band_df,
+        improvement_rate_df,
     )
 
 
@@ -1563,6 +1622,750 @@ def _ratio_pct(numerator, denominator):
     if not denominator:
         return 0.0
     return round((numerator / denominator) * 100.0, 2)
+
+
+def _ratio_pct_or_na(numerator, denominator):
+    base = _to_int_or_none(denominator) or 0
+    if base <= 0:
+        return pd.NA
+    num = _to_int_or_none(numerator) or 0
+    return round((num / base) * 100.0, 2)
+
+
+def _wilson_interval_pct(success, total, z_score=1.96):
+    total_n = _to_int_or_none(total) or 0
+    if total_n <= 0:
+        return pd.NA, pd.NA
+    success_n = _to_int_or_none(success) or 0
+    p_hat = success_n / total_n
+    z2 = z_score * z_score
+    denominator = 1.0 + (z2 / total_n)
+    center = (p_hat + (z2 / (2.0 * total_n))) / denominator
+    margin = (z_score * math.sqrt((p_hat * (1.0 - p_hat) + (z2 / (4.0 * total_n))) / total_n)) / denominator
+    lower = max(0.0, center - margin)
+    upper = min(1.0, center + margin)
+    return round(lower * 100.0, 2), round(upper * 100.0, 2)
+
+
+def _binary_auc(scores, labels):
+    frame = pd.DataFrame({"score": pd.to_numeric(pd.Series(scores), errors="coerce"), "label": labels})
+    frame = frame[frame["score"].notna()].copy()
+    if frame.empty:
+        return pd.NA
+    frame["label"] = frame["label"].map(lambda value: 1 if bool(value) else 0)
+    pos_count = int((frame["label"] == 1).sum())
+    neg_count = int((frame["label"] == 0).sum())
+    if pos_count == 0 or neg_count == 0:
+        return pd.NA
+    frame["rank"] = frame["score"].rank(method="average", ascending=True)
+    rank_sum_pos = float(frame.loc[frame["label"] == 1, "rank"].sum())
+    auc = (rank_sum_pos - (pos_count * (pos_count + 1) / 2.0)) / (pos_count * neg_count)
+    return round(float(auc), 6)
+
+
+def _team_event_mask_for_analysis(base):
+    if base is None or base.empty:
+        return pd.Series(dtype=bool)
+    idx = base.index
+    pcnt = base.get("pcntGbn", pd.Series("", index=idx)).astype(str).str.strip().str.upper()
+    detail_cd = base.get("detailClassCd", pd.Series("", index=idx)).astype(str).str.strip()
+    detail_name = base.get("세부종목", pd.Series("", index=idx)).astype(str).str.strip()
+    meet_name = base.get("대회명", pd.Series("", index=idx)).astype(str).str.strip()
+    category = base.get("종별", pd.Series("", index=idx)).astype(str).str.strip()
+    round_name = base.get("라운드", pd.Series("", index=idx)).astype(str).str.strip()
+    relay_mask = (
+        detail_name.str.contains(RELAY_TEXT_RE, na=False, regex=True)
+        | meet_name.str.contains(RELAY_TEXT_RE, na=False, regex=True)
+        | category.str.contains(RELAY_TEXT_RE, na=False, regex=True)
+        | round_name.str.contains(RELAY_TEXT_RE, na=False, regex=True)
+    )
+    return pcnt.eq("T") | detail_cd.str.endswith("07") | relay_mask
+
+
+def _performance_band_label(percentile_value):
+    value = pd.to_numeric(pd.Series([percentile_value]), errors="coerce").iloc[0]
+    if pd.isna(value):
+        return ""
+    if float(value) >= 90.0:
+        return "상위 10%"
+    if float(value) >= 70.0:
+        return "10~30%"
+    if float(value) >= 50.0:
+        return "30~50%"
+    return "50% 이하"
+
+
+def _performance_band_order(label):
+    order = {"상위 10%": 1, "10~30%": 2, "30~50%": 3, "10~50%": 2, "50% 이하": 4}
+    return order.get(_norm_text(label), 99)
+
+
+def _build_baseline_metric_frame(clean_df, value_col, source_kind):
+    out_columns = ["익명키", "시즌", "학년", "성별", "거리", "지표값"]
+    if clean_df is None or clean_df.empty:
+        return pd.DataFrame(columns=out_columns)
+    base = clean_df.copy()
+    base["idNo"] = base.get("idNo", "").astype(str).str.strip()
+    base["classCd"] = base.get("classCd", "").map(_norm_text)
+    base["성별"] = base.get("성별", "").map(_norm_text)
+    base["거리"] = pd.to_numeric(base.get("거리"), errors="coerce").astype("Int64")
+    base["출생년도"] = pd.to_numeric(base.get("출생년도"), errors="coerce").astype("Int64")
+    if "시즌시작연도" in base.columns:
+        base["시즌"] = pd.to_numeric(base["시즌시작연도"], errors="coerce").astype("Int64")
+    else:
+        base["시즌"] = pd.Series(
+            [infer_season_start_year(year, date_norm, date_raw) for year, date_norm, date_raw in zip(base["대회연도"], base["일자_정규화"], base["일자"])],
+            dtype="Int64",
+        )
+    if "학년_계산" in base.columns:
+        base["학년"] = pd.to_numeric(base["학년_계산"], errors="coerce").astype("Int64")
+    else:
+        base["학년"] = pd.Series([calculate_school_grade(season, birth) for season, birth in zip(base["시즌"], base["출생년도"])], dtype="Int64")
+    base["라운드종류"] = base.get("라운드종류", "").map(_norm_text)
+    base["학령구간"] = base.get("학령구간", "").map(_norm_text)
+    base["기록_초"] = pd.to_numeric(base.get("기록_초"), errors="coerce")
+    base["순위"] = pd.to_numeric(base.get("순위"), errors="coerce")
+    anon_salt = _norm_text(os.environ.get("SPLITS_ANON_SALT"))
+    base["익명키"] = [_to_anon_key(value, anon_salt) for value in base["idNo"].tolist()]
+    base = base[(base["익명키"] != "") & (base["classCd"] == SHORTTRACK_CLASS_CD)].copy()
+    if base.empty:
+        return pd.DataFrame(columns=out_columns)
+    relay_mask = _team_event_mask_for_analysis(base)
+    base = base[~relay_mask].copy()
+    if base.empty:
+        return pd.DataFrame(columns=out_columns)
+    if source_kind == "time":
+        base = base[base["라운드종류"] == "예선"].copy()
+        if base.empty:
+            return pd.DataFrame(columns=out_columns)
+        outlier_mask = _stats_time_outlier_mask(base["거리"], base["기록_초"])
+        base = base[~outlier_mask].copy()
+        base["지표값"] = pd.to_numeric(base["기록_초"], errors="coerce")
+    else:
+        base = base[base["라운드종류"].isin(["채점종합", "결승"])].copy()
+        base = base[base["학령구간"] != "오픈"].copy()
+        if base.empty:
+            return pd.DataFrame(columns=out_columns)
+        base["지표값"] = pd.to_numeric(base["순위"], errors="coerce")
+    base = base[
+        base["지표값"].notna()
+        & base["거리"].notna()
+        & base["성별"].ne("")
+        & base["출생년도"].notna()
+        & base["시즌"].notna()
+        & base["학년"].notna()
+        & base["학년"].between(BASELINE_GRADE_MIN, BASELINE_GRADE_MAX)
+    ].copy()
+    if base.empty:
+        return pd.DataFrame(columns=out_columns)
+    agg_fn = "min" if source_kind == "time" else "median"
+    metric = (
+        base.groupby(["익명키", "시즌", "학년", "성별", "거리"], sort=True, dropna=False)["지표값"]
+        .agg(agg_fn)
+        .reset_index()
+    )
+    metric["시즌"] = pd.to_numeric(metric["시즌"], errors="coerce").astype("Int64")
+    metric["학년"] = pd.to_numeric(metric["학년"], errors="coerce").astype("Int64")
+    metric["거리"] = pd.to_numeric(metric["거리"], errors="coerce").astype("Int64")
+    return metric[out_columns]
+
+
+def _prepare_time_baseline_metric(clean_df):
+    return _build_baseline_metric_frame(clean_df, value_col="기록_초", source_kind="time")
+
+
+def _prepare_rank_baseline_metric(clean_df):
+    if clean_df is None or clean_df.empty:
+        return pd.DataFrame(columns=["익명키", "시즌", "학년", "성별", "거리", "지표값"])
+    source = clean_df.copy()
+    source["classCd"] = source.get("classCd", "").map(_norm_text)
+    source = source[source["classCd"] == SHORTTRACK_CLASS_CD].copy()
+    source = source[~_team_event_mask_for_analysis(source)].copy()
+    if source.empty:
+        return pd.DataFrame(columns=["익명키", "시즌", "학년", "성별", "거리", "지표값"])
+    placements = best_placement(source).copy()
+    if placements.empty:
+        return pd.DataFrame(columns=["익명키", "시즌", "학년", "성별", "거리", "지표값"])
+    placements = placements[placements["라운드종류"].isin(["채점종합", "결승"])].copy()
+    placements = placements[placements["학령구간"].map(_norm_text) != "오픈"].copy()
+    if placements.empty:
+        return pd.DataFrame(columns=["익명키", "시즌", "학년", "성별", "거리", "지표값"])
+    group_cols = ["idNo", "이름", "대회명", "대회연도", "거리", "SF여부"]
+    enrich_cols = group_cols + ["라운드종류", "시즌시작연도", "출생년도", "성별"]
+    enrich = source[enrich_cols].drop_duplicates(subset=group_cols + ["라운드종류"], keep="first")
+    base = placements.merge(enrich, on=group_cols + ["라운드종류"], how="left")
+    base["시즌"] = pd.to_numeric(base.get("시즌시작연도"), errors="coerce").astype("Int64")
+    base["출생년도"] = pd.to_numeric(base.get("출생년도"), errors="coerce").astype("Int64")
+    base["학년"] = pd.Series([calculate_school_grade(season, birth) for season, birth in zip(base["시즌"], base["출생년도"])], dtype="Int64")
+    base["성별"] = base.get("성별", "").map(_norm_text)
+    base["거리"] = pd.to_numeric(base.get("거리"), errors="coerce").astype("Int64")
+    base["지표값"] = pd.to_numeric(base.get("순위"), errors="coerce")
+    anon_salt = _norm_text(os.environ.get("SPLITS_ANON_SALT"))
+    base["익명키"] = [_to_anon_key(value, anon_salt) for value in base.get("idNo", "").astype(str).str.strip().tolist()]
+    base = base[
+        (base["익명키"] != "")
+        & base["지표값"].notna()
+        & base["거리"].notna()
+        & base["성별"].ne("")
+        & base["시즌"].notna()
+        & base["학년"].notna()
+        & base["학년"].between(BASELINE_GRADE_MIN, BASELINE_GRADE_MAX)
+    ].copy()
+    if base.empty:
+        return pd.DataFrame(columns=["익명키", "시즌", "학년", "성별", "거리", "지표값"])
+    metric = (
+        base.groupby(["익명키", "시즌", "학년", "성별", "거리"], sort=True, dropna=False)["지표값"]
+        .median()
+        .reset_index()
+    )
+    metric["시즌"] = pd.to_numeric(metric["시즌"], errors="coerce").astype("Int64")
+    metric["학년"] = pd.to_numeric(metric["학년"], errors="coerce").astype("Int64")
+    metric["거리"] = pd.to_numeric(metric["거리"], errors="coerce").astype("Int64")
+    return metric[["익명키", "시즌", "학년", "성별", "거리", "지표값"]]
+
+
+def _compute_baseline_percentiles(metric_df):
+    columns = ["익명키", "시즌", "학년", "성별", "거리", "지표값", "백분위", "표본N", "병합규칙"]
+    if metric_df is None or metric_df.empty:
+        return pd.DataFrame(columns=columns)
+    rows = []
+    for (grade, gender, distance), segment in metric_df.groupby(["학년", "성별", "거리"], sort=True, dropna=False):
+        segment = segment.copy()
+        segment["시즌"] = pd.to_numeric(segment["시즌"], errors="coerce").astype("Int64")
+        segment = segment[segment["시즌"].notna()].copy()
+        if segment.empty:
+            continue
+        for season in sorted(segment["시즌"].dropna().astype(int).unique().tolist()):
+            current = segment[segment["시즌"] == season].copy()
+            if current.empty:
+                continue
+            pool = current
+            merge_rule = "기본"
+            if len(current) < PERCENTILE_FALLBACK_MIN_N:
+                merged_pool = segment[(segment["시즌"] >= season - 1) & (segment["시즌"] <= season + 1)].copy()
+                if len(merged_pool) < PERCENTILE_FALLBACK_MIN_N:
+                    continue
+                pool = merged_pool
+                merge_rule = "N<20:±1시즌병합"
+            pool = pool.copy()
+            pool["순위"] = pool["지표값"].rank(method="average", ascending=True)
+            pool_n = int(len(pool))
+            target_rows = pool[pool["시즌"] == season].copy()
+            for _, row in target_rows.iterrows():
+                rank_value = pd.to_numeric(pd.Series([row.get("순위")]), errors="coerce").iloc[0]
+                if pd.isna(rank_value) or pool_n <= 0:
+                    continue
+                percentile = round(((pool_n - float(rank_value) + 1.0) / pool_n) * 100.0, 2)
+                rows.append(
+                    {
+                        "익명키": _norm_text(row.get("익명키")),
+                        "시즌": _to_int_or_none(row.get("시즌")),
+                        "학년": _to_int_or_none(row.get("학년")),
+                        "성별": _norm_text(row.get("성별")),
+                        "거리": _to_int_or_none(row.get("거리")),
+                        "지표값": _round_or_none(row.get("지표값"), digits=4),
+                        "백분위": percentile,
+                        "표본N": pool_n,
+                        "병합규칙": merge_rule,
+                    }
+                )
+    out = pd.DataFrame(rows, columns=columns)
+    if out.empty:
+        return out
+    out["시즌"] = pd.to_numeric(out["시즌"], errors="coerce").astype("Int64")
+    out["학년"] = pd.to_numeric(out["학년"], errors="coerce").astype("Int64")
+    out["거리"] = pd.to_numeric(out["거리"], errors="coerce").astype("Int64")
+    out["표본N"] = pd.to_numeric(out["표본N"], errors="coerce").astype("Int64")
+    out["백분위"] = pd.to_numeric(out["백분위"], errors="coerce")
+    return out
+
+
+def _select_baseline_profile(percentile_df, basis_label):
+    columns = ["기준유형", "익명키", "성별", "기준시즌", "기준학년", "대표백분위", "거리수", "최소표본N", "병합적용건수", "백분위구간4"]
+    if percentile_df is None or percentile_df.empty:
+        return pd.DataFrame(columns=columns)
+    season_profile = (
+        percentile_df.groupby(["익명키", "성별", "시즌", "학년"], sort=True, dropna=False)
+        .agg(
+            대표백분위=("백분위", "median"),
+            거리수=("거리", "nunique"),
+            최소표본N=("표본N", "min"),
+            병합적용건수=("병합규칙", lambda series: int((pd.Series(series).map(_norm_text) != "기본").sum())),
+        )
+        .reset_index()
+    )
+    if season_profile.empty:
+        return pd.DataFrame(columns=columns)
+    season_profile["학년우선"] = (pd.to_numeric(season_profile["학년"], errors="coerce") == BASELINE_GRADE_MAX).astype(int)
+    picked = (
+        season_profile.sort_values(["익명키", "학년우선", "시즌"], ascending=[True, False, True])
+        .groupby("익명키", sort=False)
+        .first()
+        .reset_index()
+    )
+    picked["대표백분위"] = pd.to_numeric(picked["대표백분위"], errors="coerce")
+    picked = picked[picked["대표백분위"].notna()].copy()
+    if picked.empty:
+        return pd.DataFrame(columns=columns)
+    out = pd.DataFrame(
+        {
+            "기준유형": basis_label,
+            "익명키": picked["익명키"].map(_norm_text),
+            "성별": picked["성별"].map(_norm_text),
+            "기준시즌": pd.to_numeric(picked["시즌"], errors="coerce").astype("Int64"),
+            "기준학년": pd.to_numeric(picked["학년"], errors="coerce").astype("Int64"),
+            "대표백분위": pd.to_numeric(picked["대표백분위"], errors="coerce"),
+            "거리수": pd.to_numeric(picked["거리수"], errors="coerce").astype("Int64"),
+            "최소표본N": pd.to_numeric(picked["최소표본N"], errors="coerce").astype("Int64"),
+            "병합적용건수": pd.to_numeric(picked["병합적용건수"], errors="coerce").astype("Int64"),
+        }
+    )
+    out["백분위구간4"] = [_performance_band_label(value) for value in out["대표백분위"].tolist()]
+    return out[columns]
+
+
+def _build_band_membership(profile_df):
+    columns = ["익명키", "성별", "구간수", "백분위구간", "구간정렬값", "병합규칙"]
+    if profile_df is None or profile_df.empty:
+        return pd.DataFrame(columns=columns)
+    rows = []
+    for gender, group in profile_df.groupby("성별", sort=True, dropna=False):
+        band4 = group["백분위구간4"].map(_norm_text)
+        counts = {label: int((band4 == label).sum()) for label in PERFORMANCE_BAND_LABELS}
+        use_three = any(counts[label] < RETENTION_BAND_MIN_N for label in PERFORMANCE_BAND_LABELS)
+        merge_rule = "4구간 유지"
+        if use_three:
+            merge_rule = "3구간 병합(10~30%+30~50%)"
+        for _, row in group.iterrows():
+            band4_label = _norm_text(row.get("백분위구간4"))
+            if use_three and band4_label in {"10~30%", "30~50%"}:
+                final_band = "10~50%"
+                band_count = 3
+            else:
+                final_band = band4_label
+                band_count = 3 if use_three else 4
+            rows.append(
+                {
+                    "익명키": _norm_text(row.get("익명키")),
+                    "성별": _norm_text(gender),
+                    "구간수": band_count,
+                    "백분위구간": final_band,
+                    "구간정렬값": _performance_band_order(final_band),
+                    "병합규칙": merge_rule,
+                }
+            )
+    out = pd.DataFrame(rows, columns=columns)
+    if out.empty:
+        return out
+    out["구간수"] = pd.to_numeric(out["구간수"], errors="coerce").astype("Int64")
+    out["구간정렬값"] = pd.to_numeric(out["구간정렬값"], errors="coerce").astype("Int64")
+    return out
+
+
+def _build_retention_band_rows(profile_df, cohort_df, basis_label):
+    rows = []
+    if profile_df is None or profile_df.empty:
+        return rows
+    membership = _build_band_membership(profile_df)
+    if membership.empty:
+        return rows
+    base = membership.merge(profile_df[["익명키"]], on="익명키", how="left")
+    cohort_cols = ["익명키", "도달_중등", "도달_고등", "도달_대학", "분석대상_중등", "분석대상_고등", "분석대상_대학"]
+    cohort_base = pd.DataFrame(columns=cohort_cols)
+    if cohort_df is not None and not cohort_df.empty:
+        cohort_base = cohort_df.copy()
+        cohort_base["익명키"] = cohort_base.get("익명키", "").map(_norm_text)
+        cohort_base = cohort_base[cohort_cols].copy()
+    base = base.merge(cohort_base, on="익명키", how="left")
+    for gender, gender_group in base.groupby("성별", sort=True, dropna=False):
+        sorted_groups = sorted(gender_group.groupby("백분위구간", dropna=False), key=lambda item: _performance_band_order(item[0]))
+        for band_label, band_group in sorted_groups:
+            sample_n = int(len(band_group))
+            note_parts = []
+            if sample_n < RETENTION_BAND_MIN_N:
+                note_parts.append("구간 표본이 30명 미만이라 해석 신뢰도가 낮습니다.")
+            merge_rule = _norm_text(band_group["병합규칙"].iloc[0])
+            if merge_rule != "4구간 유지":
+                note_parts.append("표본 부족으로 중간 구간(10~30%, 30~50%)을 병합했습니다.")
+            row = {
+                "기준유형": basis_label,
+                "성별": _norm_text(gender),
+                "구간수": _to_int_or_none(band_group["구간수"].iloc[0]),
+                "백분위구간": _norm_text(band_label),
+                "구간정렬값": _to_int_or_none(band_group["구간정렬값"].iloc[0]),
+                "병합규칙": merge_rule,
+                "표본N": sample_n,
+                "중등대상N": pd.NA,
+                "중등도달N": pd.NA,
+                "중등도달률(%)": pd.NA,
+                "중등도달CI하한(%)": pd.NA,
+                "중등도달CI상한(%)": pd.NA,
+                "고등대상N": pd.NA,
+                "고등도달N": pd.NA,
+                "고등도달률(%)": pd.NA,
+                "고등도달CI하한(%)": pd.NA,
+                "고등도달CI상한(%)": pd.NA,
+                "대학일반대상N": pd.NA,
+                "대학일반도달N": pd.NA,
+                "대학일반도달률(%)": pd.NA,
+                "대학일반도달CI하한(%)": pd.NA,
+                "대학일반도달CI상한(%)": pd.NA,
+                "기록대비방향일치_중등": "",
+                "기록대비방향일치_고등": "",
+                "기록대비방향일치_대학일반": "",
+                "신뢰한계문구": "",
+            }
+            for stage_label, suffix in PERFORMANCE_STAGE_DEFS:
+                target_col = f"분석대상_{suffix}"
+                reach_col = f"도달_{suffix}"
+                if target_col not in band_group.columns or reach_col not in band_group.columns:
+                    continue
+                target_mask = band_group[target_col].map(_norm_text) == "Y"
+                target_n = int(target_mask.sum())
+                reach_n = int((target_mask & (band_group[reach_col].map(_norm_text) == "Y")).sum())
+                rate = _ratio_pct_or_na(reach_n, target_n)
+                ci_low, ci_high = _wilson_interval_pct(reach_n, target_n)
+                if target_n > 0 and target_n < RETENTION_BAND_MIN_N:
+                    note_parts.append(f"{stage_label} 분석 대상이 30명 미만입니다.")
+                col_prefix = "대학일반" if stage_label == "대학일반" else stage_label
+                row[f"{col_prefix}대상N"] = target_n
+                row[f"{col_prefix}도달N"] = reach_n
+                row[f"{col_prefix}도달률(%)"] = rate
+                row[f"{col_prefix}도달CI하한(%)"] = ci_low
+                row[f"{col_prefix}도달CI상한(%)"] = ci_high
+            dedup_notes = []
+            for message in note_parts:
+                if message not in dedup_notes:
+                    dedup_notes.append(message)
+            row["신뢰한계문구"] = " ".join(dedup_notes)
+            rows.append(row)
+    return rows
+
+
+def _trend_direction(band_df, stage_prefix):
+    if band_df is None or band_df.empty:
+        return ""
+    rate_col = f"{stage_prefix}도달률(%)"
+    if rate_col not in band_df.columns:
+        return ""
+    working = band_df.copy()
+    working[rate_col] = pd.to_numeric(working[rate_col], errors="coerce")
+    working["구간정렬값"] = pd.to_numeric(working["구간정렬값"], errors="coerce")
+    working = working[working[rate_col].notna() & working["구간정렬값"].notna()].copy()
+    if len(working) < 2:
+        return ""
+    working = working.sort_values("구간정렬값")
+    first_rate = float(working.iloc[0][rate_col])
+    last_rate = float(working.iloc[-1][rate_col])
+    delta = last_rate - first_rate
+    if abs(delta) < 1e-6:
+        return "flat"
+    return "up" if delta > 0 else "down"
+
+
+def _build_time_baseline_profile(clean_df):
+    metric = _prepare_time_baseline_metric(clean_df)
+    percentile = _compute_baseline_percentiles(metric)
+    return _select_baseline_profile(percentile, "기록백분위")
+
+
+def _build_rank_baseline_profile(clean_df):
+    metric = _prepare_rank_baseline_metric(clean_df)
+    percentile = _compute_baseline_percentiles(metric)
+    return _select_baseline_profile(percentile, "순위백분위")
+
+
+def build_retention_band(clean_df, cohort_df):
+    out = pd.DataFrame(columns=RETENTION_BAND_OUTPUT_COLS)
+    time_profile = _build_time_baseline_profile(clean_df)
+    rank_profile = _build_rank_baseline_profile(clean_df)
+    rows = []
+    rows.extend(_build_retention_band_rows(time_profile, cohort_df, "기록백분위"))
+    rows.extend(_build_retention_band_rows(rank_profile, cohort_df, "순위백분위"))
+    if not rows:
+        return out
+    out = pd.DataFrame(rows, columns=RETENTION_BAND_OUTPUT_COLS)
+    for col in [
+        "구간수",
+        "구간정렬값",
+        "표본N",
+        "중등대상N",
+        "중등도달N",
+        "고등대상N",
+        "고등도달N",
+        "대학일반대상N",
+        "대학일반도달N",
+    ]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").astype("Int64")
+    for col in [
+        "중등도달률(%)",
+        "중등도달CI하한(%)",
+        "중등도달CI상한(%)",
+        "고등도달률(%)",
+        "고등도달CI하한(%)",
+        "고등도달CI상한(%)",
+        "대학일반도달률(%)",
+        "대학일반도달CI하한(%)",
+        "대학일반도달CI상한(%)",
+    ]:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    for gender in sorted({value for value in out["성별"].map(_norm_text).tolist() if value}):
+        time_rows = out[(out["기준유형"] == "기록백분위") & (out["성별"] == gender)].copy()
+        rank_rows = out[(out["기준유형"] == "순위백분위") & (out["성별"] == gender)].copy()
+        for stage_prefix in ["중등", "고등", "대학일반"]:
+            time_dir = _trend_direction(time_rows, stage_prefix)
+            rank_dir = _trend_direction(rank_rows, stage_prefix)
+            if not time_dir or not rank_dir:
+                aligned = ""
+            else:
+                aligned = "Y" if time_dir == rank_dir else "N"
+            out.loc[(out["기준유형"] == "순위백분위") & (out["성별"] == gender), f"기록대비방향일치_{stage_prefix}"] = aligned
+            if aligned == "N":
+                mask = (out["기준유형"] == "순위백분위") & (out["성별"] == gender)
+                out.loc[mask, "신뢰한계문구"] = out.loc[mask, "신뢰한계문구"].map(
+                    lambda text: (str(text).strip() + " 기록 기준과 방향이 달라 해석을 보류합니다.").strip()
+                    if str(text).strip()
+                    else "기록 기준과 방향이 달라 해석을 보류합니다."
+                )
+    basis_order = {"기록백분위": 0, "순위백분위": 1}
+    out["_basis"] = [basis_order.get(_norm_text(value), 99) for value in out["기준유형"].tolist()]
+    out["_gender"] = out["성별"].map(_norm_text)
+    out["_band"] = pd.to_numeric(out["구간정렬값"], errors="coerce").fillna(99).astype(int)
+    out = out.sort_values(["_basis", "_gender", "_band", "백분위구간"], ascending=[True, True, True, True]).drop(columns=["_basis", "_gender", "_band"])
+    return out.reset_index(drop=True)
+
+
+def _build_improvement_pairs(clean_df):
+    columns = ["익명키", "성별", "거리", "학년", "향상폭(초)"]
+    if clean_df is None or clean_df.empty:
+        return pd.DataFrame(columns=columns)
+    base = clean_df.copy()
+    base["idNo"] = base.get("idNo", "").astype(str).str.strip()
+    base["classCd"] = base.get("classCd", "").map(_norm_text)
+    base["성별"] = base.get("성별", "").map(_norm_text)
+    base["거리"] = pd.to_numeric(base.get("거리"), errors="coerce").astype("Int64")
+    base["출생년도"] = pd.to_numeric(base.get("출생년도"), errors="coerce").astype("Int64")
+    if "시즌시작연도" in base.columns:
+        base["시즌"] = pd.to_numeric(base["시즌시작연도"], errors="coerce").astype("Int64")
+    else:
+        base["시즌"] = pd.Series(
+            [infer_season_start_year(year, date_norm, date_raw) for year, date_norm, date_raw in zip(base["대회연도"], base["일자_정규화"], base["일자"])],
+            dtype="Int64",
+        )
+    if "학년_계산" in base.columns:
+        base["학년"] = pd.to_numeric(base["학년_계산"], errors="coerce").astype("Int64")
+    else:
+        base["학년"] = pd.Series([calculate_school_grade(season, birth) for season, birth in zip(base["시즌"], base["출생년도"])], dtype="Int64")
+    base["라운드종류"] = base.get("라운드종류", "").map(_norm_text)
+    base["기록_초"] = pd.to_numeric(base.get("기록_초"), errors="coerce")
+    anon_salt = _norm_text(os.environ.get("SPLITS_ANON_SALT"))
+    base["익명키"] = [_to_anon_key(value, anon_salt) for value in base["idNo"].tolist()]
+    base = base[(base["익명키"] != "") & (base["classCd"] == SHORTTRACK_CLASS_CD) & (base["라운드종류"] == "예선")].copy()
+    if base.empty:
+        return pd.DataFrame(columns=columns)
+    base = base[~_team_event_mask_for_analysis(base)].copy()
+    if base.empty:
+        return pd.DataFrame(columns=columns)
+    outlier_mask = _stats_time_outlier_mask(base["거리"], base["기록_초"])
+    base = base[~outlier_mask].copy()
+    base = base[
+        base["기록_초"].notna()
+        & base["거리"].notna()
+        & base["성별"].ne("")
+        & base["학년"].notna()
+        & base["시즌"].notna()
+    ].copy()
+    if base.empty:
+        return pd.DataFrame(columns=columns)
+    best = (
+        base.groupby(["익명키", "성별", "거리", "시즌", "학년"], sort=True, dropna=False)["기록_초"]
+        .min()
+        .reset_index(name="시즌최고기록")
+    )
+    rows = []
+    for (_anon_key, _distance), group in best.groupby(["익명키", "거리"], sort=False):
+        ordered = group.sort_values("시즌")
+        prev = None
+        for _, row in ordered.iterrows():
+            if prev is None:
+                prev = row
+                continue
+            prev_season = _to_int_or_none(prev.get("시즌"))
+            curr_season = _to_int_or_none(row.get("시즌"))
+            if prev_season is None or curr_season is None or curr_season - prev_season != 1:
+                prev = row
+                continue
+            prev_time = pd.to_numeric(pd.Series([prev.get("시즌최고기록")]), errors="coerce").iloc[0]
+            curr_time = pd.to_numeric(pd.Series([row.get("시즌최고기록")]), errors="coerce").iloc[0]
+            if pd.isna(prev_time) or pd.isna(curr_time):
+                prev = row
+                continue
+            rows.append(
+                {
+                    "익명키": _norm_text(row.get("익명키")),
+                    "성별": _norm_text(row.get("성별")),
+                    "거리": _to_int_or_none(row.get("거리")),
+                    "학년": _to_int_or_none(prev.get("학년")),
+                    "향상폭(초)": round(float(prev_time - curr_time), 3),
+                }
+            )
+            prev = row
+    out = pd.DataFrame(rows, columns=columns)
+    if out.empty:
+        return out
+    out["거리"] = pd.to_numeric(out["거리"], errors="coerce").astype("Int64")
+    out["학년"] = pd.to_numeric(out["학년"], errors="coerce").astype("Int64")
+    out["향상폭(초)"] = pd.to_numeric(out["향상폭(초)"], errors="coerce")
+    return out
+
+
+def build_improvement_rate(clean_df, cohort_df):
+    out = pd.DataFrame(columns=IMPROVEMENT_RATE_OUTPUT_COLS)
+    improvement_df = _build_improvement_pairs(clean_df)
+    if improvement_df.empty:
+        return out
+    rows = []
+    for (gender, distance, grade), group in improvement_df.groupby(["성별", "거리", "학년"], sort=True, dropna=False):
+        n = int(len(group))
+        note = "표본이 30건 미만이라 해석 신뢰도가 낮습니다." if n < RETENTION_BAND_MIN_N else ""
+        values = pd.to_numeric(group["향상폭(초)"], errors="coerce").dropna()
+        if values.empty:
+            continue
+        rows.append(
+            {
+                "지표유형": "기준선",
+                "성별": _norm_text(gender),
+                "거리": _to_int_or_none(distance),
+                "학년": _to_int_or_none(grade),
+                "백분위구간": "전체",
+                "표본N": n,
+                "향상폭_p25(초)": _quantile_or_none(values, 0.25, digits=3),
+                "향상폭_p50(초)": _quantile_or_none(values, 0.50, digits=3),
+                "향상폭_p75(초)": _quantile_or_none(values, 0.75, digits=3),
+                "평균향상폭(초)": round(float(values.mean()), 3),
+                "예측단계": "",
+                "향상속도_AUC(%)": pd.NA,
+                "백분위_AUC(%)": pd.NA,
+                "예측력차이(AUC%p)": pd.NA,
+                "신뢰한계문구": note,
+            }
+        )
+
+    baseline_profile = _build_time_baseline_profile(clean_df)
+    membership = _build_band_membership(baseline_profile)
+    if not membership.empty:
+        band_df = improvement_df.merge(membership[["익명키", "백분위구간"]], on="익명키", how="inner")
+        for (gender, distance, band), group in band_df.groupby(["성별", "거리", "백분위구간"], sort=True, dropna=False):
+            values = pd.to_numeric(group["향상폭(초)"], errors="coerce").dropna()
+            if values.empty:
+                continue
+            n = int(len(values))
+            note = "표본이 30건 미만이라 해석 신뢰도가 낮습니다." if n < RETENTION_BAND_MIN_N else ""
+            rows.append(
+                {
+                    "지표유형": "구간비교",
+                    "성별": _norm_text(gender),
+                    "거리": _to_int_or_none(distance),
+                    "학년": pd.NA,
+                    "백분위구간": _norm_text(band),
+                    "표본N": n,
+                    "향상폭_p25(초)": _quantile_or_none(values, 0.25, digits=3),
+                    "향상폭_p50(초)": _quantile_or_none(values, 0.50, digits=3),
+                    "향상폭_p75(초)": _quantile_or_none(values, 0.75, digits=3),
+                    "평균향상폭(초)": round(float(values.mean()), 3),
+                    "예측단계": "",
+                    "향상속도_AUC(%)": pd.NA,
+                    "백분위_AUC(%)": pd.NA,
+                    "예측력차이(AUC%p)": pd.NA,
+                    "신뢰한계문구": note,
+                }
+            )
+
+    if cohort_df is not None and not cohort_df.empty and not baseline_profile.empty:
+        cohort_base = cohort_df.copy()
+        cohort_base["익명키"] = cohort_base.get("익명키", "").map(_norm_text)
+        predictor_df = baseline_profile[["익명키", "성별", "대표백분위"]].merge(
+            improvement_df.groupby("익명키", sort=False)["향상폭(초)"].mean().reset_index(name="평균향상폭(초)"),
+            on="익명키",
+            how="inner",
+        )
+        predictor_df = predictor_df.merge(
+            cohort_base[
+                ["익명키", "성별", "도달_중등", "도달_고등", "도달_대학", "분석대상_중등", "분석대상_고등", "분석대상_대학"]
+            ],
+            on=["익명키", "성별"],
+            how="left",
+        )
+        for gender, group in predictor_df.groupby("성별", sort=True, dropna=False):
+            for stage_label, suffix in PERFORMANCE_STAGE_DEFS:
+                target_col = f"분석대상_{suffix}"
+                reach_col = f"도달_{suffix}"
+                if target_col not in group.columns or reach_col not in group.columns:
+                    continue
+                target = group[group[target_col].map(_norm_text) == "Y"].copy()
+                target = target[target["평균향상폭(초)"].notna() & target["대표백분위"].notna()].copy()
+                n = int(len(target))
+                if n <= 1:
+                    continue
+                labels = target[reach_col].map(_norm_text) == "Y"
+                auc_improvement = _binary_auc(target["평균향상폭(초)"], labels)
+                auc_percentile = _binary_auc(target["대표백분위"], labels)
+                if pd.isna(auc_improvement):
+                    auc_improvement_pct = pd.NA
+                else:
+                    auc_improvement_pct = round(float(auc_improvement) * 100.0, 2)
+                if pd.isna(auc_percentile):
+                    auc_percentile_pct = pd.NA
+                else:
+                    auc_percentile_pct = round(float(auc_percentile) * 100.0, 2)
+                if pd.isna(auc_improvement_pct) or pd.isna(auc_percentile_pct):
+                    auc_diff = pd.NA
+                else:
+                    auc_diff = round(float(auc_improvement_pct) - float(auc_percentile_pct), 2)
+                note = "표본이 100명 미만이라 예측력 비교의 불확실성이 큽니다." if n < COHORT_RELIABILITY_MIN_N else ""
+                rows.append(
+                    {
+                        "지표유형": "예측력비교",
+                        "성별": _norm_text(gender),
+                        "거리": "전체",
+                        "학년": pd.NA,
+                        "백분위구간": "전체",
+                        "표본N": n,
+                        "향상폭_p25(초)": pd.NA,
+                        "향상폭_p50(초)": pd.NA,
+                        "향상폭_p75(초)": pd.NA,
+                        "평균향상폭(초)": pd.NA,
+                        "예측단계": stage_label,
+                        "향상속도_AUC(%)": auc_improvement_pct,
+                        "백분위_AUC(%)": auc_percentile_pct,
+                        "예측력차이(AUC%p)": auc_diff,
+                        "신뢰한계문구": note,
+                    }
+                )
+    if not rows:
+        return out
+    out = pd.DataFrame(rows, columns=IMPROVEMENT_RATE_OUTPUT_COLS)
+    out["표본N"] = pd.to_numeric(out["표본N"], errors="coerce").astype("Int64")
+    for col in [
+        "향상폭_p25(초)",
+        "향상폭_p50(초)",
+        "향상폭_p75(초)",
+        "평균향상폭(초)",
+        "향상속도_AUC(%)",
+        "백분위_AUC(%)",
+        "예측력차이(AUC%p)",
+    ]:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+    section_order = {"기준선": 0, "구간비교": 1, "예측력비교": 2}
+    out["_section"] = [section_order.get(_norm_text(value), 99) for value in out["지표유형"].tolist()]
+    out["_gender"] = out["성별"].map(_norm_text)
+    out["_distance"] = pd.to_numeric(out["거리"], errors="coerce").fillna(9999).astype(int)
+    out["_grade"] = pd.to_numeric(out["학년"], errors="coerce").fillna(99).astype(int)
+    out["_band"] = [_performance_band_order(value) for value in out["백분위구간"].tolist()]
+    out = out.sort_values(["_section", "_gender", "_distance", "_grade", "_band", "예측단계"], ascending=[True, True, True, True, True, True])
+    out = out.drop(columns=["_section", "_gender", "_distance", "_grade", "_band"])
+    return out.reset_index(drop=True)
 
 
 def _build_merge_suspect_ids(merge_candidates_df):
@@ -3247,6 +4050,8 @@ def main():
             cohort_df,
             cohort_stage_summary_df,
             retention_overall_df,
+            retention_band_df,
+            improvement_rate_df,
         ) = build_stats_from_anon_records()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
@@ -3261,6 +4066,8 @@ def main():
         cohort_df.to_csv(COHORT_CSV, index=False, encoding="utf-8-sig")
         cohort_stage_summary_df.to_csv(COHORT_STAGE_SUMMARY_CSV, index=False, encoding="utf-8-sig")
         retention_overall_df.to_csv(RETENTION_OVERALL_CSV, index=False, encoding="utf-8-sig")
+        retention_band_df.to_csv(RETENTION_BAND_CSV, index=False, encoding="utf-8-sig")
+        improvement_rate_df.to_csv(IMPROVEMENT_RATE_CSV, index=False, encoding="utf-8-sig")
         build_retention_overall_svg(retention_overall_df, RETENTION_OVERALL_SVG)
         class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
         class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
@@ -3281,6 +4088,8 @@ def main():
         print(f"분석 대상 cohort 저장 완료: {COHORT_CSV} ({len(cohort_df)}행)")
         print(f"단계별 cohort 요약 저장 완료: {COHORT_STAGE_SUMMARY_CSV} ({len(cohort_stage_summary_df)}행)")
         print(f"전체 지속률 저장 완료: {RETENTION_OVERALL_CSV} ({len(retention_overall_df)}행)")
+        print(f"성적 구간별 지속률 저장 완료: {RETENTION_BAND_CSV} ({len(retention_band_df)}행)")
+        print(f"향상 속도 분석 저장 완료: {IMPROVEMENT_RATE_CSV} ({len(improvement_rate_df)}행)")
         print(f"학년별 잔존 곡선 그래프 저장 완료: {RETENTION_OVERALL_SVG}")
         print(build_retention_summary_text(retention_overall_df))
         if not record_stop_rule_df.empty:
@@ -3347,6 +4156,8 @@ def main():
     ) = build_participation_outputs(participation_clean_df)
     cohort_df, cohort_stage_summary_df = build_cohort_outputs(participation_clean_df, participation_df, record_stop_rule_df)
     retention_overall_df = build_retention_overall(participation_df, cohort_df)
+    retention_band_df = build_retention_band(participation_clean_df, cohort_df)
+    improvement_rate_df = build_improvement_rate(participation_clean_df, cohort_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df, id_merge_candidates_df
@@ -3378,6 +4189,8 @@ def main():
     cohort_df.to_csv(COHORT_CSV, index=False, encoding="utf-8-sig")
     cohort_stage_summary_df.to_csv(COHORT_STAGE_SUMMARY_CSV, index=False, encoding="utf-8-sig")
     retention_overall_df.to_csv(RETENTION_OVERALL_CSV, index=False, encoding="utf-8-sig")
+    retention_band_df.to_csv(RETENTION_BAND_CSV, index=False, encoding="utf-8-sig")
+    improvement_rate_df.to_csv(IMPROVEMENT_RATE_CSV, index=False, encoding="utf-8-sig")
     build_retention_overall_svg(retention_overall_df, RETENTION_OVERALL_SVG)
     class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
     class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
@@ -3429,6 +4242,8 @@ def main():
     print(f"분석 대상 cohort 저장 완료: {COHORT_CSV} ({len(cohort_df)}행)")
     print(f"단계별 cohort 요약 저장 완료: {COHORT_STAGE_SUMMARY_CSV} ({len(cohort_stage_summary_df)}행)")
     print(f"전체 지속률 저장 완료: {RETENTION_OVERALL_CSV} ({len(retention_overall_df)}행)")
+    print(f"성적 구간별 지속률 저장 완료: {RETENTION_BAND_CSV} ({len(retention_band_df)}행)")
+    print(f"향상 속도 분석 저장 완료: {IMPROVEMENT_RATE_CSV} ({len(improvement_rate_df)}행)")
     print(f"학년별 잔존 곡선 그래프 저장 완료: {RETENTION_OVERALL_SVG}")
     print(build_retention_summary_text(retention_overall_df))
     if not record_stop_rule_df.empty:

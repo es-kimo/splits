@@ -22,6 +22,8 @@ ALLOWED_DATA_FILES = {
     "data/cohort.csv",
     "data/cohort_stage_summary.csv",
     "data/retention_overall.csv",
+    "data/retention_band.csv",
+    "data/improvement_rate.csv",
     "data/meet_index_inf201.csv",
     "data/class_level_map.csv",
     "data/class_level_year_category_counts.csv",
@@ -140,6 +142,51 @@ RETENTION_OVERALL_COLUMNS = [
     "대상인원",
     "병합의심률(%)",
     "관측시즌범위",
+    "신뢰한계문구",
+]
+RETENTION_BAND_COLUMNS = [
+    "기준유형",
+    "성별",
+    "구간수",
+    "백분위구간",
+    "구간정렬값",
+    "병합규칙",
+    "표본N",
+    "중등대상N",
+    "중등도달N",
+    "중등도달률(%)",
+    "중등도달CI하한(%)",
+    "중등도달CI상한(%)",
+    "고등대상N",
+    "고등도달N",
+    "고등도달률(%)",
+    "고등도달CI하한(%)",
+    "고등도달CI상한(%)",
+    "대학일반대상N",
+    "대학일반도달N",
+    "대학일반도달률(%)",
+    "대학일반도달CI하한(%)",
+    "대학일반도달CI상한(%)",
+    "기록대비방향일치_중등",
+    "기록대비방향일치_고등",
+    "기록대비방향일치_대학일반",
+    "신뢰한계문구",
+]
+IMPROVEMENT_RATE_COLUMNS = [
+    "지표유형",
+    "성별",
+    "거리",
+    "학년",
+    "백분위구간",
+    "표본N",
+    "향상폭_p25(초)",
+    "향상폭_p50(초)",
+    "향상폭_p75(초)",
+    "평균향상폭(초)",
+    "예측단계",
+    "향상속도_AUC(%)",
+    "백분위_AUC(%)",
+    "예측력차이(AUC%p)",
     "신뢰한계문구",
 ]
 COHORT_FLAG_COLUMNS = [
@@ -367,6 +414,36 @@ def _validate_retention_overall(repo_root):
     return []
 
 
+def _validate_retention_band(repo_root):
+    path = repo_root / "data" / "retention_band.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/retention_band.csv"]
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/retention_band.csv가 비어 있습니다."]
+    if header != RETENTION_BAND_COLUMNS:
+        return [f"data/retention_band.csv 헤더가 기대값과 다릅니다: {header}"]
+    return []
+
+
+def _validate_improvement_rate(repo_root):
+    path = repo_root / "data" / "improvement_rate.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/improvement_rate.csv"]
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/improvement_rate.csv가 비어 있습니다."]
+    if header != IMPROVEMENT_RATE_COLUMNS:
+        return [f"data/improvement_rate.csv 헤더가 기대값과 다릅니다: {header}"]
+    return []
+
+
 def main():
     parser = argparse.ArgumentParser(description="익명 데이터 커밋 정책 검증")
     parser.add_argument("--mode", choices=["tracked", "staged"], default="tracked")
@@ -406,6 +483,12 @@ def main():
     should_validate_retention_overall = "data/retention_overall.csv" in paths
     if should_validate_retention_overall:
         errors.extend(_validate_retention_overall(repo_root))
+    should_validate_retention_band = "data/retention_band.csv" in paths
+    if should_validate_retention_band:
+        errors.extend(_validate_retention_band(repo_root))
+    should_validate_improvement_rate = "data/improvement_rate.csv" in paths
+    if should_validate_improvement_rate:
+        errors.extend(_validate_improvement_rate(repo_root))
 
     if errors:
         print("[error] 익명 데이터 커밋 정책 위반:")

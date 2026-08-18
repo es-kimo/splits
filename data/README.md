@@ -17,6 +17,8 @@
 - `data/cohort.csv`
 - `data/cohort_stage_summary.csv`
 - `data/retention_overall.csv`
+- `data/retention_band.csv`
+- `data/improvement_rate.csv`
 - `data/public_figures.csv` (의도된 실명 명단)
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
@@ -129,6 +131,30 @@
 - `단계도달` 행은 `도달단계`(중등/고등/대학·일반)별 `도달인원`, `도달률(%)`, `대상인원`을 포함합니다.
 - `병합의심률(%)`, `관측시즌범위`, `신뢰한계문구`로 병합 리스크·표본 N·관측기간 한계를 함께 기록합니다.
 
+## 3-7) retention_band.csv 규격
+
+헤더(순서 고정):
+
+`기준유형, 성별, 구간수, 백분위구간, 구간정렬값, 병합규칙, 표본N, 중등대상N, 중등도달N, 중등도달률(%), 중등도달CI하한(%), 중등도달CI상한(%), 고등대상N, 고등도달N, 고등도달률(%), 고등도달CI하한(%), 고등도달CI상한(%), 대학일반대상N, 대학일반도달N, 대학일반도달률(%), 대학일반도달CI하한(%), 대학일반도달CI상한(%), 기록대비방향일치_중등, 기록대비방향일치_고등, 기록대비방향일치_대학일반, 신뢰한계문구`
+
+- `기준유형`: `기록백분위` 또는 `순위백분위`
+- 백분위 구간 기본값은 `상위 10%`, `10~30%`, `30~50%`, `50% 이하`입니다.
+- 구간 표본이 부족하면 `병합규칙`에 따라 `10~30%`와 `30~50%`를 `10~50%`로 병합합니다.
+- `기록대비방향일치_*`는 순위 기준 결과가 기록 기준과 같은 방향인지(`Y`/`N`)를 나타냅니다.
+
+## 3-8) improvement_rate.csv 규격
+
+헤더(순서 고정):
+
+`지표유형, 성별, 거리, 학년, 백분위구간, 표본N, 향상폭_p25(초), 향상폭_p50(초), 향상폭_p75(초), 평균향상폭(초), 예측단계, 향상속도_AUC(%), 백분위_AUC(%), 예측력차이(AUC%p), 신뢰한계문구`
+
+- `지표유형`
+  - `기준선`: 학년×성별×거리별 향상 폭 분포
+  - `구간비교`: 백분위 구간별 향상 폭 비교
+  - `예측력비교`: 향상 속도 vs 백분위의 단계 도달 예측력 비교
+- 향상 폭은 같은 거리에서 `이전 시즌 최고기록 - 다음 시즌 최고기록`(초)으로 계산합니다.
+- `예측력차이(AUC%p)`는 `향상속도_AUC(%) - 백분위_AUC(%)`입니다.
+
 ## 4) 익명키 규칙
 
 - 생성식: `sha256(idNo + SALT)[:12]`
@@ -149,7 +175,7 @@ python3 build_data.py
 
 - `analyze.py`는 통계 CSV를 생성합니다.
 - `analyze.py`는 익명 통계 CSV와 단계 판정 진단 CSV를 생성합니다.
-- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`, `cohort.csv`, `cohort_stage_summary.csv`, `retention_overall.csv`, `analysis/retention_overall.svg`)을 함께 생성합니다.
+- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`, `cohort.csv`, `cohort_stage_summary.csv`, `retention_overall.csv`, `retention_band.csv`, `improvement_rate.csv`, `analysis/retention_overall.svg`)을 함께 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
 - `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 
