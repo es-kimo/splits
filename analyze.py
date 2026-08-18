@@ -28,10 +28,18 @@ SCHOOL_ALIASES_CSV = DATA_DIR / "school_aliases.csv"
 SCHOOL_AMBIGUOUS_CSV = DATA_DIR / "school_ambiguous.csv"
 ID_MERGE_CANDIDATES_CSV = DATA_DIR / "id_merge_candidates.csv"
 ID_MERGES_CSV = DATA_DIR / "id_merges.csv"
+CLASS_LEVEL_MAP_CSV = DATA_DIR / "class_level_map.csv"
+CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV = DATA_DIR / "class_level_year_category_counts.csv"
+CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV = DATA_DIR / "class_level_ab_agreement_summary.csv"
+CLASS_LEVEL_AB_MISMATCH_TYPES_CSV = DATA_DIR / "class_level_ab_mismatch_types.csv"
+CLASS_LEVEL_YEAR_READINESS_CSV = DATA_DIR / "class_level_year_readiness.csv"
 ID_MERGE_COLUMNS = ["부idNo", "주idNo", "확정일자", "근거"]
 YEAR_RE = re.compile(r"(19|20)\d{2}")
 DISTANCE_RE = re.compile(r"(500|1000|1500|2000|3000)M")
 WINTER_GAME_ROUND_RE = re.compile(r"제\s*(\d+)\s*회")
+DATE_MONTH_RE = re.compile(r"^(?:19|20)\d{2}-(\d{2})-\d{2}$")
+DATE_MONTH_DOTTED_RE = re.compile(r"^(?:19|20)\d{2}[./](\d{1,2})[./]\d{1,2}$")
+CATEGORY_NORMALIZE_RE = re.compile(r"[\s\-_/·.]+")
 LOWER_BOUNDS = {500: 40, 1000: 82, 1500: 128, 3000: 260}
 OPEN_GENERAL_UPPER_BOUNDS = {500: 70, 1000: 140, 1500: 220}
 LOWER_NEAR_MARGIN = 2.0
@@ -47,6 +55,14 @@ SHORTTRACK_MEET_NAME_TOKEN = "쇼트트랙"
 KNOWN_WINTER_ROUNDS = {88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 103, 104, 105, 107}
 K_ANONYMITY_MIN = 10
 INSUFFICIENT_TEXT = "데이터 부족"
+SEASON_START_MONTH = 7
+SCHOOL_LEVEL_STAGES = ["초등", "중등", "고등", "대학·일반"]
+SCHOOL_LEVEL_OPEN = "오픈"
+SCHOOL_LEVEL_EXCLUDED = "분석제외"
+SCHOOL_LEVEL_ORDER = {stage: idx for idx, stage in enumerate(SCHOOL_LEVEL_STAGES)}
+READINESS_MIN_COMPARABLE_ROWS = 500
+READINESS_MIN_AGREEMENT_PCT = 90.0
+READINESS_MAX_BIRTH_MISSING_PCT = 10.0
 FORBIDDEN_OUTPUT_COLUMNS = {"idNo", "이름", "소속", "시도"}
 FORBIDDEN_ANON_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
 RECORDS_ANON_REQUIRED_COLUMNS = [
@@ -78,6 +94,39 @@ DIST_OUTPUT_COLS = (
     ["출생연도", "성별", "거리", "기록_인원수"] + DIST_TIME_COLS + ["순위_인원수"] + DIST_RANK_COLS
 )
 PART_OUTPUT_COLS = ["출생연도", "성별", "최초출전나이_p25", "최초출전나이_p50", "최초출전나이_p75", "초등부출전수_p50", "인원수"]
+CLASS_LEVEL_MAP_COLS = ["종별", "종별정규화키", "단계_A", "A_판정규칙", "분석포함", "행수", "최초연도", "최신연도"]
+CLASS_LEVEL_YEAR_CATEGORY_COLS = ["대회연도", "종별", "단계_A", "행수"]
+CLASS_LEVEL_AGREEMENT_COLS = [
+    "전체행수",
+    "오픈행수",
+    "오픈비율(%)",
+    "오픈행_출생연도기반판정가능행수",
+    "오픈행_출생연도기반판정가능비율(%)",
+    "출생연도결측행수",
+    "출생연도결측비율(%)",
+    "종별폴백행수",
+    "종별폴백비율(%)",
+    "비교가능행수",
+    "일치행수",
+    "일치율(%)",
+    "불일치행수",
+    "단계분석_권장시작연도",
+    "기준_최소비교행수",
+    "기준_최소일치율(%)",
+    "기준_최대출생연도결측비율(%)",
+]
+CLASS_LEVEL_MISMATCH_COLS = ["불일치유형", "건수", "비율(%)"]
+CLASS_LEVEL_YEAR_READINESS_COLS = [
+    "대회연도",
+    "전체행수",
+    "비교가능행수",
+    "일치행수",
+    "일치율(%)",
+    "오픈비율(%)",
+    "출생연도결측비율(%)",
+    "단계분석사용가능",
+    "판정사유",
+]
 SCHOOL_REGION_PREFIXES = [
     "서울특별시",
     "부산광역시",
@@ -644,23 +693,160 @@ def parse_rank(value):
     match = re.search(r"\d+", str(value or "").strip())
     return int(match.group(0)) if match else None
 
-def classify_school_level(category):
-    text = str(category or "").strip()
+def _to_int_or_none(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+    text = str(value).strip()
     if not text:
         return None
-    if text in {"여자부", "남자부"}:
-        return "오픈"
-    if "초등" in text:
-        return "초등"
-    if "중학" in text or "중등" in text:
-        return "중등"
-    if "고등" in text:
-        return "고등"
-    if "대학" in text:
-        return "대학"
-    if "일반" in text:
-        return "일반"
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def normalize_category_key(category):
+    text = _norm_text(category).upper()
+    if not text:
+        return ""
+    return CATEGORY_NORMALIZE_RE.sub("", text)
+
+
+def classify_school_level_from_category(category):
+    key = normalize_category_key(category)
+    if not key:
+        return {"categoryKey": key, "stage": SCHOOL_LEVEL_EXCLUDED, "rule": "빈종별"}
+    if key in {"남자부", "여자부", "MEN", "WOMEN"}:
+        return {"categoryKey": key, "stage": SCHOOL_LEVEL_OPEN, "rule": "오픈종별"}
+    if "유치" in key:
+        return {"categoryKey": key, "stage": SCHOOL_LEVEL_EXCLUDED, "rule": "유치부"}
+    if "초등" in key or "12세이하" in key:
+        return {"categoryKey": key, "stage": "초등", "rule": "초등키워드"}
+    if "중학" in key or "중등" in key or "주니어" in key:
+        return {"categoryKey": key, "stage": "중등", "rule": "중등키워드"}
+    if "고등" in key or "고교" in key or "남고부" in key or "여고부" in key:
+        return {"categoryKey": key, "stage": "고등", "rule": "고등키워드"}
+    if any(token in key for token in ["대학", "일반", "실업", "동호인"]):
+        return {"categoryKey": key, "stage": "대학·일반", "rule": "대학일반키워드"}
+    return {"categoryKey": key, "stage": SCHOOL_LEVEL_EXCLUDED, "rule": "기타미분류"}
+
+
+def _extract_month_from_date(normalized_date, raw_date):
+    for value in [normalized_date, raw_date]:
+        text = _norm_text(value)
+        if not text:
+            continue
+        match = DATE_MONTH_RE.match(text)
+        if match:
+            month = int(match.group(1))
+            if 1 <= month <= 12:
+                return month
+        match = DATE_MONTH_DOTTED_RE.match(text)
+        if match:
+            month = int(match.group(1))
+            if 1 <= month <= 12:
+                return month
     return None
+
+
+def infer_season_start_year(meet_year, normalized_date="", raw_date=""):
+    year = _to_int_or_none(meet_year)
+    if year is None:
+        return None
+    month = _extract_month_from_date(normalized_date, raw_date)
+    if month is None:
+        return year
+    return year if month >= SEASON_START_MONTH else year - 1
+
+
+def calculate_school_grade(season_start_year, birth_year):
+    season_year = _to_int_or_none(season_start_year)
+    birth = _to_int_or_none(birth_year)
+    if season_year is None or birth is None:
+        return None
+    return season_year - birth - 6
+
+
+def classify_school_level_from_grade(grade):
+    grade_num = _to_int_or_none(grade)
+    if grade_num is None:
+        return None
+    if grade_num <= 0:
+        return SCHOOL_LEVEL_EXCLUDED
+    if grade_num <= 6:
+        return "초등"
+    if grade_num <= 9:
+        return "중등"
+    if grade_num <= 12:
+        return "고등"
+    return "대학·일반"
+
+
+def resolve_school_level(category, birth_year=None, season_start_year=None):
+    category_info = classify_school_level_from_category(category)
+    category_stage = category_info["stage"]
+    grade = calculate_school_grade(season_start_year, birth_year)
+    grade_stage = classify_school_level_from_grade(grade)
+    if category_stage == SCHOOL_LEVEL_OPEN:
+        return {
+            "stage_final": SCHOOL_LEVEL_OPEN,
+            "stage_category": category_stage,
+            "stage_grade": grade_stage,
+            "grade": grade,
+            "source": "open_category",
+            "category_key": category_info["categoryKey"],
+            "category_rule": category_info["rule"],
+        }
+    if grade_stage in SCHOOL_LEVEL_STAGES:
+        return {
+            "stage_final": grade_stage,
+            "stage_category": category_stage,
+            "stage_grade": grade_stage,
+            "grade": grade,
+            "source": "birth_year",
+            "category_key": category_info["categoryKey"],
+            "category_rule": category_info["rule"],
+        }
+    if grade_stage == SCHOOL_LEVEL_EXCLUDED:
+        return {
+            "stage_final": None,
+            "stage_category": category_stage,
+            "stage_grade": grade_stage,
+            "grade": grade,
+            "source": "grade_excluded",
+            "category_key": category_info["categoryKey"],
+            "category_rule": category_info["rule"],
+        }
+    if category_stage in SCHOOL_LEVEL_STAGES:
+        return {
+            "stage_final": category_stage,
+            "stage_category": category_stage,
+            "stage_grade": grade_stage,
+            "grade": grade,
+            "source": "category_fallback",
+            "category_key": category_info["categoryKey"],
+            "category_rule": category_info["rule"],
+        }
+    return {
+        "stage_final": None,
+        "stage_category": category_stage,
+        "stage_grade": grade_stage,
+        "grade": grade,
+        "source": "excluded_or_unknown",
+        "category_key": category_info["categoryKey"],
+        "category_rule": category_info["rule"],
+    }
+
+
+def classify_school_level(category, birth_year=None, season_start_year=None):
+    return resolve_school_level(category, birth_year=birth_year, season_start_year=season_start_year)["stage_final"]
+
+
 def parse_event_detail(event_name):
     text = str(event_name or "").upper().replace(" ", "")
     match = DISTANCE_RE.search(text)
@@ -805,7 +991,17 @@ def build_clean_records(records_df, athlete_df):
     clean.attrs["year_missing_after_restore"] = int(clean["대회연도"].isna().sum())
     clean.attrs["winter_round_fallback_unknown"] = out_of_known_rounds
     clean["나이_추정"] = pd.Series([estimate_age(y, b) for y, b in zip(clean["대회연도"], clean["출생년도"])], dtype="Int64")
-    clean["학령구간"] = clean["종별"].apply(classify_school_level)
+    clean["시즌시작연도"] = pd.Series(
+        [infer_season_start_year(year, date_norm, date_raw) for year, date_norm, date_raw in zip(clean["대회연도"], clean["일자_정규화"], clean["일자"])],
+        dtype="Int64",
+    )
+    level_resolution = [
+        resolve_school_level(category, birth_year=birth, season_start_year=season_year)
+        for category, birth, season_year in zip(clean["종별"], clean["출생년도"], clean["시즌시작연도"])
+    ]
+    clean["학령구간"] = [item["stage_final"] for item in level_resolution]
+    clean["학년_계산"] = pd.Series([item["grade"] for item in level_resolution], dtype="Int64")
+    clean["학령구간_판정근거"] = [item["source"] for item in level_resolution]
     parsed = clean["세부종목"].apply(parse_event_detail)
     clean["거리"] = pd.Series([p[0] for p in parsed], dtype="Int64")
     clean["SF여부"] = [p[1] for p in parsed]
@@ -843,7 +1039,7 @@ def detect_outliers(clean_df):
         lower = LOWER_BOUNDS[distance]
         if value < lower:
             add_reason(idx, "하한미달", f"{distance}M 하한미달({value:.3f} < {lower})")
-        if row["학령구간"] in {"오픈", "일반"} and distance in OPEN_GENERAL_UPPER_BOUNDS:
+        if row["학령구간"] in {"오픈", "일반", "대학·일반", "대학"} and distance in OPEN_GENERAL_UPPER_BOUNDS:
             upper = OPEN_GENERAL_UPPER_BOUNDS[distance]
             if value > upper:
                 add_reason(idx, "상한초과", f"{distance}M 상한초과({value:.3f} > {upper}, 오픈/일반 기준)")
@@ -1154,6 +1350,17 @@ def _load_anon_clean_records():
                 clean.loc[missing_class_cd, "라운드종류"],
             )
         ]
+    clean["시즌시작연도"] = pd.Series(
+        [infer_season_start_year(year, date_norm, date_raw) for year, date_norm, date_raw in zip(clean["대회연도"], clean["일자_정규화"], clean["일자"])],
+        dtype="Int64",
+    )
+    level_resolution = [
+        resolve_school_level(category, birth_year=birth, season_start_year=season_year)
+        for category, birth, season_year in zip(clean["종별"], clean["출생년도"], clean["시즌시작연도"])
+    ]
+    clean["학령구간"] = [item["stage_final"] for item in level_resolution]
+    clean["학년_계산"] = pd.Series([item["grade"] for item in level_resolution], dtype="Int64")
+    clean["학령구간_판정근거"] = [item["source"] for item in level_resolution]
     clean["순위_정수"] = pd.Series(clean["순위"].apply(parse_rank), dtype="Int64")
     clean["순위"] = clean["순위_정수"].astype("Int64")
     clean["나이_추정"] = pd.Series([estimate_age(y, b) for y, b in zip(clean["대회연도"], clean["출생년도"])], dtype="Int64")
@@ -1177,7 +1384,274 @@ def build_stats_from_anon_records():
     stats_distribution_df = build_stats_distribution(clean_df, athlete_df)
     stats_participation_df = build_stats_participation(summary_df, athlete_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
-    return coverage_df, stats_distribution_df, stats_participation_df
+    class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
+        clean_df
+    )
+    return (
+        coverage_df,
+        stats_distribution_df,
+        stats_participation_df,
+        class_level_map_df,
+        class_level_year_category_df,
+        class_level_agreement_df,
+        class_level_mismatch_df,
+        class_level_year_readiness_df,
+    )
+
+
+def _ratio_pct(numerator, denominator):
+    if not denominator:
+        return 0.0
+    return round((numerator / denominator) * 100.0, 2)
+
+
+def _build_merge_suspect_ids(merge_candidates_df):
+    if merge_candidates_df is None or merge_candidates_df.empty:
+        return set()
+    suspects = set()
+    flagged = merge_candidates_df[merge_candidates_df["판정"].isin(["review", "reject"])].copy()
+    for col in ["주idNo", "부idNo"]:
+        if col not in flagged.columns:
+            continue
+        ids = flagged[col].map(_norm_text)
+        suspects.update(id_no for id_no in ids.tolist() if id_no)
+    return suspects
+
+
+def _classify_level_mismatch(stage_a, stage_b, id_no, merge_suspect_ids):
+    if id_no and id_no in merge_suspect_ids:
+        return "병합오류 의심"
+    idx_a = SCHOOL_LEVEL_ORDER.get(stage_a)
+    idx_b = SCHOOL_LEVEL_ORDER.get(stage_b)
+    if idx_a is None or idx_b is None:
+        return "기타 불일치"
+    gap = idx_a - idx_b
+    if abs(gap) >= 2:
+        return "출생연도 오류 의심"
+    if gap == 1:
+        return "상위 학년 경기 출전 가능"
+    if gap == -1:
+        return "유급/조기입학 가능"
+    return "기타 불일치"
+
+
+def build_class_level_diagnostics(clean_df, merge_candidates_df=None):
+    if clean_df is None or clean_df.empty:
+        empty_map = pd.DataFrame(columns=CLASS_LEVEL_MAP_COLS)
+        empty_year_category = pd.DataFrame(columns=CLASS_LEVEL_YEAR_CATEGORY_COLS)
+        empty_mismatch = pd.DataFrame(columns=CLASS_LEVEL_MISMATCH_COLS)
+        empty_readiness = pd.DataFrame(columns=CLASS_LEVEL_YEAR_READINESS_COLS)
+        summary = pd.DataFrame(
+            [
+                {
+                    "전체행수": 0,
+                    "오픈행수": 0,
+                    "오픈비율(%)": 0.0,
+                    "오픈행_출생연도기반판정가능행수": 0,
+                    "오픈행_출생연도기반판정가능비율(%)": 0.0,
+                    "출생연도결측행수": 0,
+                    "출생연도결측비율(%)": 0.0,
+                    "종별폴백행수": 0,
+                    "종별폴백비율(%)": 0.0,
+                    "비교가능행수": 0,
+                    "일치행수": 0,
+                    "일치율(%)": 0.0,
+                    "불일치행수": 0,
+                    "단계분석_권장시작연도": "",
+                    "기준_최소비교행수": READINESS_MIN_COMPARABLE_ROWS,
+                    "기준_최소일치율(%)": READINESS_MIN_AGREEMENT_PCT,
+                    "기준_최대출생연도결측비율(%)": READINESS_MAX_BIRTH_MISSING_PCT,
+                }
+            ],
+            columns=CLASS_LEVEL_AGREEMENT_COLS,
+        )
+        return empty_map, empty_year_category, summary, empty_mismatch, empty_readiness
+
+    base = clean_df.copy()
+    base["idNo"] = base.get("idNo", "").astype(str).str.strip()
+    base["대회연도"] = pd.to_numeric(base.get("대회연도"), errors="coerce").astype("Int64")
+    base["출생년도"] = pd.to_numeric(base.get("출생년도"), errors="coerce").astype("Int64")
+    base["종별"] = base.get("종별", "").map(_norm_text)
+    base["일자_정규화"] = base.get("일자_정규화", "").map(_norm_text)
+    base["일자"] = base.get("일자", "").map(_norm_text)
+    if "시즌시작연도" not in base.columns:
+        base["시즌시작연도"] = pd.Series(
+            [infer_season_start_year(year, date_norm, date_raw) for year, date_norm, date_raw in zip(base["대회연도"], base["일자_정규화"], base["일자"])],
+            dtype="Int64",
+        )
+    else:
+        base["시즌시작연도"] = pd.to_numeric(base["시즌시작연도"], errors="coerce").astype("Int64")
+
+    resolved_rows = []
+    for _, row in base.iterrows():
+        resolved = resolve_school_level(
+            row.get("종별", ""),
+            birth_year=row.get("출생년도"),
+            season_start_year=row.get("시즌시작연도"),
+        )
+        resolved_rows.append(
+            {
+                "idNo": _norm_text(row.get("idNo")),
+                "대회연도": row.get("대회연도"),
+                "종별": _norm_text(row.get("종별")),
+                "종별정규화키": resolved["category_key"],
+                "단계_A": resolved["stage_category"],
+                "A_판정규칙": resolved["category_rule"],
+                "단계_B": resolved["stage_grade"],
+                "단계_최종": resolved["stage_final"],
+                "판정근거": resolved["source"],
+                "계산학년": resolved["grade"],
+                "출생연도결측": pd.isna(row.get("출생년도")),
+            }
+        )
+    level_df = pd.DataFrame(resolved_rows)
+    level_df["대회연도"] = pd.to_numeric(level_df["대회연도"], errors="coerce").astype("Int64")
+    level_df["계산학년"] = pd.to_numeric(level_df["계산학년"], errors="coerce").astype("Int64")
+
+    map_df = (
+        level_df.groupby(["종별", "종별정규화키", "단계_A", "A_판정규칙"], dropna=False)
+        .agg(행수=("종별", "size"), 최초연도=("대회연도", "min"), 최신연도=("대회연도", "max"))
+        .reset_index()
+    )
+    map_df["분석포함"] = map_df["단계_A"].isin(SCHOOL_LEVEL_STAGES + [SCHOOL_LEVEL_OPEN]).map(lambda v: "Y" if v else "N")
+    map_df["최초연도"] = pd.to_numeric(map_df["최초연도"], errors="coerce").astype("Int64")
+    map_df["최신연도"] = pd.to_numeric(map_df["최신연도"], errors="coerce").astype("Int64")
+    map_df = map_df[CLASS_LEVEL_MAP_COLS].sort_values(["행수", "종별"], ascending=[False, True]).reset_index(drop=True)
+
+    year_category_df = (
+        level_df.groupby(["대회연도", "종별", "단계_A"], dropna=False)
+        .size()
+        .reset_index(name="행수")
+        .sort_values(["대회연도", "행수", "종별"], ascending=[True, False, True], na_position="last")
+        .reset_index(drop=True)
+    )
+    year_category_df = year_category_df[CLASS_LEVEL_YEAR_CATEGORY_COLS]
+
+    open_rows = level_df[level_df["단계_A"] == SCHOOL_LEVEL_OPEN].copy()
+    open_birth_resolved = open_rows[open_rows["단계_B"].isin(SCHOOL_LEVEL_STAGES)]
+    birth_missing_rows = int(level_df["출생연도결측"].sum())
+    fallback_rows = int((level_df["판정근거"] == "category_fallback").sum())
+
+    compare_df = level_df[(level_df["단계_A"].isin(SCHOOL_LEVEL_STAGES)) & (level_df["단계_B"].isin(SCHOOL_LEVEL_STAGES))].copy()
+    compare_df["일치여부"] = compare_df["단계_A"] == compare_df["단계_B"]
+    merge_suspect_ids = _build_merge_suspect_ids(merge_candidates_df)
+    mismatch_df = compare_df[~compare_df["일치여부"]].copy()
+    if mismatch_df.empty:
+        mismatch_df["불일치유형"] = pd.Series(dtype=str)
+    else:
+        mismatch_df["불일치유형"] = [
+            _classify_level_mismatch(stage_a, stage_b, id_no, merge_suspect_ids)
+            for stage_a, stage_b, id_no in zip(mismatch_df["단계_A"], mismatch_df["단계_B"], mismatch_df["idNo"])
+        ]
+
+    mismatch_types = ["상위 학년 경기 출전 가능", "유급/조기입학 가능", "출생연도 오류 의심", "병합오류 의심", "기타 불일치"]
+    mismatch_rows = []
+    mismatch_total = len(mismatch_df)
+    for mismatch_type in mismatch_types:
+        count = int((mismatch_df["불일치유형"] == mismatch_type).sum()) if mismatch_total else 0
+        mismatch_rows.append({"불일치유형": mismatch_type, "건수": count, "비율(%)": _ratio_pct(count, mismatch_total)})
+    mismatch_summary_df = pd.DataFrame(mismatch_rows, columns=CLASS_LEVEL_MISMATCH_COLS)
+
+    readiness_rows = []
+    year_candidates = [int(year) for year in sorted(level_df["대회연도"].dropna().astype(int).unique().tolist())]
+    for year in year_candidates:
+        year_rows = level_df[level_df["대회연도"] == year]
+        year_compare = compare_df[compare_df["대회연도"] == year]
+        total_rows = int(len(year_rows))
+        compare_rows = int(len(year_compare))
+        match_rows = int(year_compare["일치여부"].sum()) if compare_rows else 0
+        agree_pct = _ratio_pct(match_rows, compare_rows)
+        open_pct = _ratio_pct(int((year_rows["단계_A"] == SCHOOL_LEVEL_OPEN).sum()), total_rows)
+        birth_missing_pct = _ratio_pct(int(year_rows["출생연도결측"].sum()), total_rows)
+        reasons = []
+        if compare_rows < READINESS_MIN_COMPARABLE_ROWS:
+            reasons.append("비교표본부족")
+        if agree_pct < READINESS_MIN_AGREEMENT_PCT:
+            reasons.append("일치율미달")
+        if birth_missing_pct > READINESS_MAX_BIRTH_MISSING_PCT:
+            reasons.append("출생연도결측과다")
+        usable = not reasons
+        readiness_rows.append(
+            {
+                "대회연도": year,
+                "전체행수": total_rows,
+                "비교가능행수": compare_rows,
+                "일치행수": match_rows,
+                "일치율(%)": agree_pct,
+                "오픈비율(%)": open_pct,
+                "출생연도결측비율(%)": birth_missing_pct,
+                "단계분석사용가능": "Y" if usable else "N",
+                "판정사유": "충족" if usable else ", ".join(reasons),
+            }
+        )
+    readiness_df = pd.DataFrame(readiness_rows, columns=CLASS_LEVEL_YEAR_READINESS_COLS)
+
+    recommended_year = ""
+    if not readiness_df.empty:
+        usable_rows = readiness_df[readiness_df["단계분석사용가능"] == "Y"]
+        if not usable_rows.empty:
+            recommended_year = str(int(usable_rows["대회연도"].min()))
+
+    compare_rows_total = int(len(compare_df))
+    match_rows_total = int(compare_df["일치여부"].sum()) if compare_rows_total else 0
+    mismatch_rows_total = compare_rows_total - match_rows_total
+    agreement_summary_df = pd.DataFrame(
+        [
+            {
+                "전체행수": int(len(level_df)),
+                "오픈행수": int(len(open_rows)),
+                "오픈비율(%)": _ratio_pct(len(open_rows), len(level_df)),
+                "오픈행_출생연도기반판정가능행수": int(len(open_birth_resolved)),
+                "오픈행_출생연도기반판정가능비율(%)": _ratio_pct(len(open_birth_resolved), len(open_rows)),
+                "출생연도결측행수": birth_missing_rows,
+                "출생연도결측비율(%)": _ratio_pct(birth_missing_rows, len(level_df)),
+                "종별폴백행수": fallback_rows,
+                "종별폴백비율(%)": _ratio_pct(fallback_rows, len(level_df)),
+                "비교가능행수": compare_rows_total,
+                "일치행수": match_rows_total,
+                "일치율(%)": _ratio_pct(match_rows_total, compare_rows_total),
+                "불일치행수": mismatch_rows_total,
+                "단계분석_권장시작연도": recommended_year,
+                "기준_최소비교행수": READINESS_MIN_COMPARABLE_ROWS,
+                "기준_최소일치율(%)": READINESS_MIN_AGREEMENT_PCT,
+                "기준_최대출생연도결측비율(%)": READINESS_MAX_BIRTH_MISSING_PCT,
+            }
+        ],
+        columns=CLASS_LEVEL_AGREEMENT_COLS,
+    )
+    return map_df, year_category_df, agreement_summary_df, mismatch_summary_df, readiness_df
+
+
+def print_class_level_diagnostics(agreement_summary_df, readiness_df, mismatch_summary_df):
+    if agreement_summary_df is None or agreement_summary_df.empty:
+        return
+    row = agreement_summary_df.iloc[0]
+    print(
+        "[단계 판정] A/B 일치율 {0:.2f}% ({1}/{2}), 종별 폴백 {3}행 ({4:.2f}%), 출생연도 결측 {5}행 ({6:.2f}%)".format(
+            float(row["일치율(%)"]),
+            int(row["일치행수"]),
+            int(row["비교가능행수"]),
+            int(row["종별폴백행수"]),
+            float(row["종별폴백비율(%)"]),
+            int(row["출생연도결측행수"]),
+            float(row["출생연도결측비율(%)"]),
+        )
+    )
+    print(
+        "[단계 판정] 오픈 행 {0}건, 출생연도 기반 단계 판정 가능 {1}건 ({2:.2f}%)".format(
+            int(row["오픈행수"]),
+            int(row["오픈행_출생연도기반판정가능행수"]),
+            float(row["오픈행_출생연도기반판정가능비율(%)"]),
+        )
+    )
+    start_year = _norm_text(row["단계분석_권장시작연도"])
+    if start_year:
+        print(f"[단계 판정] 권장 분석 시작 연도: {start_year}년")
+    else:
+        print("[단계 판정] 권장 분석 시작 연도: 없음(기준 미충족)")
+    if mismatch_summary_df is not None and not mismatch_summary_df.empty:
+        top = mismatch_summary_df.sort_values(["건수", "불일치유형"], ascending=[False, True]).iloc[0]
+        print(f"[단계 판정] 최다 불일치 유형: {top['불일치유형']} ({int(top['건수'])}건)")
 
 
 def _norm_group_frame(df, id_col="idNo"):
@@ -1502,15 +1976,35 @@ def main():
             print("[error] data/records.csv 또는 data/athlete_info.csv 파일이 없습니다.")
             print("[error] data/records_anon.csv도 없어 익명 통계를 재생성할 수 없습니다.")
             return
-        coverage_df, stats_distribution_df, stats_participation_df = build_stats_from_anon_records()
+        (
+            coverage_df,
+            stats_distribution_df,
+            stats_participation_df,
+            class_level_map_df,
+            class_level_year_category_df,
+            class_level_agreement_df,
+            class_level_mismatch_df,
+            class_level_year_readiness_df,
+        ) = build_stats_from_anon_records()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
         stats_distribution_df.to_csv(STATS_DISTRIBUTION_CSV, index=False, encoding="utf-8-sig")
         stats_participation_df.to_csv(STATS_PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
+        class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
+        class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
+        class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
+        class_level_mismatch_df.to_csv(CLASS_LEVEL_AB_MISMATCH_TYPES_CSV, index=False, encoding="utf-8-sig")
+        class_level_year_readiness_df.to_csv(CLASS_LEVEL_YEAR_READINESS_CSV, index=False, encoding="utf-8-sig")
         print_stats_filter_log(stats_distribution_df)
+        print_class_level_diagnostics(class_level_agreement_df, class_level_year_readiness_df, class_level_mismatch_df)
         print(f"데이터 커버리지 저장 완료: {COVERAGE_CSV}")
         print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
         print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
+        print(f"종별 단계 매핑 저장 완료: {CLASS_LEVEL_MAP_CSV} ({len(class_level_map_df)}행)")
+        print(f"연도×종별 집계 저장 완료: {CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV} ({len(class_level_year_category_df)}행)")
+        print(f"단계 A/B 요약 저장 완료: {CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV}")
+        print(f"단계 A/B 불일치 유형 저장 완료: {CLASS_LEVEL_AB_MISMATCH_TYPES_CSV} ({len(class_level_mismatch_df)}행)")
+        print(f"연도별 단계 분석 사용성 저장 완료: {CLASS_LEVEL_YEAR_READINESS_CSV} ({len(class_level_year_readiness_df)}행)")
         print(f"익명 통계 입력 소스: {RECORDS_ANON_CSV.name}")
         return
     records_df = pd.read_csv(RECORDS_CSV, dtype=str, encoding="utf-8-sig").fillna("")
@@ -1542,6 +2036,9 @@ def main():
     stats_distribution_df = build_stats_distribution(stats_clean_df, stats_athlete_df)
     stats_participation_df = build_stats_participation(stats_summary_df, stats_athlete_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
+    class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
+        clean_df, id_merge_candidates_df
+    )
     dup_check = placements_df.groupby(["이름", "대회명", "거리", "SF여부"], dropna=False).size().reset_index(name="행수")
     dup_bad = dup_check[dup_check["행수"] >= 2]
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1560,6 +2057,11 @@ def main():
     best_heat_df.to_csv(BEST_HEAT_TIMES_CSV, index=False, encoding="utf-8-sig")
     stats_distribution_df.to_csv(STATS_DISTRIBUTION_CSV, index=False, encoding="utf-8-sig")
     stats_participation_df.to_csv(STATS_PARTICIPATION_CSV, index=False, encoding="utf-8-sig")
+    class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
+    class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
+    class_level_agreement_df.to_csv(CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV, index=False, encoding="utf-8-sig")
+    class_level_mismatch_df.to_csv(CLASS_LEVEL_AB_MISMATCH_TYPES_CSV, index=False, encoding="utf-8-sig")
+    class_level_year_readiness_df.to_csv(CLASS_LEVEL_YEAR_READINESS_CSV, index=False, encoding="utf-8-sig")
     print_console(summary_df, placements_df)
     print(
         "records {0} → 성적행 후보 {1} → (선수,대회,거리,SF여부) 그룹핑 후 {2}".format(
@@ -1596,8 +2098,14 @@ def main():
     print(f"id 병합 review 건수: {review_count}건")
     print(f"익명 분포 통계 저장 완료: {STATS_DISTRIBUTION_CSV} ({len(stats_distribution_df)}행)")
     print(f"익명 참가 통계 저장 완료: {STATS_PARTICIPATION_CSV} ({len(stats_participation_df)}행)")
+    print(f"종별 단계 매핑 저장 완료: {CLASS_LEVEL_MAP_CSV} ({len(class_level_map_df)}행)")
+    print(f"연도×종별 집계 저장 완료: {CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV} ({len(class_level_year_category_df)}행)")
+    print(f"단계 A/B 요약 저장 완료: {CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV}")
+    print(f"단계 A/B 불일치 유형 저장 완료: {CLASS_LEVEL_AB_MISMATCH_TYPES_CSV} ({len(class_level_mismatch_df)}행)")
+    print(f"연도별 단계 분석 사용성 저장 완료: {CLASS_LEVEL_YEAR_READINESS_CSV} ({len(class_level_year_readiness_df)}행)")
     print(f"익명 통계 입력 소스: {stats_source_label}")
     print_stats_filter_log(stats_distribution_df)
+    print_class_level_diagnostics(class_level_agreement_df, class_level_year_readiness_df, class_level_mismatch_df)
 
 
 if __name__ == "__main__":
