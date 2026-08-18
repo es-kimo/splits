@@ -14,6 +14,8 @@
 !/data/cohort.csv
 !/data/cohort_stage_summary.csv
 !/data/retention_overall.csv
+!/data/retention_band.csv
+!/data/improvement_rate.csv
 !/data/meet_index_inf201.csv
 !/data/class_level_map.csv
 !/data/class_level_year_category_counts.csv
