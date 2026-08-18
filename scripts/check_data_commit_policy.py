@@ -13,6 +13,10 @@ ALLOWED_DATA_FILES = {
     "data/coverage.csv",
     "data/stats_distribution.csv",
     "data/stats_participation.csv",
+    "data/season_month_histogram.csv",
+    "data/participation.csv",
+    "data/season_activity_counts.csv",
+    "data/class_transition_summary.csv",
     "data/meet_index_inf201.csv",
     "data/class_level_map.csv",
     "data/class_level_year_category_counts.csv",
@@ -52,6 +56,20 @@ RECORDS_ANON_COLUMNS = [
     "익명키",
 ]
 RECORDS_ANON_FORBIDDEN_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
+PARTICIPATION_COLUMNS = [
+    "익명키",
+    "시즌",
+    "출생연도",
+    "성별",
+    "학년",
+    "단계",
+    "종별_단계",
+    "대회수",
+    "경기수",
+    "classCd목록",
+    "오픈참가",
+]
+PARTICIPATION_FORBIDDEN_COLUMNS = {"idNo", "이름", "소속", "시도", "BIB", "레인"}
 ANON_KEY_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
@@ -127,6 +145,46 @@ def _validate_records_anon(repo_root):
         return errors
 
 
+def _validate_participation(repo_root):
+    path = repo_root / "data" / "participation.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/participation.csv"]
+
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/participation.csv가 비어 있습니다."]
+
+        errors = []
+        if header != PARTICIPATION_COLUMNS:
+            errors.append(f"data/participation.csv 헤더가 기대값과 다릅니다: {header}")
+            return errors
+
+        forbidden = PARTICIPATION_FORBIDDEN_COLUMNS.intersection(header)
+        if forbidden:
+            errors.append(f"data/participation.csv에 금지 컬럼이 포함되었습니다: {', '.join(sorted(forbidden))}")
+            return errors
+
+        key_index = header.index("익명키")
+        open_index = header.index("오픈참가")
+        for row_no, row in enumerate(reader, start=2):
+            if len(row) <= key_index:
+                errors.append(f"data/participation.csv {row_no}행 익명키 컬럼이 누락되었습니다.")
+                continue
+            key = row[key_index].strip()
+            if not ANON_KEY_RE.fullmatch(key):
+                errors.append(f"data/participation.csv {row_no}행 익명키 형식이 올바르지 않습니다.")
+            if len(row) <= open_index:
+                errors.append(f"data/participation.csv {row_no}행 오픈참가 컬럼이 누락되었습니다.")
+                continue
+            open_value = row[open_index].strip()
+            if open_value not in {"Y", "N"}:
+                errors.append(f"data/participation.csv {row_no}행 오픈참가 값은 Y/N 이어야 합니다.")
+        return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description="익명 데이터 커밋 정책 검증")
     parser.add_argument("--mode", choices=["tracked", "staged"], default="tracked")
@@ -148,6 +206,9 @@ def main():
     should_validate_records_anon = "data/records_anon.csv" in paths
     if should_validate_records_anon:
         errors.extend(_validate_records_anon(repo_root))
+    should_validate_participation = "data/participation.csv" in paths
+    if should_validate_participation:
+        errors.extend(_validate_participation(repo_root))
 
     if errors:
         print("[error] 익명 데이터 커밋 정책 위반:")

@@ -8,6 +8,10 @@
 - `data/records_anon.csv`
 - `data/stats_distribution.csv`
 - `data/stats_participation.csv`
+- `data/season_month_histogram.csv`
+- `data/participation.csv`
+- `data/season_activity_counts.csv`
+- `data/class_transition_summary.csv`
 - `data/public_figures.csv` (의도된 실명 명단)
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
@@ -52,6 +56,16 @@
 스피드 행도 삭제하지 않고 그대로 보존하며, 통계 집계 단계에서만 `classCd=2`를 사용합니다.
 이미 커밋된 파일에 이 컬럼을 채울 때는 익명키를 유지하기 위해 `python3 scripts/backfill_records_anon_class_cd.py`를 사용합니다(재실행 가능).
 
+## 3-1) participation.csv 규격
+
+헤더(순서 고정):
+
+`익명키, 시즌, 출생연도, 성별, 학년, 단계, 종별_단계, 대회수, 경기수, classCd목록, 오픈참가`
+
+- `익명키`는 12자리 hex 형식이어야 합니다.
+- `오픈참가`는 `Y`/`N` 값만 허용합니다.
+- `classCd목록`은 시즌 내 참가한 종목 코드를 `|`로 연결합니다(예: `1|2`).
+
 ## 4) 익명키 규칙
 
 - 생성식: `sha256(idNo + SALT)[:12]`
@@ -72,6 +86,7 @@ python3 build_data.py
 
 - `analyze.py`는 통계 CSV를 생성합니다.
 - `analyze.py`는 익명 통계 CSV와 단계 판정 진단 CSV를 생성합니다.
+- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`)을 함께 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
 - `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 
