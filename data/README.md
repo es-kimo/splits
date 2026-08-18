@@ -16,6 +16,7 @@
 - `data/record_stop_rule.csv`
 - `data/cohort.csv`
 - `data/cohort_stage_summary.csv`
+- `data/retention_overall.csv`
 - `data/public_figures.csv` (의도된 실명 명단)
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
@@ -115,6 +116,19 @@
 - 단계별 분석대상 수(`대상N`)와 성별 분포를 기록합니다.
 - `N100미만=Y`인 경우 `신뢰한계문구`에 표본 부족 경고를 남깁니다.
 
+## 3-6) retention_overall.csv 규격
+
+헤더(순서 고정):
+
+`지표유형, 기준, 분리기준, 분리값, 학년, 전환구간, 잔존인원, 잔존율(%), 신규진입인원, 다음학년진입인원, 학년이탈인원, 학년이탈률(%), 도달단계, 도달인원, 도달률(%), 대상인원, 병합의심률(%), 관측시즌범위, 신뢰한계문구`
+
+- `지표유형`: `학년잔존` 또는 `단계도달`
+- `기준`: `쇼트트랙 기준` 또는 `빙상 전체 기준`
+- `분리기준`: `전체`, `성별`, `시작학년`, `시작시즌대`
+- `학년잔존` 행은 학년별 `잔존/신규진입/이탈`을 포함하고, `전환구간`에 `6→7`, `9→10`, `12→13`을 표시합니다.
+- `단계도달` 행은 `도달단계`(중등/고등/대학·일반)별 `도달인원`, `도달률(%)`, `대상인원`을 포함합니다.
+- `병합의심률(%)`, `관측시즌범위`, `신뢰한계문구`로 병합 리스크·표본 N·관측기간 한계를 함께 기록합니다.
+
 ## 4) 익명키 규칙
 
 - 생성식: `sha256(idNo + SALT)[:12]`
@@ -135,7 +149,7 @@ python3 build_data.py
 
 - `analyze.py`는 통계 CSV를 생성합니다.
 - `analyze.py`는 익명 통계 CSV와 단계 판정 진단 CSV를 생성합니다.
-- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`, `cohort.csv`, `cohort_stage_summary.csv`)을 함께 생성합니다.
+- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`, `cohort.csv`, `cohort_stage_summary.csv`, `retention_overall.csv`, `analysis/retention_overall.svg`)을 함께 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
 - `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 
