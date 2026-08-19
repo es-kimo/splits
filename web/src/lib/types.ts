@@ -150,6 +150,24 @@ export interface DistributionDoc {
   rows: PeerDistributionRow[];
 }
 
+export interface ReverseDistributionRow {
+  targetGroup: string;
+  metric: string;
+  segment: string;
+  targetCount: number | null;
+  count: number | null;
+  ratio: number | null;
+  nationalCount: number | null;
+  alignmentIssue7: "" | "Y" | "N";
+  note: string;
+}
+
+export interface ReverseDistributionDoc {
+  targetGroups: string[];
+  metrics: string[];
+  rows: ReverseDistributionRow[];
+}
+
 export interface MetaDoc {
   athleteCount: number;
   placementCount: number;

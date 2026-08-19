@@ -8,7 +8,8 @@
 1. `site/data/athletes.json`
 2. `site/data/meets.json`
 3. `site/data/distribution.json`
-4. `site/data/meta.json`
+4. `site/data/reverse_distribution.json`
+5. `site/data/meta.json`
 
 ## 1) athletes.json
 
@@ -201,7 +202,37 @@
 - `filters`는 클라이언트 UI 선택지 생성을 위한 사전 인덱스입니다.
 - 프런트엔드에서 "출생연도 포함 비교"와 "출생연도 통합 비교"를 모두 제공할 때는 `rows`를 기반으로 통합 모드 집계를 추가 계산해 사용할 수 있습니다.
 
-## 4) meta.json
+## 4) reverse_distribution.json
+
+`data/reverse_distribution.csv`를 JSON으로 변환한 도달 단계별 역방향 분포입니다.
+
+```json
+{
+  "targetGroups": ["대학·일반 진입", "고등부 완주", "국가대표"],
+  "metrics": ["백분위 분포", "유형 분류"],
+  "rows": [
+    {
+      "targetGroup": "대학·일반 진입",
+      "metric": "백분위 분포",
+      "segment": "상위권",
+      "targetCount": 373,
+      "count": 210,
+      "ratio": 56.3,
+      "nationalCount": 11,
+      "alignmentIssue7": "Y",
+      "note": ""
+    }
+  ]
+}
+```
+
+- `rows`는 `대상그룹×지표×구간` 단위의 long-form 행입니다.
+- `metric=백분위 분포` 구간은 `상위권/중위권/하위권/초등 기록 없음`입니다.
+- `metric=유형 분류` 구간은 `조기 두각형/후발 상승형/늦은 시작형`입니다.
+- `nationalCount`는 각 구간에 포함된 국가대표 사례 수입니다.
+- `alignmentIssue7`은 이슈 #7 방향 정합성(`Y`/`N`/공백)입니다.
+
+## 5) meta.json
 
 렌더러 메타/헤더 지표와 갱신 정보를 담습니다.
 
@@ -230,5 +261,6 @@
 - 개인 식별 정보는 `data/public_figures.csv`에서 `상태=active`인 선수만 포함합니다.
 - 명단 외 선수의 `idNo`, 이름, 소속, 출생 정보는 JSON에 포함하지 않습니다.
 - `distribution.json`은 집계값만 포함하며 원시 레코드/개별 선수 식별자를 포함하지 않습니다.
+- `reverse_distribution.json`은 집계값만 포함하며 개인 식별자/실명을 포함하지 않습니다.
 - `meets.json`의 `publicFigureResults`는 공개 명단 선수만 포함하며, 일반 선수 개별 성적은 포함하지 않습니다.
 - `meets.json`의 `distanceDistribution`은 `k>=10` 구간만 수치가 노출됩니다. 기준 미만 구간은 `insufficient=true`와 `null` 값으로 표시합니다.

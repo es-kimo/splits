@@ -19,6 +19,7 @@
 - `data/retention_overall.csv`
 - `data/retention_band.csv`
 - `data/improvement_rate.csv`
+- `data/reverse_distribution.csv`
 - `data/public_figures.csv` (의도된 실명 명단)
 - `data/coverage.csv`
 - `data/meet_index_inf201.csv`
@@ -155,6 +156,20 @@
 - 향상 폭은 같은 거리에서 `이전 시즌 최고기록 - 다음 시즌 최고기록`(초)으로 계산합니다.
 - `예측력차이(AUC%p)`는 `향상속도_AUC(%) - 백분위_AUC(%)`입니다.
 
+## 3-9) reverse_distribution.csv 규격
+
+헤더(순서 고정):
+
+`대상그룹, 지표, 구간, 대상N, 해당N, 비율(%), 국가대표N, 7번방향일치, 신뢰한계문구`
+
+- `대상그룹`: `대학·일반 진입`, `고등부 완주`, `국가대표`
+- `지표`
+  - `백분위 분포`: `상위권`, `중위권`, `하위권`, `초등 기록 없음`
+  - `유형 분류`: `조기 두각형`, `후발 상승형`, `늦은 시작형`
+- `국가대표N`: 해당 구간 안에 포함되는 국가대표 사례 수
+- `7번방향일치`: 이슈 #7 방향성과의 정합성(`Y`/`N`/공백)
+- `신뢰한계문구`: 표본 부족, 결측 해석 주의, 방향 불일치 등 해석 한계를 누적 기록
+
 ## 4) 익명키 규칙
 
 - 생성식: `sha256(idNo + SALT)[:12]`
@@ -175,7 +190,7 @@ python3 build_data.py
 
 - `analyze.py`는 통계 CSV를 생성합니다.
 - `analyze.py`는 익명 통계 CSV와 단계 판정 진단 CSV를 생성합니다.
-- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`, `cohort.csv`, `cohort_stage_summary.csv`, `retention_overall.csv`, `retention_band.csv`, `improvement_rate.csv`, `analysis/retention_overall.svg`)을 함께 생성합니다.
+- `analyze.py`는 시즌 분석 산출물(`season_month_histogram.csv`, `participation.csv`, `season_activity_counts.csv`, `class_transition_summary.csv`, `gap_return_rates.csv`, `record_stop_rule.csv`, `cohort.csv`, `cohort_stage_summary.csv`, `retention_overall.csv`, `retention_band.csv`, `improvement_rate.csv`, `reverse_distribution.csv`, `analysis/retention_overall.svg`)을 함께 생성합니다.
 - `build_data.py`는 사이트 JSON과 `records_anon.csv`를 생성하며, `SPLITS_MEET_INDEX_CSV`를 지정하면 `toCd`를 함께 채웁니다.
 - `build_data.py`와 `collect_full_history.py`는 `.env.local`/`.env`를 자동 로드합니다(이미 설정된 셸 환경변수가 우선).
 
@@ -195,7 +210,7 @@ python3 scripts/check_data_commit_policy.py --mode tracked
 python3 scripts/audit_data_quality.py
 ```
 
-익명 산출물(`records_anon.csv`, `stats_distribution.csv`, `site/data/distribution.json`)만 읽으므로
+익명 산출물(`records_anon.csv`, `stats_distribution.csv`, `reverse_distribution.csv`, `site/data/distribution.json`)만 읽으므로
 원천 데이터나 SALT 없이 실행할 수 있습니다. 점검 항목은 다음과 같습니다.
 
 | 구분 | 확인 내용 |

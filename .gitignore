@@ -16,6 +16,7 @@
 !/data/retention_overall.csv
 !/data/retention_band.csv
 !/data/improvement_rate.csv
+!/data/reverse_distribution.csv
 !/data/meet_index_inf201.csv
 !/data/class_level_map.csv
 !/data/class_level_year_category_counts.csv
