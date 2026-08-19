@@ -20,6 +20,7 @@ RECORDS_ANON_CSV = DATA_DIR / "records_anon.csv"
 ATHLETES_JSON = SITE_DATA_DIR / "athletes.json"
 MEETS_JSON = SITE_DATA_DIR / "meets.json"
 DISTRIBUTION_JSON = SITE_DATA_DIR / "distribution.json"
+REVERSE_DISTRIBUTION_JSON = SITE_DATA_DIR / "reverse_distribution.json"
 META_JSON = SITE_DATA_DIR / "meta.json"
 ANON_SALT_ENV = "SPLITS_ANON_SALT"
 ANON_KEY_ALGORITHM = "sha256"
@@ -71,6 +72,17 @@ STATS_DISTRIBUTION_REQUIRED_COLUMNS = (
     + ["순위_인원수"]
     + [source for source, _target, _digits in RANK_METRIC_MAP]
 )
+REVERSE_DISTRIBUTION_REQUIRED_COLUMNS = [
+    "대상그룹",
+    "지표",
+    "구간",
+    "대상N",
+    "해당N",
+    "비율(%)",
+    "국가대표N",
+    "7번방향일치",
+    "신뢰한계문구",
+]
 DATE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ROUND_NUMBER_RE = re.compile(r"제\s*(\d+)\s*회")
 PHASE_NUMBER_RE = re.compile(r"(\d+)\s*차")
@@ -148,6 +160,13 @@ def read_csv(name):
     path = DATA_DIR / name
     if not path.exists():
         raise FileNotFoundError(f"[error] 파일이 없습니다: {path}")
+    return pd.read_csv(path, dtype=str, encoding="utf-8-sig").fillna("")
+
+
+def read_csv_optional(name):
+    path = DATA_DIR / name
+    if not path.exists():
+        return None
     return pd.read_csv(path, dtype=str, encoding="utf-8-sig").fillna("")
 
 
@@ -1150,6 +1169,47 @@ def build_distribution(stats_distribution_frame):
     }
 
 
+def build_reverse_distribution_doc(frame):
+    if frame is None or frame.empty:
+        return {"targetGroups": [], "metrics": [], "rows": []}
+
+    columns = list(frame.columns)
+    if columns != REVERSE_DISTRIBUTION_REQUIRED_COLUMNS:
+        raise ValueError(f"[error] data/reverse_distribution.csv 컬럼이 기대값과 다릅니다: {columns}")
+
+    rows = []
+    for idx, item in frame.iterrows():
+        row_no = idx + 2
+        target_group = _norm_text(item.get("대상그룹"))
+        metric = _norm_text(item.get("지표"))
+        segment = _norm_text(item.get("구간"))
+        if not target_group:
+            raise ValueError(f"[error] data/reverse_distribution.csv {row_no}행 대상그룹 값이 비어 있습니다.")
+        if not metric:
+            raise ValueError(f"[error] data/reverse_distribution.csv {row_no}행 지표 값이 비어 있습니다.")
+        if not segment:
+            raise ValueError(f"[error] data/reverse_distribution.csv {row_no}행 구간 값이 비어 있습니다.")
+        rows.append(
+            {
+                "targetGroup": target_group,
+                "metric": metric,
+                "segment": segment,
+                "targetCount": as_int(item.get("대상N")),
+                "count": as_int(item.get("해당N")),
+                "ratio": as_float(item.get("비율(%)")),
+                "nationalCount": as_int(item.get("국가대표N")),
+                "alignmentIssue7": _norm_text(item.get("7번방향일치")),
+                "note": _norm_text(item.get("신뢰한계문구")),
+            }
+        )
+
+    return {
+        "targetGroups": _unique_in_order([row["targetGroup"] for row in rows]),
+        "metrics": _unique_in_order([row["metric"] for row in rows]),
+        "rows": rows,
+    }
+
+
 def build_meta(payload, public_figures):
     meta = dict(payload["meta"])
     meta["generatedAt"] = date.today().isoformat()
@@ -1169,6 +1229,7 @@ def main():
     load_local_env()
     try:
         frames = {name: read_csv(name) for name in INPUT_FILES}
+        reverse_distribution_frame = read_csv_optional("reverse_distribution.csv")
         payload, placements_target, public_figures, active_id_set = build_athletes_payload(frames)
         active_public_by_id = {item["idNo"]: item for item in public_figures if item.get("status") == "active"}
         meet_records, meet_placements = _load_meet_source()
@@ -1177,6 +1238,7 @@ def main():
         meets = build_meets(meet_records, meet_placements, placements_target, active_public_by_id)
         attach_meet_links(payload["athletes"], meets)
         distribution = build_distribution(frames["stats_distribution.csv"])
+        reverse_distribution = build_reverse_distribution_doc(reverse_distribution_frame)
         meta = build_meta(payload, public_figures)
         athletes_doc = {"ages": payload["ages"], "athletes": payload["athletes"]}
         assert_public_scope(athletes_doc["athletes"], active_id_set)
@@ -1188,6 +1250,7 @@ def main():
     write_json(ATHLETES_JSON, athletes_doc)
     write_json(MEETS_JSON, meets)
     write_json(DISTRIBUTION_JSON, distribution)
+    write_json(REVERSE_DISTRIBUTION_JSON, reverse_distribution)
     write_json(META_JSON, meta)
     to_cd_stats = records_anon.attrs.get("to_cd_stats") or {}
     if to_cd_stats.get("source_path"):
@@ -1214,6 +1277,7 @@ def main():
     print(f"[ok] 생성 완료: {ATHLETES_JSON}")
     print(f"[ok] 생성 완료: {MEETS_JSON}")
     print(f"[ok] 생성 완료: {DISTRIBUTION_JSON}")
+    print(f"[ok] 생성 완료: {REVERSE_DISTRIBUTION_JSON}")
     print(f"[ok] 생성 완료: {META_JSON}")
 
 

@@ -37,11 +37,13 @@ RETENTION_OVERALL_CSV = DATA_DIR / "retention_overall.csv"
 RETENTION_OVERALL_SVG = pathlib.Path("analysis") / "retention_overall.svg"
 RETENTION_BAND_CSV = DATA_DIR / "retention_band.csv"
 IMPROVEMENT_RATE_CSV = DATA_DIR / "improvement_rate.csv"
+REVERSE_DISTRIBUTION_CSV = DATA_DIR / "reverse_distribution.csv"
 SCHOOL_RAW_LIST_TXT = DATA_DIR / "school_raw_list.txt"
 SCHOOL_ALIASES_CSV = DATA_DIR / "school_aliases.csv"
 SCHOOL_AMBIGUOUS_CSV = DATA_DIR / "school_ambiguous.csv"
 ID_MERGE_CANDIDATES_CSV = DATA_DIR / "id_merge_candidates.csv"
 ID_MERGES_CSV = DATA_DIR / "id_merges.csv"
+PUBLIC_FIGURES_CSV = DATA_DIR / "public_figures.csv"
 CLASS_LEVEL_MAP_CSV = DATA_DIR / "class_level_map.csv"
 CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV = DATA_DIR / "class_level_year_category_counts.csv"
 CLASS_LEVEL_AB_AGREEMENT_SUMMARY_CSV = DATA_DIR / "class_level_ab_agreement_summary.csv"
@@ -276,6 +278,18 @@ IMPROVEMENT_RATE_OUTPUT_COLS = [
     "예측력차이(AUC%p)",
     "신뢰한계문구",
 ]
+REVERSE_DISTRIBUTION_OUTPUT_COLS = [
+    "대상그룹",
+    "지표",
+    "구간",
+    "대상N",
+    "해당N",
+    "비율(%)",
+    "국가대표N",
+    "7번방향일치",
+    "신뢰한계문구",
+]
+REVERSE_BAND_LABELS = ["상위권", "중위권", "하위권"]
 CLASS_LEVEL_MAP_COLS = ["종별", "종별정규화키", "단계_A", "A_판정규칙", "분석포함", "행수", "최초연도", "최신연도"]
 CLASS_LEVEL_YEAR_CATEGORY_COLS = ["대회연도", "종별", "단계_A", "행수"]
 CLASS_LEVEL_AGREEMENT_COLS = [
@@ -1591,6 +1605,7 @@ def build_stats_from_anon_records():
     retention_overall_df = build_retention_overall(participation_df, cohort_df)
     retention_band_df = build_retention_band(clean_df, cohort_df)
     improvement_rate_df = build_improvement_rate(clean_df, cohort_df)
+    reverse_distribution_df = build_reverse_distribution(clean_df, cohort_df, retention_band_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df
@@ -1615,6 +1630,7 @@ def build_stats_from_anon_records():
         retention_overall_df,
         retention_band_df,
         improvement_rate_df,
+        reverse_distribution_df,
     )
 
 
@@ -2365,6 +2381,233 @@ def build_improvement_rate(clean_df, cohort_df):
     out["_band"] = [_performance_band_order(value) for value in out["백분위구간"].tolist()]
     out = out.sort_values(["_section", "_gender", "_distance", "_grade", "_band", "예측단계"], ascending=[True, True, True, True, True, True])
     out = out.drop(columns=["_section", "_gender", "_distance", "_grade", "_band"])
+    return out.reset_index(drop=True)
+
+
+def _reverse_percentile_band(percentile_value):
+    value = pd.to_numeric(pd.Series([percentile_value]), errors="coerce").iloc[0]
+    if pd.isna(value):
+        return ""
+    if float(value) >= 70.0:
+        return "상위권"
+    if float(value) >= 30.0:
+        return "중위권"
+    return "하위권"
+
+
+def _reverse_stage_alignment_map(retention_band_df):
+    stage_map = {"고등": "", "대학일반": "", "전체": ""}
+    if retention_band_df is None or retention_band_df.empty:
+        return stage_map
+    basis_series = (
+        retention_band_df["기준유형"]
+        if "기준유형" in retention_band_df.columns
+        else pd.Series("", index=retention_band_df.index)
+    )
+    rank_rows = retention_band_df[basis_series.map(_norm_text) == "순위백분위"].copy()
+    if rank_rows.empty:
+        return stage_map
+
+    def _resolve(values):
+        marks = [_norm_text(value) for value in values if _norm_text(value) in {"Y", "N"}]
+        if not marks:
+            return ""
+        return "N" if "N" in marks else "Y"
+
+    stage_cols = {
+        "고등": "기록대비방향일치_고등",
+        "대학일반": "기록대비방향일치_대학일반",
+    }
+    all_marks = []
+    for stage_key, col_name in stage_cols.items():
+        if col_name not in rank_rows.columns:
+            continue
+        marks = rank_rows[col_name].tolist()
+        stage_map[stage_key] = _resolve(marks)
+        all_marks.extend(marks)
+    stage_map["전체"] = _resolve(all_marks)
+    return stage_map
+
+
+def _load_active_public_figure_keys():
+    if not PUBLIC_FIGURES_CSV.exists():
+        return set(), "국가대표 명단 파일이 없어 분포 내 위치를 집계하지 못했습니다."
+    frame = pd.read_csv(PUBLIC_FIGURES_CSV, dtype=str, encoding="utf-8-sig").fillna("")
+    if "idNo" not in frame.columns:
+        return set(), "국가대표 명단에 idNo 컬럼이 없어 분포 내 위치를 집계하지 못했습니다."
+    base = frame.copy()
+    if "상태" in base.columns:
+        base["상태"] = base["상태"].map(_norm_text).str.lower()
+        base = base[base["상태"] == "active"].copy()
+    anon_salt = _norm_text(os.environ.get("SPLITS_ANON_SALT"))
+    id_list = [_norm_text(value) for value in base["idNo"].tolist() if _norm_text(value)]
+    keys = {_to_anon_key(id_no, anon_salt) for id_no in id_list if _to_anon_key(id_no, anon_salt)}
+    note = ""
+    if not anon_salt:
+        note = "SPLITS_ANON_SALT 미설정 상태에서는 익명 입력 모드에서 국가대표 위치 매칭이 일부 누락될 수 있습니다."
+    return keys, note
+
+
+def build_reverse_distribution(clean_df, cohort_df, retention_band_df):
+    out = pd.DataFrame(columns=REVERSE_DISTRIBUTION_OUTPUT_COLS)
+    if cohort_df is None or cohort_df.empty:
+        return out
+
+    profile = _build_rank_baseline_profile(clean_df)
+    percentile_by_key = {}
+    if profile is not None and not profile.empty:
+        for _, row in profile.iterrows():
+            key = _norm_text(row.get("익명키"))
+            value = pd.to_numeric(pd.Series([row.get("대표백분위")]), errors="coerce").iloc[0]
+            if key and not pd.isna(value):
+                percentile_by_key[key] = float(value)
+
+    national_keys, national_note = _load_active_public_figure_keys()
+    alignment_map = _reverse_stage_alignment_map(retention_band_df)
+    anon_salt = _norm_text(os.environ.get("SPLITS_ANON_SALT"))
+    profile_keys = [key for key in percentile_by_key.keys() if key]
+    profile_looks_anon = bool(profile_keys) and all(ANON_KEY_RE.fullmatch(key) for key in profile_keys[:200])
+    national_position_available = not (not anon_salt and profile_looks_anon)
+
+    base = cohort_df.copy()
+    base["익명키"] = base.get("익명키", "").map(_norm_text)
+    for col in ["도달_고등", "도달_대학", "분석대상_고등", "분석대상_대학"]:
+        base[col] = base.get(col, "").map(_norm_text)
+    base = base[base["익명키"] != ""].copy()
+    if base.empty and not national_keys:
+        return out
+
+    college_keys = set(base[(base["분석대상_대학"] == "Y") & (base["도달_대학"] == "Y")]["익명키"].tolist())
+    high_complete_keys = set(
+        base[(base["분석대상_고등"] == "Y") & (base["도달_고등"] == "Y") & (base["도달_대학"] != "Y")]["익명키"].tolist()
+    )
+    stage_defs = [
+        ("대학·일반 진입", college_keys, "대학일반"),
+        ("고등부 완주", high_complete_keys, "고등"),
+        ("국가대표", set(national_keys), "전체"),
+    ]
+
+    rows = []
+    for stage_name, key_set, align_key in stage_defs:
+        target_keys = {key for key in key_set if key}
+        target_n = int(len(target_keys))
+        is_unknown_national = stage_name == "국가대표" and not national_position_available
+        band_sets = {label: set() for label in REVERSE_BAND_LABELS}
+        no_elementary_keys = set()
+        if not is_unknown_national:
+            for key in target_keys:
+                band = _reverse_percentile_band(percentile_by_key.get(key))
+                if band:
+                    band_sets[band].add(key)
+                else:
+                    no_elementary_keys.add(key)
+
+        note_parts = []
+        if target_n > 0 and target_n < COHORT_RELIABILITY_MIN_N:
+            note_parts.append("표본이 100명 미만이라 해석 신뢰도가 낮습니다.")
+        if no_elementary_keys:
+            note_parts.append("초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다.")
+        if stage_name == "국가대표" and national_note:
+            note_parts.append(national_note)
+        if is_unknown_national:
+            note_parts.append("국가대표 위치는 현재 실행 환경에서 매칭할 수 없어 비율을 비공개 처리했습니다.")
+        alignment = _norm_text(alignment_map.get(align_key))
+        if alignment == "N":
+            note_parts.append("7번 결과와 방향이 달라 해석을 보류합니다.")
+        dedup_notes = []
+        for message in note_parts:
+            text = _norm_text(message)
+            if text and text not in dedup_notes:
+                dedup_notes.append(text)
+        stage_note = " ".join(dedup_notes)
+
+        for band_label in REVERSE_BAND_LABELS:
+            current_keys = band_sets[band_label]
+            count = int(len(current_keys))
+            national_count_value = (
+                int(len(current_keys.intersection(national_keys))) if national_position_available else pd.NA
+            )
+            rows.append(
+                {
+                    "대상그룹": stage_name,
+                    "지표": "백분위 분포",
+                    "구간": band_label,
+                    "대상N": target_n,
+                    "해당N": pd.NA if is_unknown_national else count,
+                    "비율(%)": pd.NA if is_unknown_national else _ratio_pct_or_na(count, target_n),
+                    "국가대표N": national_count_value,
+                    "7번방향일치": alignment,
+                    "신뢰한계문구": stage_note,
+                }
+            )
+
+        no_count = int(len(no_elementary_keys))
+        no_national_count_value = (
+            int(len(no_elementary_keys.intersection(national_keys))) if national_position_available else pd.NA
+        )
+        rows.append(
+            {
+                "대상그룹": stage_name,
+                "지표": "백분위 분포",
+                "구간": "초등 기록 없음",
+                "대상N": target_n,
+                "해당N": pd.NA if is_unknown_national else no_count,
+                "비율(%)": pd.NA if is_unknown_national else _ratio_pct_or_na(no_count, target_n),
+                "국가대표N": no_national_count_value,
+                "7번방향일치": alignment,
+                "신뢰한계문구": stage_note,
+            }
+        )
+
+        type_sets = {
+            "조기 두각형": set(band_sets["상위권"]),
+            "후발 상승형": set(band_sets["중위권"]).union(band_sets["하위권"]),
+            "늦은 시작형": set(no_elementary_keys),
+        }
+        for type_label, current_keys in type_sets.items():
+            count = int(len(current_keys))
+            national_count_value = (
+                int(len(current_keys.intersection(national_keys))) if national_position_available else pd.NA
+            )
+            rows.append(
+                {
+                    "대상그룹": stage_name,
+                    "지표": "유형 분류",
+                    "구간": type_label,
+                    "대상N": target_n,
+                    "해당N": pd.NA if is_unknown_national else count,
+                    "비율(%)": pd.NA if is_unknown_national else _ratio_pct_or_na(count, target_n),
+                    "국가대표N": national_count_value,
+                    "7번방향일치": alignment,
+                    "신뢰한계문구": stage_note,
+                }
+            )
+
+    if not rows:
+        return out
+
+    out = pd.DataFrame(rows, columns=REVERSE_DISTRIBUTION_OUTPUT_COLS)
+    for col in ["대상N", "해당N", "국가대표N"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").astype("Int64")
+    out["비율(%)"] = pd.to_numeric(out["비율(%)"], errors="coerce")
+
+    group_order = {"대학·일반 진입": 0, "고등부 완주": 1, "국가대표": 2}
+    metric_order = {"백분위 분포": 0, "유형 분류": 1}
+    section_order = {
+        "상위권": 0,
+        "중위권": 1,
+        "하위권": 2,
+        "초등 기록 없음": 3,
+        "조기 두각형": 10,
+        "후발 상승형": 11,
+        "늦은 시작형": 12,
+    }
+    out["_group"] = [group_order.get(_norm_text(value), 99) for value in out["대상그룹"].tolist()]
+    out["_metric"] = [metric_order.get(_norm_text(value), 99) for value in out["지표"].tolist()]
+    out["_section"] = [section_order.get(_norm_text(value), 99) for value in out["구간"].tolist()]
+    out = out.sort_values(["_group", "_metric", "_section", "구간"], ascending=[True, True, True, True]).drop(
+        columns=["_group", "_metric", "_section"]
+    )
     return out.reset_index(drop=True)
 
 
@@ -4052,6 +4295,7 @@ def main():
             retention_overall_df,
             retention_band_df,
             improvement_rate_df,
+            reverse_distribution_df,
         ) = build_stats_from_anon_records()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         coverage_df.to_csv(COVERAGE_CSV, index=False, encoding="utf-8-sig")
@@ -4068,6 +4312,7 @@ def main():
         retention_overall_df.to_csv(RETENTION_OVERALL_CSV, index=False, encoding="utf-8-sig")
         retention_band_df.to_csv(RETENTION_BAND_CSV, index=False, encoding="utf-8-sig")
         improvement_rate_df.to_csv(IMPROVEMENT_RATE_CSV, index=False, encoding="utf-8-sig")
+        reverse_distribution_df.to_csv(REVERSE_DISTRIBUTION_CSV, index=False, encoding="utf-8-sig")
         build_retention_overall_svg(retention_overall_df, RETENTION_OVERALL_SVG)
         class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
         class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
@@ -4090,6 +4335,7 @@ def main():
         print(f"전체 지속률 저장 완료: {RETENTION_OVERALL_CSV} ({len(retention_overall_df)}행)")
         print(f"성적 구간별 지속률 저장 완료: {RETENTION_BAND_CSV} ({len(retention_band_df)}행)")
         print(f"향상 속도 분석 저장 완료: {IMPROVEMENT_RATE_CSV} ({len(improvement_rate_df)}행)")
+        print(f"역방향 분포 저장 완료: {REVERSE_DISTRIBUTION_CSV} ({len(reverse_distribution_df)}행)")
         print(f"학년별 잔존 곡선 그래프 저장 완료: {RETENTION_OVERALL_SVG}")
         print(build_retention_summary_text(retention_overall_df))
         if not record_stop_rule_df.empty:
@@ -4158,6 +4404,7 @@ def main():
     retention_overall_df = build_retention_overall(participation_df, cohort_df)
     retention_band_df = build_retention_band(participation_clean_df, cohort_df)
     improvement_rate_df = build_improvement_rate(participation_clean_df, cohort_df)
+    reverse_distribution_df = build_reverse_distribution(participation_clean_df, cohort_df, retention_band_df)
     validate_anonymous_stats(stats_distribution_df, stats_participation_df)
     class_level_map_df, class_level_year_category_df, class_level_agreement_df, class_level_mismatch_df, class_level_year_readiness_df = build_class_level_diagnostics(
         clean_df, id_merge_candidates_df
@@ -4191,6 +4438,7 @@ def main():
     retention_overall_df.to_csv(RETENTION_OVERALL_CSV, index=False, encoding="utf-8-sig")
     retention_band_df.to_csv(RETENTION_BAND_CSV, index=False, encoding="utf-8-sig")
     improvement_rate_df.to_csv(IMPROVEMENT_RATE_CSV, index=False, encoding="utf-8-sig")
+    reverse_distribution_df.to_csv(REVERSE_DISTRIBUTION_CSV, index=False, encoding="utf-8-sig")
     build_retention_overall_svg(retention_overall_df, RETENTION_OVERALL_SVG)
     class_level_map_df.to_csv(CLASS_LEVEL_MAP_CSV, index=False, encoding="utf-8-sig")
     class_level_year_category_df.to_csv(CLASS_LEVEL_YEAR_CATEGORY_COUNTS_CSV, index=False, encoding="utf-8-sig")
@@ -4244,6 +4492,7 @@ def main():
     print(f"전체 지속률 저장 완료: {RETENTION_OVERALL_CSV} ({len(retention_overall_df)}행)")
     print(f"성적 구간별 지속률 저장 완료: {RETENTION_BAND_CSV} ({len(retention_band_df)}행)")
     print(f"향상 속도 분석 저장 완료: {IMPROVEMENT_RATE_CSV} ({len(improvement_rate_df)}행)")
+    print(f"역방향 분포 저장 완료: {REVERSE_DISTRIBUTION_CSV} ({len(reverse_distribution_df)}행)")
     print(f"학년별 잔존 곡선 그래프 저장 완료: {RETENTION_OVERALL_SVG}")
     print(build_retention_summary_text(retention_overall_df))
     if not record_stop_rule_df.empty:

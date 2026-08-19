@@ -2,9 +2,10 @@
 import Trajectory from "../components/Trajectory.astro";
 import Base from "../layouts/Base.astro";
 import { withBase } from "../lib/base";
-import { loadAthletesDoc, loadMetaDoc } from "../lib/data";
+import { loadAthletesDoc, loadMetaDoc, loadReverseDistributionDoc } from "../lib/data";
 
 const athletesDoc = loadAthletesDoc();
+const reverseDoc = loadReverseDistributionDoc();
 const meta = loadMetaDoc();
 
 const ages = athletesDoc.ages;
@@ -12,36 +13,83 @@ const athletes = athletesDoc.athletes;
 
 const athleteCount = meta.athleteCount || 0;
 const placementCount = `${(meta.placementCount || 0).toLocaleString("ko-KR")}개`;
-const ageSpan = meta.ageMin !== null && meta.ageMax !== null ? `${meta.ageMin}~${meta.ageMax}살` : "-";
 const yearSpanHead = meta.yearSpan !== null ? `${meta.yearSpan}년치` : "-";
 const yearSpanTail = meta.yearStart !== null && meta.yearEnd !== null ? `${meta.yearStart}~${meta.yearEnd}년` : "기간 정보 없음";
 const firstAgeText = meta.firstAgeMin !== null && meta.firstAgeMax !== null ? `${meta.firstAgeMin}살부터 ${meta.firstAgeMax}살까지` : "-";
 
+const stageOrder = ["대학·일반 진입", "고등부 완주", "국가대표"];
+const distributionSegments = ["상위권", "중위권", "하위권", "초등 기록 없음"];
+const typeSegments = ["조기 두각형", "후발 상승형", "늦은 시작형"];
+
+const rows = reverseDoc?.rows ?? [];
+const stageLabels = Array.from(new Set([...stageOrder, ...rows.map((row) => row.targetGroup)])).filter((label) => label);
+
+const toNumber = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+const toPercentText = (value: number | null) => (value === null ? "-" : `${value.toFixed(2)}%`);
+const toCountText = (value: number | null) => (value === null ? "-" : `${value.toLocaleString("ko-KR")}명`);
+const formatMetricText = (ratio: number | null, count: number | null, total: number | null) =>
+  `${toPercentText(ratio)} · ${toCountText(count)} / ${toCountText(total)}`;
+
+const findRow = (targetGroup: string, metric: string, segment: string) =>
+  rows.find((row) => row.targetGroup === targetGroup && row.metric === metric && row.segment === segment);
+
+const stageCards = stageLabels
+  .map((targetGroup) => {
+    const distribution = distributionSegments.map((segment) => {
+      const row = findRow(targetGroup, "백분위 분포", segment);
+      return {
+        segment,
+        ratio: toNumber(row?.ratio ?? null),
+        count: toNumber(row?.count ?? null),
+        targetCount: toNumber(row?.targetCount ?? null),
+        nationalCount: toNumber(row?.nationalCount ?? null),
+      };
+    });
+    const typeBreakdown = typeSegments.map((segment) => {
+      const row = findRow(targetGroup, "유형 분류", segment);
+      return {
+        segment,
+        ratio: toNumber(row?.ratio ?? null),
+        count: toNumber(row?.count ?? null),
+        targetCount: toNumber(row?.targetCount ?? null),
+        nationalCount: toNumber(row?.nationalCount ?? null),
+      };
+    });
+    const representative = rows.find((row) => row.targetGroup === targetGroup);
+    return {
+      targetGroup,
+      distribution,
+      typeBreakdown,
+      alignmentIssue7: representative?.alignmentIssue7 ?? "",
+      note: representative?.note ?? "",
+    };
+  })
+  .filter((item) => item.distribution.some((row) => row.count !== null || row.ratio !== null) || item.typeBreakdown.some((row) => row.count !== null || row.ratio !== null));
+
+const collegeTop = findRow("대학·일반 진입", "백분위 분포", "상위권");
+const collegeNoElem = findRow("대학·일반 진입", "백분위 분포", "초등 기록 없음");
+const nationalTop = findRow("국가대표", "백분위 분포", "상위권");
+
 const summaryLines = [
-  `초등부 기록이 남아 있는 ${meta.elemTop2Count || 0}명 모두, 초등학생 때 이미 최소 한 번은 1~2등을 했어요.`,
-  `그렇다고 늘 앞자리였던 건 아니에요. 같은 선수들의 초등부 성적 중에는 ${meta.elemWorstBand || "-"}도 섞여 있어요.`,
-  `처음 대회에 나온 나이는 ${firstAgeText} 제각각이었어요.`,
+  collegeTop
+    ? `대학·일반 진입 집단의 초등 상위권 비율은 ${toPercentText(toNumber(collegeTop.ratio ?? null))}입니다.`
+    : "대학·일반 진입 집단의 초등 상위권 비율을 계산할 수 있는 데이터가 없습니다.",
+  collegeNoElem
+    ? `대학·일반 진입 집단의 초등 기록 없음 비율은 ${toPercentText(toNumber(collegeNoElem.ratio ?? null))}입니다.`
+    : "초등 기록 없음 비율을 계산할 수 있는 데이터가 없습니다.",
+  nationalTop
+    ? `국가대표 14명은 분포 안에서 상위권 비율 ${toPercentText(toNumber(nationalTop.ratio ?? null))}로 관측됩니다.`
+    : "국가대표 분포 비교를 계산할 수 있는 데이터가 없습니다.",
 ];
 
-const byName = new Map(athletes.map((athlete) => [athlete.name, athlete]));
-const missingNames = meta.missingElemNames.map((name) => {
-  const athlete = byName.get(name);
-  if (!athlete || athlete.birth === null) return name;
-  return `${name}(${athlete.birth}년생)`;
-});
-const missingElemNote =
-  missingNames.length === 0
-    ? ""
-    : `${missingNames.join(", ")}은 초등부 기록이 남아 있지 않아 빠졌어요. 대회에 안 나갔다는 뜻은 아니에요.`;
-const missingLimitNote = missingNames.length === 0 ? "" : ` ${missingNames.join(", ")}이 여기에 해당해요.`;
+const missingElemCount = athletes.filter((athlete) => (athlete.elem.count ?? 0) === 0).length;
 
 const ageMin = ages[0] ?? 7;
 const ageMid = ages[Math.floor(ages.length / 2)] ?? 12;
 const ageMax = ages[ages.length - 1] ?? 18;
 
-// 궤적 카드 하나에 '몇 살 기록이 있는지 · 1등 횟수 · 초등부에 보통 받던 등수'를 함께 담는다.
 const trajectoryCards = athletes
-  .map((athlete) => {
+  .map((athlete, index) => {
     const present = ages
       .filter((age) => athlete.ages[String(age)] !== null && athlete.ages[String(age)] !== undefined)
       .map(Number)
@@ -57,9 +105,8 @@ const trajectoryCards = athletes
     if (facts.length === 0) facts.push(`${present.length}개 나이 기록`);
 
     return {
-      name: athlete.name,
+      alias: `국가대표 사례 ${String(index + 1).padStart(2, "0")}`,
       url: withBase(athlete.url),
-      birth: athlete.birth,
       ageRanks: athlete.ages,
       factText: facts.join(" · "),
       thin,
@@ -67,54 +114,48 @@ const trajectoryCards = athletes
       sortKey: median ?? 9999,
     };
   })
-  .sort((a, b) => a.sortKey - b.sortKey || a.name.localeCompare(b.name, "ko"));
+  .sort((a, b) => a.sortKey - b.sortKey || a.alias.localeCompare(b.alias, "ko"));
 
 const notes = [
   {
-    q: "나이는 어떻게 계산했나요?",
-    a: "대회가 열린 해에서 태어난 해를 뺐어요. 생일이 지나지 않았다면 만 나이보다 한 살 많아요. 겨울 대회가 1~2월에 몰려 있어서, 대체로 한 살 높게 잡혀 있다고 보시면 돼요.",
+    q: "초등 기록 없음은 무엇을 뜻하나요?",
+    a: "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다. 따라서 실력 단정으로 해석하면 안 됩니다.",
   },
   {
-    q: "왜 옛날 선수는 어릴 때 기록이 없나요?",
-    a: `2012년 이전 대회는 일부만 전산화돼 있어요. 1990년대 중반 이전에 태어난 선수는 유년기 기록이 통째로 비어 있습니다.${missingLimitNote}`,
+    q: "분포 기준은 어떻게 계산했나요?",
+    a: "초5~6 시기의 결승·채점종합 순위를 기준으로 백분위를 계산했습니다. 같은 학년·성별·거리 안에서만 비교했습니다.",
   },
   {
-    q: "어떤 경기의 등수인가요?",
-    a: "결승과 채점종합 기준이에요. 예선이나 준결승처럼 조 안에서 매긴 등수는 전체 성적이 아니라서 뺐어요.",
+    q: "고등부 완주와 대학·일반 진입은 어떻게 나눴나요?",
+    a: "고등부 완주는 고등 단계 도달 후 대학 단계로 넘어가지 않은 집단, 대학·일반 진입은 대학 단계 이상에 도달한 집단으로 분리했습니다.",
   },
   {
-    q: "기록(시간)은 왜 없나요?",
-    a: "쇼트트랙은 순위 경기예요. 결승에서 일부러 천천히 타다 마지막에 붙는 경우가 많아서, 예선보다 30초 넘게 느린데 1등인 기록도 있어요. 시간이 실력을 그대로 보여주지 않아 싣지 않았습니다.",
-  },
-  {
-    q: "잘못된 기록은 없나요?",
-    a: "계측 오류로 보이는 기록 35건을 확인했지만, 임의로 고치지 않고 원본 그대로 두었어요.",
+    q: "왜 여기서는 실명을 숨겼나요?",
+    a: "이 페이지는 분포 해석 중심 화면이라 실명 대신 사례 번호를 사용합니다. 기존 선수 상세 페이지 이동 기능은 그대로 유지됩니다.",
   },
   {
     q: "이 자료로 무엇을 알 수 있나요?",
-    a: "국가대표 14명이 어릴 때 어떤 성적을 남겼는지까지예요. 앞으로 누가 국가대표가 될지는 이 자료로 알 수 없어요.",
+    a: "상위 단계 도달 집단의 유년기 분포 패턴은 볼 수 있지만, 특정 개인의 미래 성과를 보장하는 인과 결론은 만들 수 없습니다.",
   },
 ];
 ---
 
 <Base
-  title={`국가대표 ${athleteCount}명의 유년기 기록`}
-  description="쇼트트랙 국가대표 선수들의 유년기 순위 데이터를 정리한 페이지입니다. 선수별 상세 페이지에서 나이별 성적과 전체 대회 이력을 볼 수 있습니다."
-  ogTitle={`국가대표 ${athleteCount}명의 유년기 기록`}
+  title="상위 단계 도달자의 유년기 분포 — 스플릿"
+  description="대학·일반 진입자, 고등부 완주자, 국가대표 사례의 초5~6 백분위 분포를 비교해 보여주는 페이지입니다."
+  ogTitle="상위 단계 도달자의 유년기 분포"
   ogImage="og-default.png"
   generatedAt={meta.generatedAt}
 >
   <header class="page-head">
     <span class="eyebrow">공개 경기 기록 정리</span>
-    <h1>쇼트트랙 국가대표 {athleteCount}명은<br />어릴 때 몇 등이었을까요?</h1>
-    <p class="lead">
-      2026/27시즌 국가대표 {athleteCount}명이 <b>7살 때부터</b> 국내 대회에서 받은 성적을 모았어요.
-    </p>
+    <h1>상위 단계 도달자의 유년기 분포</h1>
+    <p class="lead">대학·일반 진입, 고등부 완주, 국가대표 사례를 같은 기준으로 나란히 비교해요.</p>
   </header>
 
   <section class="card">
     <div class="card-head">
-      <h2>먼저, 세 줄 요약</h2>
+      <h2>먼저, 한 줄 결론</h2>
     </div>
     <div class="summary-list">
       {
@@ -126,38 +167,87 @@ const notes = [
         ))
       }
     </div>
-    <div class="note-box">
-      어릴 때 1등이면 국가대표가 된다는 뜻은 아니에요. 국가대표가 되지 못한 수많은 선수의 기록은 여기에 없기 때문입니다.
-    </div>
   </section>
 
   <section class="card">
     <div class="metric-grid is-4">
-      <div class="metric"><b>{athleteCount}명</b><span>국가대표 선수</span></div>
+      <div class="metric"><b>{athleteCount}명</b><span>국가대표 사례 수</span></div>
       <div class="metric"><b>{placementCount}</b><span>모은 경기 성적</span></div>
-      <div class="metric"><b>{ageSpan}</b><span>기록에 담긴 나이</span></div>
+      <div class="metric"><b>{firstAgeText}</b><span>처음 대회 출전 나이 범위</span></div>
       <div class="metric"><b>{yearSpanHead}</b><span>{yearSpanTail}</span></div>
     </div>
   </section>
 
   <section class="card">
     <div class="card-head">
-      <h2>한 명씩, 어릴 때 성적</h2>
-      <p>나이별로 <b>가장 잘했던 등수</b>를 찍었어요. 초등부 성적이 좋았던 순서로 놓았습니다.</p>
+      <h2>도달 단계별 분포</h2>
+      <p>상위권·중위권·하위권·초등 기록 없음 비율을 같은 축으로 비교합니다.</p>
     </div>
-    <div class="read-box">
-      <div class="read-title">이렇게 보세요</div>
-      <div class="read-row"><span class="dot-blue"></span>파란 점이 위에 붙을수록 1등에 가까워요</div>
-      <div class="read-row"><span class="dot-gray"></span>회색 점은 등수가 뒤로 밀린 해예요 (옆에 등수 표시)</div>
-      <div class="read-row"><span class="line-gray"></span>아래쪽 짧은 선은 그 나이의 기록이 아예 없다는 뜻이에요</div>
+    {
+      stageCards.length === 0 ? (
+        <p class="hint">표시할 분포 데이터가 없어요.</p>
+      ) : (
+        <div class="stage-grid">
+          {
+            stageCards.map((card) => (
+              <article class="tile stage-card">
+                <h3>{card.targetGroup}</h3>
+                <div class="stage-block">
+                  <div class="stage-title">초등 백분위 분포</div>
+                  <div class="bar-list">
+                    {
+                      card.distribution.map((row) => (
+                        <div class="bar-row">
+                          <div class="bar-label">{row.segment}</div>
+                          <div class="bar-track">
+                            <span class="bar-fill" style={`width:${Math.max(0, Math.min(100, row.ratio ?? 0))}%`}></span>
+                          </div>
+                          <div class="bar-value">{formatMetricText(row.ratio, row.count, row.targetCount)}</div>
+                          {card.targetGroup !== "국가대표" && (row.nationalCount ?? 0) > 0 && <div class="bar-sub">국가대표 {row.nationalCount}명 포함</div>}
+                        </div>
+                      ))
+                    }
+                  </div>
+                </div>
+                <div class="stage-block">
+                  <div class="stage-title">유형 비율</div>
+                  <div class="bar-list">
+                    {
+                      card.typeBreakdown.map((row) => (
+                        <div class="bar-row">
+                          <div class="bar-label">{row.segment}</div>
+                          <div class="bar-track">
+                            <span class="bar-fill is-type" style={`width:${Math.max(0, Math.min(100, row.ratio ?? 0))}%`}></span>
+                          </div>
+                          <div class="bar-value">{formatMetricText(row.ratio, row.count, row.targetCount)}</div>
+                          {card.targetGroup !== "국가대표" && (row.nationalCount ?? 0) > 0 && <div class="bar-sub">국가대표 {row.nationalCount}명 포함</div>}
+                        </div>
+                      ))
+                    }
+                  </div>
+                </div>
+                {card.alignmentIssue7 === "N" && <div class="note-box">7번 결과와 방향이 달라 해석을 보류합니다.</div>}
+                {card.note && <p class="hint">{card.note}</p>}
+              </article>
+            ))
+          }
+        </div>
+      )
+    }
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>국가대표 14명 사례 보기</h2>
+      <p>실명 대신 사례 번호로 표시합니다. 카드를 누르면 기존 상세 기록 페이지로 이동해요.</p>
     </div>
     <div class="age-cards">
       {
         trajectoryCards.map((card) => (
           <article class="tile age-card">
             <div class="age-head">
-              <b class="age-name"><a href={card.url}>{card.name}</a></b>
-              <span class="age-birth">{card.birth !== null ? `${card.birth}년생` : "출생년도 미상"}</span>
+              <b class="age-name"><a href={card.url}>{card.alias}</a></b>
+              <span class="age-birth">상세 기록 보기</span>
             </div>
             <div class={`age-fact ${card.thin ? "is-thin" : ""}`}>
               {card.factText}
@@ -172,16 +262,15 @@ const notes = [
       }
     </div>
     <div class="note-box">
-      비어 있는 구간은 성적이 나빴다는 뜻이 아니라, 그 나이의 기록이 시스템에 없다는 뜻이에요. 초등부 출전이 10번이 안 되는
-      선수는 '보통 등수'를 회색으로 적었어요. 몇 경기 안 되는 성적이라 그대로 믿기는 어렵거든요.
-      {missingElemNote && ` ${missingElemNote}`}
+      초등 기록이 없는 국가대표 사례는 {missingElemCount}명입니다. 이는 늦은 시작과 전산 누락이 함께 섞일 수 있으므로
+      실력 결론으로 단정하면 안 됩니다.
     </div>
   </section>
 
   <section class="card">
     <div class="card-head">
       <h2>이 자료를 볼 때 알아두실 점</h2>
-      <p>숫자를 오해하지 않으시도록, 데이터의 한계를 먼저 적어둘게요.</p>
+      <p>숫자를 오해하지 않으시도록, 계산 기준과 한계를 먼저 적어둡니다.</p>
     </div>
     <div class="qa-list">
       {
@@ -244,46 +333,71 @@ const notes = [
       font-size: 15.5px;
       color: var(--text);
     }
-    .read-box {
-      background: var(--surface-3);
-      border-radius: var(--r-inner);
-      padding: 14px 16px;
+    .stage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 10px;
+    }
+    .stage-card {
+      padding: 14px;
+    }
+    .stage-card h3 {
+      margin: 0 0 10px;
+      font-size: 17px;
+      letter-spacing: -0.01em;
+    }
+    .stage-block + .stage-block {
+      margin-top: 14px;
+    }
+    .stage-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--sub);
+      margin-bottom: 8px;
+    }
+    .bar-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin-bottom: 14px;
+      gap: 7px;
     }
-    .read-title {
-      font-size: 13.5px;
-      font-weight: 700;
-      color: var(--text);
-    }
-    .read-row {
-      display: flex;
+    .bar-row {
+      display: grid;
+      grid-template-columns: 84px 1fr;
+      gap: 8px 10px;
       align-items: center;
-      gap: 9px;
-      font-size: 13.5px;
+    }
+    .bar-label {
+      font-size: 12.5px;
+      color: var(--sub);
+      font-weight: 600;
+    }
+    .bar-track {
+      height: 9px;
+      border-radius: 99px;
+      background: var(--surface-3);
+      overflow: hidden;
+      position: relative;
+    }
+    .bar-fill {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+    }
+    .bar-fill.is-type {
+      background: linear-gradient(90deg, #14b8a6 0%, #0d9488 100%);
+    }
+    .bar-value {
+      grid-column: 2 / -1;
+      font-size: 12.5px;
       color: var(--sub-2);
+      margin-top: -3px;
     }
-    .dot-blue,
-    .dot-gray {
-      flex: none;
-      width: 11px;
-      height: 11px;
-      border-radius: 50%;
-    }
-    .dot-blue {
-      background: var(--point);
-    }
-    .dot-gray {
-      background: var(--faint-2);
-    }
-    .line-gray {
-      flex: none;
-      width: 11px;
-      height: 3px;
-      border-radius: 2px;
-      background: #dfe3e9;
+    .bar-sub {
+      grid-column: 2 / -1;
+      font-size: 12px;
+      color: var(--point);
+      margin-top: -6px;
     }
     .age-cards {
       display: grid;

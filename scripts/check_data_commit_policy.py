@@ -24,6 +24,7 @@ ALLOWED_DATA_FILES = {
     "data/retention_overall.csv",
     "data/retention_band.csv",
     "data/improvement_rate.csv",
+    "data/reverse_distribution.csv",
     "data/meet_index_inf201.csv",
     "data/class_level_map.csv",
     "data/class_level_year_category_counts.csv",
@@ -187,6 +188,17 @@ IMPROVEMENT_RATE_COLUMNS = [
     "향상속도_AUC(%)",
     "백분위_AUC(%)",
     "예측력차이(AUC%p)",
+    "신뢰한계문구",
+]
+REVERSE_DISTRIBUTION_COLUMNS = [
+    "대상그룹",
+    "지표",
+    "구간",
+    "대상N",
+    "해당N",
+    "비율(%)",
+    "국가대표N",
+    "7번방향일치",
     "신뢰한계문구",
 ]
 COHORT_FLAG_COLUMNS = [
@@ -444,6 +456,21 @@ def _validate_improvement_rate(repo_root):
     return []
 
 
+def _validate_reverse_distribution(repo_root):
+    path = repo_root / "data" / "reverse_distribution.csv"
+    if not path.exists():
+        return ["필수 파일이 없습니다: data/reverse_distribution.csv"]
+    with path.open("r", encoding="utf-8-sig", newline="") as fp:
+        reader = csv.reader(fp)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["data/reverse_distribution.csv가 비어 있습니다."]
+    if header != REVERSE_DISTRIBUTION_COLUMNS:
+        return [f"data/reverse_distribution.csv 헤더가 기대값과 다릅니다: {header}"]
+    return []
+
+
 def main():
     parser = argparse.ArgumentParser(description="익명 데이터 커밋 정책 검증")
     parser.add_argument("--mode", choices=["tracked", "staged"], default="tracked")
@@ -489,6 +516,9 @@ def main():
     should_validate_improvement_rate = "data/improvement_rate.csv" in paths
     if should_validate_improvement_rate:
         errors.extend(_validate_improvement_rate(repo_root))
+    should_validate_reverse_distribution = "data/reverse_distribution.csv" in paths
+    if should_validate_reverse_distribution:
+        errors.extend(_validate_reverse_distribution(repo_root))
 
     if errors:
         print("[error] 익명 데이터 커밋 정책 위반:")

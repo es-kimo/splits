@@ -1,0 +1,244 @@
+{
+  "targetGroups": [
+    "대학·일반 진입",
+    "고등부 완주",
+    "국가대표"
+  ],
+  "metrics": [
+    "백분위 분포",
+    "유형 분류"
+  ],
+  "rows": [
+    {
+      "targetGroup": "대학·일반 진입",
+      "metric": "백분위 분포",
+      "segment": "상위권",
+      "targetCount": 373,
+      "count": 69,
+      "ratio": 18.5,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "대학·일반 진입",
+      "metric": "백분위 분포",
+      "segment": "중위권",
+      "targetCount": 373,
+      "count": 80,
+      "ratio": 21.45,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "대학·일반 진입",
+      "metric": "백분위 분포",
+      "segment": "하위권",
+      "targetCount": 373,
+      "count": 20,
+      "ratio": 5.36,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "대학·일반 진입",
+      "metric": "백분위 분포",
+      "segment": "초등 기록 없음",
+      "targetCount": 373,
+      "count": 204,
+      "ratio": 54.69,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "대학·일반 진입",
+      "metric": "유형 분류",
+      "segment": "조기 두각형",
+      "targetCount": 373,
+      "count": 69,
+      "ratio": 18.5,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "대학·일반 진입",
+      "metric": "유형 분류",
+      "segment": "후발 상승형",
+      "targetCount": 373,
+      "count": 100,
+      "ratio": 26.81,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "대학·일반 진입",
+      "metric": "유형 분류",
+      "segment": "늦은 시작형",
+      "targetCount": 373,
+      "count": 204,
+      "ratio": 54.69,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "고등부 완주",
+      "metric": "백분위 분포",
+      "segment": "상위권",
+      "targetCount": 315,
+      "count": 43,
+      "ratio": 13.65,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "고등부 완주",
+      "metric": "백분위 분포",
+      "segment": "중위권",
+      "targetCount": 315,
+      "count": 74,
+      "ratio": 23.49,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "고등부 완주",
+      "metric": "백분위 분포",
+      "segment": "하위권",
+      "targetCount": 315,
+      "count": 24,
+      "ratio": 7.62,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "고등부 완주",
+      "metric": "백분위 분포",
+      "segment": "초등 기록 없음",
+      "targetCount": 315,
+      "count": 174,
+      "ratio": 55.24,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "고등부 완주",
+      "metric": "유형 분류",
+      "segment": "조기 두각형",
+      "targetCount": 315,
+      "count": 43,
+      "ratio": 13.65,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "고등부 완주",
+      "metric": "유형 분류",
+      "segment": "후발 상승형",
+      "targetCount": 315,
+      "count": 98,
+      "ratio": 31.11,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "고등부 완주",
+      "metric": "유형 분류",
+      "segment": "늦은 시작형",
+      "targetCount": 315,
+      "count": 174,
+      "ratio": 55.24,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "초등 기록 없음은 늦은 시작과 과거 전산 누락이 함께 섞일 수 있습니다."
+    },
+    {
+      "targetGroup": "국가대표",
+      "metric": "백분위 분포",
+      "segment": "상위권",
+      "targetCount": 14,
+      "count": null,
+      "ratio": null,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "표본이 100명 미만이라 해석 신뢰도가 낮습니다. SPLITS_ANON_SALT 미설정 상태에서는 익명 입력 모드에서 국가대표 위치 매칭이 일부 누락될 수 있습니다. 국가대표 위치는 현재 실행 환경에서 매칭할 수 없어 비율을 비공개 처리했습니다."
+    },
+    {
+      "targetGroup": "국가대표",
+      "metric": "백분위 분포",
+      "segment": "중위권",
+      "targetCount": 14,
+      "count": null,
+      "ratio": null,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "표본이 100명 미만이라 해석 신뢰도가 낮습니다. SPLITS_ANON_SALT 미설정 상태에서는 익명 입력 모드에서 국가대표 위치 매칭이 일부 누락될 수 있습니다. 국가대표 위치는 현재 실행 환경에서 매칭할 수 없어 비율을 비공개 처리했습니다."
+    },
+    {
+      "targetGroup": "국가대표",
+      "metric": "백분위 분포",
+      "segment": "하위권",
+      "targetCount": 14,
+      "count": null,
+      "ratio": null,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "표본이 100명 미만이라 해석 신뢰도가 낮습니다. SPLITS_ANON_SALT 미설정 상태에서는 익명 입력 모드에서 국가대표 위치 매칭이 일부 누락될 수 있습니다. 국가대표 위치는 현재 실행 환경에서 매칭할 수 없어 비율을 비공개 처리했습니다."
+    },
+    {
+      "targetGroup": "국가대표",
+      "metric": "백분위 분포",
+      "segment": "초등 기록 없음",
+      "targetCount": 14,
+      "count": null,
+      "ratio": null,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "표본이 100명 미만이라 해석 신뢰도가 낮습니다. SPLITS_ANON_SALT 미설정 상태에서는 익명 입력 모드에서 국가대표 위치 매칭이 일부 누락될 수 있습니다. 국가대표 위치는 현재 실행 환경에서 매칭할 수 없어 비율을 비공개 처리했습니다."
+    },
+    {
+      "targetGroup": "국가대표",
+      "metric": "유형 분류",
+      "segment": "조기 두각형",
+      "targetCount": 14,
+      "count": null,
+      "ratio": null,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "표본이 100명 미만이라 해석 신뢰도가 낮습니다. SPLITS_ANON_SALT 미설정 상태에서는 익명 입력 모드에서 국가대표 위치 매칭이 일부 누락될 수 있습니다. 국가대표 위치는 현재 실행 환경에서 매칭할 수 없어 비율을 비공개 처리했습니다."
+    },
+    {
+      "targetGroup": "국가대표",
+      "metric": "유형 분류",
+      "segment": "후발 상승형",
+      "targetCount": 14,
+      "count": null,
+      "ratio": null,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "표본이 100명 미만이라 해석 신뢰도가 낮습니다. SPLITS_ANON_SALT 미설정 상태에서는 익명 입력 모드에서 국가대표 위치 매칭이 일부 누락될 수 있습니다. 국가대표 위치는 현재 실행 환경에서 매칭할 수 없어 비율을 비공개 처리했습니다."
+    },
+    {
+      "targetGroup": "국가대표",
+      "metric": "유형 분류",
+      "segment": "늦은 시작형",
+      "targetCount": 14,
+      "count": null,
+      "ratio": null,
+      "nationalCount": null,
+      "alignmentIssue7": "Y",
+      "note": "표본이 100명 미만이라 해석 신뢰도가 낮습니다. SPLITS_ANON_SALT 미설정 상태에서는 익명 입력 모드에서 국가대표 위치 매칭이 일부 누락될 수 있습니다. 국가대표 위치는 현재 실행 환경에서 매칭할 수 없어 비율을 비공개 처리했습니다."
+    }
+  ]
+}

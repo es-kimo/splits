@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import type { AthletesDoc, DistributionDoc, MeetsDoc, MetaDoc } from "./types";
+import type { AthletesDoc, DistributionDoc, MeetsDoc, MetaDoc, ReverseDistributionDoc } from "./types";
 
 const REPO_ROOT = new URL("../../../", import.meta.url);
 const SITE_DATA_DIR = new URL("site/data/", REPO_ROOT);
@@ -22,6 +22,10 @@ export function loadMeetsDoc(): MeetsDoc {
 
 export function loadDistributionDoc(): DistributionDoc {
   return readJson<DistributionDoc>("distribution.json");
+}
+
+export function loadReverseDistributionDoc(): ReverseDistributionDoc {
+  return readJson<ReverseDistributionDoc>("reverse_distribution.json");
 }
 
 export function loadMetaDoc(): MetaDoc {
