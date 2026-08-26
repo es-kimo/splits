@@ -1119,7 +1119,7 @@ def extract_meet_year(normalized_date, raw_date):
             return int(match.group(0))
     return None
 def estimate_age(meet_year, birth_year):
-    # 출생년도만 있어 생일 반영이 불가하며 1~2월 대회는 만 나이 대비 최대 1살 높게 추정될 수 있다.
+    # 원천이 출생년도만 제공하므로 생월 반영이 불가하며, 1~2월 대회는 만 나이 대비 최대 1살 높게 추정될 수 있다.
     if pd.isna(meet_year) or pd.isna(birth_year):
         return None
     return int(meet_year) - int(birth_year)
@@ -4230,7 +4230,7 @@ def validate_anonymous_stats(distribution_df, participation_df):
 
 
 def print_console(summary_df, placements_df):
-    print("주의: 나이_추정은 대회연도-출생년도이며 만 나이보다 최대 1살 높습니다. 동계 대회(1~2월) 집중으로 다수 행에서 체계적으로 +1 편향이 생길 수 있습니다.")
+    print("주의: INF503/INF310은 출생년도만 제공해 생월(상대연령) 통제가 불가합니다. 나이_추정은 대회연도-출생년도이며 만 나이보다 최대 1살 높고, 동계 대회(1~2월) 집중으로 체계적 +1 편향이 생길 수 있습니다.")
     print("주의: 결승 기록은 전술 영향을 받으므로 성장 추이 분석에 부적합하다. 기록 기반 분석에는 예선(Heat) 기록만 사용할 것. 순위 기반 분석에는 기존대로 채점종합/결승을 사용한다.")
     print("이름 | 최초출전나이 | 초등부 최고·최저순위 | 출전수")
     for _, row in summary_df.iterrows():
