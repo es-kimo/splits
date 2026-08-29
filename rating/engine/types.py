@@ -46,6 +46,33 @@ class Predictor(Protocol):
 
     def update(self, state: dict[str, RatingLike], race_results: Sequence[RaceResult]) -> dict[str, RatingLike]: ...
 
+    def effective_rating(self, athlete_id: str, as_of: date) -> RatingLike:
+        """`as_of` 시점 예측에 실제로 쓰이는 레이팅.
+
+        저장된 레이팅과 다를 수 있습니다. 비활동 기간만큼 불확실성을 되돌리는
+        엔진은 그 보정을 반영한 값을 돌려줍니다. 진단 지표가 예측과 다른 값을
+        보고 있으면 진단 자체를 믿을 수 없으므로 이 경로를 통해 읽습니다.
+        """
+        ...
+
+
+def elapsed_periods(last_active: date | None, current_date: date, rating_period: RatingPeriod) -> int:
+    """마지막 출전 이후 흐른 rating period 수.
+
+    두 엔진이 같은 규약을 쓰지 않으면 비활동 보정 크기를 비교할 수 없어서
+    한 곳에 둡니다. `meet`은 같은 달 안이라도 최소 1주기가 지난 것으로 봅니다.
+    """
+    if last_active is None:
+        return 0
+    if current_date <= last_active:
+        return 0
+    month_diff = (current_date.year - last_active.year) * 12 + (current_date.month - last_active.month)
+    if rating_period == "month":
+        return max(0, month_diff)
+    if month_diff <= 0:
+        return 1
+    return max(1, month_diff)
+
 
 def build_pairwise_comparisons(
     race_results: Sequence[RaceResult],

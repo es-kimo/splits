@@ -1,6 +1,6 @@
 # R-05 Backtest Report
 
-- generated_at: 2026-08-29T19:00:13
+- generated_at: 2026-08-29T21:43:39
 - holdout_seasons: 2025, 2026
 - configs: 12
 
@@ -142,10 +142,10 @@ tau는 홀드아웃 이전 구간에서 log loss로 골랐습니다.
 | aggressive | month | trueskill | 0.5000 | 0.2205 | 6.2% | 1.710 | 1.627 |
 | conservative | meet | glicko2 | 0.2000 | 0.2207 | 4.8% | 68.708 | 43.075 |
 | aggressive | meet | glicko2 | 0.2000 | 0.2191 | 4.5% | 65.403 | 41.823 |
-| conservative | month | glicko2 | 1.2000 | 0.2145 | 3.7% | 69.123 | 41.983 |
+| conservative | month | glicko2 | 1.2000 | 0.2145 | 3.7% | 69.124 | 41.983 |
 | aggressive | month | glicko2 | 0.2000 | 0.2122 | 3.5% | 65.596 | 40.667 |
 | place_only | meet | trueskill | 1.0000 | 0.1580 | 1.3% | 2.475 | 2.237 |
-| place_only | meet | glicko2 | 0.2000 | 0.1494 | 0.5% | 137.137 | 62.768 |
+| place_only | meet | glicko2 | 0.2000 | 0.1494 | 0.5% | 137.138 | 62.769 |
 | place_only | month | glicko2 | 0.2000 | 0.1457 | 0.3% | 138.308 | 61.679 |
 | place_only | month | trueskill | 0.5000 | 0.1469 | 0.8% | 2.084 | 1.605 |
 
@@ -174,7 +174,9 @@ tau는 홀드아웃 이전 구간에서 log loss로 골랐습니다.
 | 6-20 | 3,776 | 0.46193 | 0.7847 | 0.15095 |
 | 0-5 | 2,192 | 0.66824 | 0.5835 | 0.23961 |
 
-### phi
+### sigma
+
+sigma는 레이팅의 불확실성입니다. 값이 클수록 그 선수의 실력을 아직 덜 안다는 뜻이고, 쌍에서는 두 선수 중 큰 쪽을 씁니다. sigma-오차 역전의 원인 분석은 `docs/adr/0007-sigma-inversion.md`에 있습니다.
 
 | bucket | n | log_loss | accuracy | brier |
 | --- | ---: | ---: | ---: | ---: |

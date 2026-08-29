@@ -10,7 +10,7 @@ from typing import Any, Literal, Sequence
 import polars as pl
 
 from rating.engine.glicko2 import Glicko2Engine, Glicko2Params
-from rating.engine.types import Predictor, RaceEntry, RaceResult, RatingLike, RatingPeriod
+from rating.engine.types import Predictor, RaceEntry, RaceResult, RatingLike, RatingPeriod, elapsed_periods
 from rating.ledger.policies import POLICIES
 from rating.ledger.schema import load_race_ledger, validate_ledger
 from rating.ledger.season import parse_kst_date
@@ -101,6 +101,8 @@ class ModelAdapter:
     predictor: Predictor
     state: dict[str, RatingLike]
     initial_phi: float
+    rating_period: RatingPeriod = "meet"
+    initial_mu: float = 0.0
 
     def predict(self, example: PairwiseExample) -> float:
         """P(left > right) — 방향은 example이 결과와 무관하게 고정합니다."""
@@ -126,14 +128,47 @@ class ModelAdapter:
         ]
         self.state = self.predictor.update(self.state, race_results)
 
+    def _effective(self, athlete_id: str, as_of: date) -> RatingLike | None:
+        """예측이 실제로 사용하는 레이팅. 없으면 저장 상태로 물러섭니다."""
+        getter = getattr(self.predictor, "effective_rating", None)
+        if getter is None:
+            return self.state.get(athlete_id)
+        try:
+            return getter(athlete_id, as_of)
+        except (KeyError, AttributeError):
+            return self.state.get(athlete_id)
+
     def pair_uncertainty(self, example: PairwiseExample) -> tuple[float, int]:
-        left = self.state.get(example.winner_id)
-        right = self.state.get(example.loser_id)
-        left_phi = float(getattr(left, "phi", self.initial_phi))
-        right_phi = float(getattr(right, "phi", self.initial_phi))
+        diagnostics = self.pair_diagnostics(example)
+        return float(diagnostics["pair_sigma_max"]), int(diagnostics["pair_n_games_min"])
+
+    def pair_diagnostics(self, example: PairwiseExample) -> dict[str, float | int]:
+        """예측 시점 쌍 상태. 갱신 전에 읽으므로 결과 정보가 섞이지 않습니다.
+
+        sigma는 두 엔진 모두 `Rating.phi` 슬롯에 있는 불확실성 값입니다.
+        TrueSkill이 자기 sigma를 그 슬롯에 저장하기 때문입니다.
+        """
+        as_of = example.race_date
+        left = self._effective(example.winner_id, as_of)
+        right = self._effective(example.loser_id, as_of)
+
+        left_sigma = float(getattr(left, "phi", self.initial_phi))
+        right_sigma = float(getattr(right, "phi", self.initial_phi))
+        left_mu = float(getattr(left, "mu", self.initial_mu))
+        right_mu = float(getattr(right, "mu", self.initial_mu))
         left_games = int(getattr(left, "n_games", 0))
         right_games = int(getattr(right, "n_games", 0))
-        return max(left_phi, right_phi), min(left_games, right_games)
+        left_idle = elapsed_periods(getattr(left, "last_active", None), as_of, self.rating_period)
+        right_idle = elapsed_periods(getattr(right, "last_active", None), as_of, self.rating_period)
+
+        return {
+            "pair_sigma_max": max(left_sigma, right_sigma),
+            "pair_sigma_min": min(left_sigma, right_sigma),
+            "pair_mu_abs_diff": abs(left_mu - right_mu),
+            "pair_n_games_min": min(left_games, right_games),
+            "pair_n_games_max": max(left_games, right_games),
+            "pair_idle_periods_max": max(left_idle, right_idle),
+        }
 
 
 def _norm(value: Any) -> str:
@@ -332,11 +367,26 @@ TAU_GRID: dict[str, tuple[float, ...]] = {
 def _build_model(engine: EngineChoice, rating_period: RatingPeriod, tau: float | None = None) -> ModelAdapter:
     if engine == "glicko2":
         params = Glicko2Params(rating_period=rating_period) if tau is None else Glicko2Params(rating_period=rating_period, tau=tau)
-        return ModelAdapter(name="glicko2", predictor=Glicko2Engine(params=params), state={}, initial_phi=350.0)
+        return ModelAdapter(
+            name="glicko2",
+            predictor=Glicko2Engine(params=params),
+            state={},
+            initial_phi=params.initial_phi,
+            rating_period=rating_period,
+            initial_mu=params.initial_mu,
+        )
     from rating.engine.trueskill_wrapper import TrueSkillEngine, TrueSkillParams
 
-    predictor: Predictor = TrueSkillEngine() if tau is None else TrueSkillEngine(params=TrueSkillParams(tau=tau))
-    return ModelAdapter(name="trueskill", predictor=predictor, state={}, initial_phi=25.0 / 3.0)
+    ts_params = TrueSkillParams(rating_period=rating_period) if tau is None else TrueSkillParams(rating_period=rating_period, tau=tau)
+    predictor: Predictor = TrueSkillEngine(params=ts_params)
+    return ModelAdapter(
+        name="trueskill",
+        predictor=predictor,
+        state={},
+        initial_phi=ts_params.initial_sigma,
+        rating_period=rating_period,
+        initial_mu=ts_params.initial_mu,
+    )
 
 
 def _fit_engine_tau(
@@ -638,7 +688,7 @@ def _evaluate_config(
             if in_holdout:
                 holdout_comparisons += len(examples)
                 for example in examples:
-                    phi, n_games = model.pair_uncertainty(example)
+                    diagnostics = model.pair_diagnostics(example)
                     raw_probability = float(model.predict(example))
                     rows.append(
                         {
@@ -654,8 +704,13 @@ def _evaluate_config(
                             "grade_text": example.grade_text,
                             "event": example.event,
                             "source_status": example.source_status,
-                            "pair_phi": float(phi),
-                            "pair_n_games": int(n_games),
+                            "pair_phi": float(diagnostics["pair_sigma_max"]),
+                            "pair_n_games": int(diagnostics["pair_n_games_min"]),
+                            "pair_sigma_max": float(diagnostics["pair_sigma_max"]),
+                            "pair_sigma_min": float(diagnostics["pair_sigma_min"]),
+                            "pair_mu_abs_diff": float(diagnostics["pair_mu_abs_diff"]),
+                            "pair_n_games_max": int(diagnostics["pair_n_games_max"]),
+                            "pair_idle_periods_max": int(diagnostics["pair_idle_periods_max"]),
                         }
                     )
                     for baseline in baselines:
@@ -677,6 +732,11 @@ def _evaluate_config(
                                 "source_status": example.source_status,
                                 "pair_phi": None,
                                 "pair_n_games": None,
+                                "pair_sigma_max": None,
+                                "pair_sigma_min": None,
+                                "pair_mu_abs_diff": None,
+                                "pair_n_games_max": None,
+                                "pair_idle_periods_max": None,
                             }
                         )
             if examples:
@@ -768,11 +828,11 @@ def _segment_band_n_games(value: Any) -> str:
     return "21+"
 
 
-def _segment_band_phi(value: Any, q1: float, q2: float) -> str:
-    phi = float(value or 0.0)
-    if phi <= q1:
+def _segment_band_sigma(value: Any, q1: float, q2: float) -> str:
+    sigma = float(value or 0.0)
+    if sigma <= q1:
         return f"low(<= {q1:.1f})"
-    if phi <= q2:
+    if sigma <= q2:
         return f"mid({q1:.1f}~{q2:.1f})"
     return f"high(> {q2:.1f})"
 
@@ -802,20 +862,20 @@ def _segment_rows(frame: pl.DataFrame, column: str, max_rows: int = 12) -> list[
 def _render_segment_section(best_result: ConfigResult) -> str:
     model_name = best_result.engine
     model_rows = best_result.metrics_by_predictor[model_name].predictions
-    phi_values = [float(value) for value in model_rows["pair_phi"].to_list() if value is not None]
-    q1 = sorted(phi_values)[int((len(phi_values) - 1) * 0.33)] if phi_values else 0.0
-    q2 = sorted(phi_values)[int((len(phi_values) - 1) * 0.66)] if phi_values else 0.0
+    sigma_values = [float(value) for value in model_rows["pair_sigma_max"].to_list() if value is not None]
+    q1 = sorted(sigma_values)[int((len(sigma_values) - 1) * 0.33)] if sigma_values else 0.0
+    q2 = sorted(sigma_values)[int((len(sigma_values) - 1) * 0.66)] if sigma_values else 0.0
 
     segmented = model_rows.with_columns(
         [
             pl.col("pair_n_games").map_elements(_segment_band_n_games, return_dtype=pl.Utf8).alias("n_games_band"),
-            pl.col("pair_phi").map_elements(lambda value: _segment_band_phi(value, q1, q2), return_dtype=pl.Utf8).alias("phi_band"),
+            pl.col("pair_sigma_max").map_elements(lambda value: _segment_band_sigma(value, q1, q2), return_dtype=pl.Utf8).alias("sigma_band"),
         ]
     )
 
     axes = [
         ("n_games", "n_games_band"),
-        ("phi", "phi_band"),
+        ("sigma", "sigma_band"),
         ("round", "round_class"),
         ("grade", "grade_text"),
         ("event", "event"),
@@ -823,7 +883,16 @@ def _render_segment_section(best_result: ConfigResult) -> str:
     ]
     lines = ["## 세그먼트 분해 (best config)", ""]
     for axis_name, column in axes:
-        lines.extend([f"### {axis_name}", "", "| bucket | n | log_loss | accuracy | brier |", "| --- | ---: | ---: | ---: | ---: |"])
+        lines.append(f"### {axis_name}")
+        lines.append("")
+        if axis_name == "sigma":
+            lines.append(
+                "sigma는 레이팅의 불확실성입니다. 값이 클수록 그 선수의 실력을 아직 덜 안다는 뜻이고, "
+                "쌍에서는 두 선수 중 큰 쪽을 씁니다. sigma-오차 역전의 원인 분석은 "
+                "`docs/adr/0007-sigma-inversion.md`에 있습니다."
+            )
+            lines.append("")
+        lines.extend(["| bucket | n | log_loss | accuracy | brier |", "| --- | ---: | ---: | ---: | ---: |"])
         for row in _segment_rows(segmented, column):
             lines.append(
                 f"| {row['bucket']} | {row['n']:,} | {row['log_loss']:.5f} | {row['accuracy']:.4f} | {row['brier']:.5f} |"
@@ -1025,9 +1094,9 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         predictions = row["model"].predictions
         probabilities = predictions["probability"].to_list()
         extreme = sum(1 for p in probabilities if p < 0.1 or p > 0.9) / max(len(probabilities), 1)
-        phis = sorted(value for value in predictions["pair_phi"].to_list() if value is not None)
-        p50 = phis[len(phis) // 2] if phis else 0.0
-        p10 = phis[int(len(phis) * 0.10)] if phis else 0.0
+        sigmas = sorted(value for value in predictions["pair_sigma_max"].to_list() if value is not None)
+        p50 = sigmas[len(sigmas) // 2] if sigmas else 0.0
+        p10 = sigmas[int(len(sigmas) * 0.10)] if sigmas else 0.0
         spread = float(pl.Series(probabilities).std() or 0.0)
         lines.append(
             f"| {result.policy} | {result.rating_period} | {result.engine} | {result.engine_tau:.4f} | "
@@ -1173,6 +1242,12 @@ def _write_adr(results: Sequence[ConfigResult], path: Path) -> None:
             f"log loss {newcomer_summary.log_loss:.5f}, 정확도 {newcomer_summary.accuracy:.4f}. "
             "이력이 없는 선수에게 모집단 평균 사전분포를 주기 때문이며, R-06 연령 모델이 다뤄야 할 지점입니다."
         )
+
+    lines.append(
+        "- 세그먼트 표에서 sigma가 큰 구간이 더 정확해 보이는 것은 실력 차이 교락입니다. "
+        "`|mu 차이|`를 통제하면 정상 방향으로 돌아옵니다. 근거는 `docs/adr/0007-sigma-inversion.md`에 있습니다. "
+        "다만 TrueSkill은 휴지기에 sigma를 되돌리지 않으므로, 오래 쉰 선수의 확률은 과신 쪽으로 치우칩니다."
+    )
 
     tau_values = sorted(best_result.engine_tau_scores.items(), key=lambda item: item[1])
     if len(tau_values) >= 2:

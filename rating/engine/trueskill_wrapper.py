@@ -6,7 +6,7 @@ from datetime import date
 from typing import Sequence
 
 from .glicko2 import Rating
-from .types import Predictor, RaceEntry, RaceResult, RatingLike
+from .types import Predictor, RaceEntry, RaceResult, RatingLike, RatingPeriod, elapsed_periods
 
 try:
     import trueskill as _trueskill
@@ -21,6 +21,7 @@ class TrueSkillParams:
     beta: float = 25.0 / 6.0
     tau: float = 25.0 / 300.0
     draw_probability: float = 0.0
+    rating_period: RatingPeriod = "meet"
 
 
 class TrueSkillEngine(Predictor):
@@ -38,13 +39,16 @@ class TrueSkillEngine(Predictor):
         self._state: dict[str, Rating] = {}
 
     def predict_prob(self, a: str, b: str, as_of: date) -> float:
-        del as_of
-        left = self._to_trueskill_rating(self._state.get(a, self._initial_rating()))
-        right = self._to_trueskill_rating(self._state.get(b, self._initial_rating()))
+        left = self._to_trueskill_rating(self.effective_rating(a, as_of))
+        right = self._to_trueskill_rating(self.effective_rating(b, as_of))
         denominator = math.sqrt((2.0 * self.params.beta * self.params.beta) + (left.sigma * left.sigma) + (right.sigma * right.sigma))
         if denominator <= 0.0:
             return 0.5
         return float(self._env.cdf((left.mu - right.mu) / denominator))
+
+    def effective_rating(self, athlete_id: str, as_of: date) -> Rating:
+        del as_of
+        return self._state.get(athlete_id, self._initial_rating())
 
     def update(self, state: dict[str, RatingLike], race_results: Sequence[RaceResult]) -> dict[str, Rating]:
         updated: dict[str, Rating] = {athlete_id: self._coerce_rating(rating) for athlete_id, rating in state.items()}

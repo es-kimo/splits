@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal, Sequence
 
-from .types import Comparison, Predictor, RaceResult, RatingLike, build_pairwise_comparisons
+from .types import Comparison, Predictor, RaceResult, RatingLike, build_pairwise_comparisons, elapsed_periods
 
 _GLICKO2_SCALE = 400.0 / math.log(10.0)
 
@@ -44,13 +44,16 @@ class Glicko2Engine(Predictor):
         self._state: dict[str, Rating] = {}
 
     def predict_prob(self, a: str, b: str, as_of: date) -> float:
-        left = self._decay_without_games(self._state.get(a, self._initial_rating()), as_of)
-        right = self._decay_without_games(self._state.get(b, self._initial_rating()), as_of)
+        left = self.effective_rating(a, as_of)
+        right = self.effective_rating(b, as_of)
         left_mu, _ = self._to_internal(left.mu, left.phi)
         right_mu, right_phi = self._to_internal(right.mu, right.phi)
         g = self._g(right_phi)
         expected = 1.0 / (1.0 + math.exp(-g * (left_mu - right_mu)))
         return min(max(expected, 0.0), 1.0)
+
+    def effective_rating(self, athlete_id: str, as_of: date) -> Rating:
+        return self._decay_without_games(self._state.get(athlete_id, self._initial_rating()), as_of)
 
     def update(self, state: dict[str, RatingLike], race_results: Sequence[RaceResult]) -> dict[str, Rating]:
         typed_state = {athlete_id: self._coerce_rating(rating) for athlete_id, rating in state.items()}
@@ -149,16 +152,7 @@ class Glicko2Engine(Predictor):
         )
 
     def _elapsed_periods(self, last_active: date | None, current_date: date) -> int:
-        if last_active is None:
-            return 0
-        if current_date <= last_active:
-            return 0
-        month_diff = (current_date.year - last_active.year) * 12 + (current_date.month - last_active.month)
-        if self.params.rating_period == "month":
-            return max(0, month_diff)
-        if month_diff <= 0:
-            return 1
-        return max(1, month_diff)
+        return elapsed_periods(last_active, current_date, self.params.rating_period)
 
     def _inflate_phi(self, phi: float, sigma: float, periods: int) -> float:
         if periods <= 0:

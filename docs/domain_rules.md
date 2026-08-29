@@ -220,4 +220,4 @@ $$\text{Score}(A, B) = \begin{cases} 1.0, & \text{Rank}_A < \text{Rank}_B \text{
 ### 6.3 백테스트 검증 기준
 - **Holdout 시즌**: 최근 2개 시즌
 - **평가 지표**: Log-Loss(교차 엔트로피 손실), Prediction Accuracy(승자 적중률), Calibration Error(ECE).
-- ADR 의사결정: `docs/adr/0001-rating-feasibility.md` ~ `0006-backtest-verdict-rerun.md` 참조.
+- ADR 의사결정: `docs/adr/0001-rating-feasibility.md` ~ `0007-sigma-inversion.md` 참조.
