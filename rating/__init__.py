@@ -1,0 +1,2 @@
+"""Rating analysis package."""
+
