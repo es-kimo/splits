@@ -1,0 +1,7 @@
+meet_id,race_id,athlete_hash,event,round,place,time,status,season,grade,gender,class_cd
+meet_a,race_a,athlete_a1,500m,예선1조,1,45.10,,2024,5,남,2
+meet_a,race_a,athlete_a2,500m,예선1조,2,45.50,,2024,5,남,2
+meet_a,race_a,athlete_a3,500m,예선1조,3,46.00,,2024,5,남,2
+meet_b,race_b,athlete_b1,500m,예선1조,1,45.00,,2024,6,여,2
+meet_b,race_b,athlete_b2,500m,예선1조,2,45.40,,2024,6,여,2
+meet_b,race_b,athlete_b3,500m,예선1조,3,45.90,,2024,6,여,2
