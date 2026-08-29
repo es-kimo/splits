@@ -335,7 +335,7 @@ def _build_model(engine: EngineChoice, rating_period: RatingPeriod, tau: float |
 def _fit_engine_tau(
     engine: EngineChoice,
     rating_period: RatingPeriod,
-    periods: Sequence[Sequence[RaceObservation]],
+    steps: Sequence[ScheduleStep],
     holdout_set: set[int],
     previous_season: int,
 ) -> tuple[float, dict[float, float]]:
@@ -350,15 +350,19 @@ def _fit_engine_tau(
         model = _build_model(engine, rating_period, tau=tau)
         loss_sum = 0.0
         count = 0
-        for period_races in periods:
-            if any(race.season_year in holdout_set for race in period_races):
+        for step in steps:
+            if any(race.season_year in holdout_set for race in step.train_races):
                 continue
-            if any(race.season_year == previous_season for race in period_races):
-                for example in build_pairwise_examples(period_races):
+            for meet_races in step.eval_meets:
+                if any(race.season_year in holdout_set for race in meet_races):
+                    continue
+                if not any(race.season_year == previous_season for race in meet_races):
+                    continue
+                for example in build_pairwise_examples(meet_races):
                     probability = clamp_probability(model.predict(example))
                     loss_sum -= math.log(probability) if example.label == 1 else math.log(1.0 - probability)
                     count += 1
-            model.update(period_races)
+            model.update(step.train_races)
         scores[tau] = (loss_sum / count) if count else float("inf")
 
     best_tau = min(scores, key=lambda key: scores[key])
@@ -367,6 +371,61 @@ def _fit_engine_tau(
 
 def _config_key(policy: str, rating_period: RatingPeriod, engine: EngineChoice) -> str:
     return f"{policy}|{rating_period}|{engine}"
+
+
+EVALUATION_POLICY = "conservative"
+
+
+@dataclass(frozen=True)
+class ScheduleStep:
+    """한 rating period 안에서 일어나는 일.
+
+    모델은 period 경계에서 한 번 갱신되지만, 베이스라인은 대회(meet) 단위로
+    전진합니다. 베이스라인은 "학부모가 이미 아는 정보"를 나타내므로 모델의
+    rating period 선택에 따라 정보량이 달라지면 안 됩니다.
+    """
+
+    period_key: str
+    eval_meets: tuple[tuple[RaceObservation, ...], ...]
+    train_races: tuple[RaceObservation, ...]
+
+
+def _build_schedule(
+    train_races: Sequence[RaceObservation],
+    eval_races: Sequence[RaceObservation],
+    rating_period: RatingPeriod,
+) -> list[ScheduleStep]:
+    train_by_period: dict[str, list[RaceObservation]] = {}
+    for race in train_races:
+        train_by_period.setdefault(_period_key(race, rating_period), []).append(race)
+
+    eval_by_period: dict[str, dict[tuple[date, str], list[RaceObservation]]] = {}
+    for race in eval_races:
+        period = eval_by_period.setdefault(_period_key(race, rating_period), {})
+        period.setdefault((race.race_date, race.meet_id), []).append(race)
+
+    steps: list[ScheduleStep] = []
+    for key in sorted(set(train_by_period) | set(eval_by_period)):
+        meets = eval_by_period.get(key, {})
+        steps.append(
+            ScheduleStep(
+                period_key=key,
+                eval_meets=tuple(tuple(meets[meet_key]) for meet_key in sorted(meets)),
+                train_races=tuple(train_by_period.get(key, ())),
+            )
+        )
+    return steps
+
+
+def _make_baselines(
+    *, head2head_prob: float, previous_season: int, eval_races: Sequence[RaceObservation], scales: "BaselineScales"
+) -> list[BaselinePredictor]:
+    return [
+        ConstantBaseline(),
+        HeadToHeadBaseline(fixed_probability=head2head_prob),
+        PreviousSeasonBestTimeBaseline(season_year=previous_season, races=eval_races, scale=scales.b2),
+        LastMeetPercentileBaseline(scale=scales.b3),
+    ]
 
 
 @dataclass(frozen=True)
@@ -426,10 +485,12 @@ def _best_row(results: Sequence[ConfigResult]) -> dict[str, Any]:
 
 
 def _fit_baseline_scales(
-    races: Sequence[RaceObservation],
-    periods: Sequence[Sequence[RaceObservation]],
+    steps: Sequence[ScheduleStep],
+    eval_races: Sequence[RaceObservation],
     holdout_set: set[int],
     previous_season: int,
+    *,
+    head2head_prob: float,
 ) -> BaselineScales:
     """B2/B3의 로지스틱 스케일을 홀드아웃 **이전** 구간에서만 적합합니다.
 
@@ -437,9 +498,10 @@ def _fit_baseline_scales(
     상수로 박아두면 확률이 포화해 동전 던지기보다 나쁜 기준선이 되고, 그러면
     개선율이라는 숫자 자체가 의미를 잃습니다.
     """
+    del head2head_prob
     # B2는 고정된 한 시즌의 최고기록을 참조하므로, 적합용 인스턴스는 참조 시즌을
     # 한 시즌 앞으로 당겨 적합 구간이 참조 시즌보다 뒤에 오도록 만듭니다.
-    b2_fit = PreviousSeasonBestTimeBaseline(season_year=previous_season - 1, races=races)
+    b2_fit = PreviousSeasonBestTimeBaseline(season_year=previous_season - 1, races=eval_races)
     b3_fit = LastMeetPercentileBaseline()
 
     b2_deltas: list[float] = []
@@ -447,25 +509,22 @@ def _fit_baseline_scales(
     b3_deltas: list[float] = []
     b3_labels: list[int] = []
 
-    comparison_id = 0
-    for period_races in periods:
-        if any(race.season_year in holdout_set for race in period_races):
-            continue
-        examples = build_pairwise_examples(period_races, start_id=comparison_id)
-        in_b2_window = any(race.season_year == previous_season for race in period_races)
-        for example in examples:
-            if in_b2_window:
-                gap = b2_fit.delta(example)
+    for step in steps:
+        for meet_races in step.eval_meets:
+            if any(race.season_year in holdout_set for race in meet_races):
+                continue
+            in_b2_window = any(race.season_year == previous_season for race in meet_races)
+            for example in build_pairwise_examples(meet_races):
+                if in_b2_window:
+                    gap = b2_fit.delta(example)
+                    if gap is not None:
+                        b2_deltas.append(example.orient_delta(gap))
+                        b2_labels.append(example.label)
+                gap = b3_fit.delta(example)
                 if gap is not None:
-                    b2_deltas.append(example.orient_delta(gap))
-                    b2_labels.append(example.label)
-            gap = b3_fit.delta(example)
-            if gap is not None:
-                b3_deltas.append(example.orient_delta(gap))
-                b3_labels.append(example.label)
-        if examples:
-            comparison_id = int(examples[-1].comparison_id) + 1
-        b3_fit.update(period_races)
+                    b3_deltas.append(example.orient_delta(gap))
+                    b3_labels.append(example.label)
+            b3_fit.update(meet_races)
 
     b2_scale = (
         fit_logistic_scale(b2_deltas, b2_labels)
@@ -480,88 +539,111 @@ def _evaluate_config(
     *,
     policy: str,
     ledger_path: Path,
+    eval_ledger_path: Path,
     engine: EngineChoice,
     rating_period: RatingPeriod,
     holdout_season_count: int,
     head2head_prob: float,
     calibration_dir: Path,
 ) -> ConfigResult:
-    frame = load_race_ledger(ledger_path)
-    validate_ledger(frame)
-    races = _to_races(frame)
-    if not races:
-        raise ValueError(f"[error] 평가 가능한 race가 없습니다: {ledger_path}")
-    holdout_seasons = _select_holdout_seasons(races, holdout_season_count)
+    """정책은 학습 데이터 구성에만 적용하고, 평가셋은 전 설정에서 고정합니다.
+
+    정책을 평가셋에도 적용하면 설정마다 다른 시험지를 푸는 셈이 됩니다.
+    aggressive는 DNF가 섞인 더 어려운 문제를, place_only는 결승만 남긴 다른
+    문제를 풀게 되어 로그 손실을 나란히 놓고 비교할 수 없습니다.
+    """
+    eval_frame = load_race_ledger(eval_ledger_path)
+    validate_ledger(eval_frame)
+    eval_races = _to_races(eval_frame)
+    if not eval_races:
+        raise ValueError(f"[error] 평가 가능한 race가 없습니다: {eval_ledger_path}")
+
+    if ledger_path == eval_ledger_path:
+        train_races = eval_races
+    else:
+        train_frame = load_race_ledger(ledger_path)
+        validate_ledger(train_frame)
+        train_races = _to_races(train_frame)
+        if not train_races:
+            raise ValueError(f"[error] 학습 가능한 race가 없습니다: {ledger_path}")
+
+    # 홀드아웃 시즌은 평가셋 기준으로 정해 전 설정이 같은 구간을 씁니다.
+    holdout_seasons = _select_holdout_seasons(eval_races, holdout_season_count)
     holdout_set = set(holdout_seasons)
     previous_season = min(holdout_seasons) - 1
-    periods = _group_periods(races, rating_period)
+    steps = _build_schedule(train_races, eval_races, rating_period)
 
-    scales = _fit_baseline_scales(races, periods, holdout_set, previous_season)
-    tau, tau_scores = _fit_engine_tau(engine, rating_period, periods, holdout_set, previous_season)
+    scales = _fit_baseline_scales(
+        steps, eval_races, holdout_set, previous_season, head2head_prob=head2head_prob
+    )
+    tau, tau_scores = _fit_engine_tau(engine, rating_period, steps, holdout_set, previous_season)
 
     model = _build_model(engine, rating_period, tau=tau)
-    baselines: list[BaselinePredictor] = [
-        ConstantBaseline(),
-        HeadToHeadBaseline(fixed_probability=head2head_prob),
-        PreviousSeasonBestTimeBaseline(season_year=previous_season, races=races, scale=scales.b2),
-        LastMeetPercentileBaseline(scale=scales.b3),
-    ]
+    baselines = _make_baselines(
+        head2head_prob=head2head_prob,
+        previous_season=previous_season,
+        eval_races=eval_races,
+        scales=scales,
+    )
 
     rows: list[dict[str, Any]] = []
     comparison_id = 0
     holdout_comparisons = 0
     total_comparisons = 0
-    for period_races in periods:
-        in_holdout = any(race.season_year in holdout_set for race in period_races)
-        examples = build_pairwise_examples(period_races, start_id=comparison_id)
-        total_comparisons += len(examples)
-        if in_holdout:
-            holdout_comparisons += len(examples)
-            for example in examples:
-                phi, n_games = model.pair_uncertainty(example)
-                model_prob = model.predict(example)
-                rows.append(
-                    {
-                        "config": _config_key(policy, rating_period, engine),
-                        "predictor": model.name,
-                        "comparison_id": example.comparison_id,
-                        "race_id": example.race_id,
-                        "actual": example.label,
-                        "probability": float(model_prob),
-                        "covered": True,
-                        "round_class": example.round_class,
-                        "grade_text": example.grade_text,
-                        "event": example.event,
-                        "source_status": example.source_status,
-                        "pair_phi": float(phi),
-                        "pair_n_games": int(n_games),
-                    }
-                )
-                for baseline in baselines:
-                    baseline_pred = baseline.predict(example)
+    config = _config_key(policy, rating_period, engine)
+
+    for step in steps:
+        for meet_races in step.eval_meets:
+            examples = build_pairwise_examples(meet_races, start_id=comparison_id)
+            total_comparisons += len(examples)
+            in_holdout = any(race.season_year in holdout_set for race in meet_races)
+            if in_holdout:
+                holdout_comparisons += len(examples)
+                for example in examples:
+                    phi, n_games = model.pair_uncertainty(example)
                     rows.append(
                         {
-                            "config": _config_key(policy, rating_period, engine),
-                            "predictor": baseline.name,
+                            "config": config,
+                            "predictor": model.name,
                             "comparison_id": example.comparison_id,
                             "race_id": example.race_id,
                             "actual": example.label,
-                            # 베이스라인은 P(winner > loser)를 내므로 예제 방향으로 되돌립니다.
-                            "probability": example.orient(baseline_pred.probability),
-                            "covered": bool(baseline_pred.covered),
+                            "probability": float(model.predict(example)),
+                            "covered": True,
                             "round_class": example.round_class,
                             "grade_text": example.grade_text,
                             "event": example.event,
                             "source_status": example.source_status,
-                            "pair_phi": None,
-                            "pair_n_games": None,
+                            "pair_phi": float(phi),
+                            "pair_n_games": int(n_games),
                         }
                     )
-        if examples:
-            comparison_id = int(examples[-1].comparison_id) + 1
-        model.update(period_races)
-        for baseline in baselines:
-            baseline.update(period_races)
+                    for baseline in baselines:
+                        prediction = baseline.predict(example)
+                        rows.append(
+                            {
+                                "config": config,
+                                "predictor": baseline.name,
+                                "comparison_id": example.comparison_id,
+                                "race_id": example.race_id,
+                                "actual": example.label,
+                                # 베이스라인은 P(winner > loser)를 내므로 예제 방향으로 되돌립니다.
+                                "probability": example.orient(prediction.probability),
+                                "covered": bool(prediction.covered),
+                                "round_class": example.round_class,
+                                "grade_text": example.grade_text,
+                                "event": example.event,
+                                "source_status": example.source_status,
+                                "pair_phi": None,
+                                "pair_n_games": None,
+                            }
+                        )
+            if examples:
+                comparison_id = int(examples[-1].comparison_id) + 1
+            # 베이스라인은 대회 단위로 전진합니다(모델의 rating period와 무관).
+            for baseline in baselines:
+                baseline.update(meet_races)
+        model.update(step.train_races)
 
     predictions = pl.DataFrame(rows)
     metrics_by_predictor: dict[str, Metrics] = {}
@@ -592,11 +674,10 @@ def _evaluate_config(
         common_subset_metrics[predictor] = _to_metrics(summary, subset)
 
     model_metrics = metrics_by_predictor[model.name]
-    model_summary = model_metrics_to_summary(model_metrics)
     calibration_path = calibration_dir / f"{policy}-{rating_period}-{engine}.svg"
     write_calibration_svg(
         calibration_path,
-        model_summary.calibration,
+        model_metrics_to_summary(model_metrics).calibration,
         title=f"{policy}/{rating_period}/{engine} calibration",
     )
     result = ConfigResult(
@@ -1019,6 +1100,15 @@ def main() -> None:
     out_path = Path(args.out).expanduser()
     adr_path = Path(args.adr_out).expanduser()
 
+    # 평가셋은 전 설정에서 고정합니다. 정책은 학습 데이터 구성에만 적용됩니다.
+    eval_ledger_path = discovered.get(EVALUATION_POLICY)
+    if eval_ledger_path is None:
+        if len(discovered) != 1:
+            raise FileNotFoundError(
+                f"[error] 고정 평가셋 정책 '{EVALUATION_POLICY}'의 레저를 찾을 수 없습니다: {ledger_root}"
+            )
+        eval_ledger_path = next(iter(discovered.values()))
+
     results: list[ConfigResult] = []
     for policy in policies:
         ledger_path = discovered[policy]
@@ -1027,6 +1117,7 @@ def main() -> None:
                 result = _evaluate_config(
                     policy=policy,
                     ledger_path=ledger_path,
+                    eval_ledger_path=eval_ledger_path,
                     engine=engine,
                     rating_period=period,
                     holdout_season_count=int(args.holdout_seasons),

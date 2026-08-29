@@ -181,6 +181,45 @@ def compute_metrics(
 
 
 @dataclass(frozen=True)
+class CalibrationNull:
+    """완전히 캘리브레이션된 예측기가 같은 표본에서 낼 ECE 분포.
+
+    ECE는 유한표본에서 위로 편향됩니다. 완벽한 예측기도 구간별 실제 승률이
+    표본 오차만큼 흔들리므로 ECE가 0이 되지 않습니다. 관측 ECE를 이 분포와
+    비교해야 "노이즈 바닥 위인가"를 말할 수 있습니다.
+    """
+
+    p50: float
+    p95: float
+    p99: float
+    resamples: int
+
+
+def calibration_null(
+    probabilities: Sequence[float],
+    *,
+    resamples: int = 500,
+    seed: int = 20260829,
+    n_bins: int = 10,
+) -> CalibrationNull:
+    """예측 확률은 그대로 두고 라벨만 그 확률에서 뽑아 ECE 귀무분포를 만듭니다."""
+    if not probabilities:
+        return CalibrationNull(p50=0.0, p95=0.0, p99=0.0, resamples=0)
+    probs = [clamp_probability(value) for value in probabilities]
+    rng = random.Random(seed)
+    samples: list[float] = []
+    for _ in range(resamples):
+        labels = [1 if rng.random() < p else 0 for p in probs]
+        samples.append(compute_calibration(labels, probs, n_bins=n_bins).ece)
+    samples.sort()
+
+    def quantile(fraction: float) -> float:
+        return samples[max(0, min(len(samples) - 1, int(fraction * len(samples))))]
+
+    return CalibrationNull(p50=quantile(0.50), p95=quantile(0.95), p99=quantile(0.99), resamples=len(samples))
+
+
+@dataclass(frozen=True)
 class BootstrapInterval:
     point: float
     low: float
