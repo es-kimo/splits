@@ -5,3 +5,4 @@ lxml
 networkx
 polars
 trueskill
+pytest
