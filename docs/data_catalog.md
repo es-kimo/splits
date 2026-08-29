@@ -216,17 +216,17 @@ flowchart TD
 ---
 
 ### Layer 6. Rating & Ledger (레이팅 레저 및 평가)
-선수 간 상대적 기량을 측정하는 Glicko-2 레이팅 파이프라인의 Parquet 레저와 감사 리포트입니다.
+선수 간 상대적 기량을 측정하는 TrueSkill / Glicko-2 레이팅 파이프라인의 Parquet 레저와 감사 리포트입니다. (ADR 0006 최적 채택: TrueSkill)
 
 | 산출물 경로 | 포맷 | 설명 |
 | :--- | :--- | :--- |
 | `out/ledger/race_ledger/season=YYYY/*.parquet` | Parquet | 경기 단위 정제 결과 및 선수별 레이스 메타데이터 |
 | `out/ledger/pairwise_view/season=YYYY/*.parquet`| Parquet | 동일 조/경기 내 선수 간 1:1 대결(Win/Loss/Draw) 확장 뷰 |
 | `out/ledger/ranking_view/season=YYYY/*.parquet` | Parquet | 대회-종목-라운드 단위 순위 집계 뷰 |
-| `out/ratings_baseline.parquet` | Parquet | Glicko-2 엔진 실행 결과 산출된 선수별 최종 레이팅/신뢰구간 스냅샷 |
+| `out/ratings_baseline.parquet` | Parquet | TrueSkill/Glicko-2 엔진 실행 결과 산출된 선수별 최종 레이팅 스냅샷 |
 | `out/connectivity_report.md` | Markdown | 선수 간 대결 그래프의 연결성(Connectivity) 및 거대 성분 검증 리포트 |
 | `out/status_audit.md` | Markdown | 실격(DQ), 부전승(ADV), 미출전(DNS) 등 원천 상태 코드 감사표 |
-| `out/backtest_report.md` | Markdown | 레이팅 예측력(Log-Loss, Accuracy, Calibration) 백테스트 결과 리포트 |
+| `out/backtest_report.md` | Markdown | 12개 설정 전수 백테스트 결과 리포트 (TrueSkill 71.3% 승자 적중률 검증) |
 
 ---
 

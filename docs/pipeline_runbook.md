@@ -162,29 +162,30 @@ make build
 
 ---
 
-### Workflow 5. Glicko-2 레이팅 산출 및 백테스트
+### Workflow 5. 선수 기량 레이팅 산출 및 백테스트 (TrueSkill & Glicko-2)
 > **상황**: 선수들의 실력 레이팅(Rating)을 갱신하거나 예측력 모델을 평가할 때
 
 ```mermaid
 flowchart LR
     A["make rating"] --> B["rating.ledger.build (Parquet 생성)"]
-    B --> C["rating.engine.runner (Glicko-2 계산)"]
+    B --> C["rating.engine.runner (TrueSkill 계산)"]
     C --> D["out/ratings_baseline.parquet"]
     D --> E["make rating-eval (백테스트 리포트 생성)"]
     E --> F["make rating-sigma-diagnosis (sigma 역전 진단)"]
 ```
 
 ```bash
-# 1. 레이팅 레저 빌드 및 Glicko-2 계산
+# 1. 레이팅 레저 빌드 및 TrueSkill 계산 (기본값)
 make rating
 
-# 2. 최근 2개 시즌 홀드아웃 백테스트 리포트 생성
+# 2. 최근 2개 시즌 홀드아웃 백테스트 리포트 생성 (12개 설정 비교)
 make rating-eval
 
 # 3. (선택) sigma-오차 역전이 교락인지 버그인지 판정
 make rating-sigma-diagnosis
 ```
 - 산출물: `out/ratings_baseline.parquet`, `out/backtest_report.md`, `out/backtest_calibration/*.svg`
+- 최적 설정(ADR 0006): `conservative / meet / trueskill` (정확도 71.33%, Log-Loss 0.55523)
 - 진단 산출물: `out/sigma_diagnosis_report.md`, `out/sigma_diagnosis/n_games_vs_sigma.svg`
 
 > 백테스트 세그먼트 표에서 sigma가 큰 구간이 더 정확해 보이면 실력 차이 교락을 먼저 의심하세요.

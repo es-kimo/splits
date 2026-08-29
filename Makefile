@@ -71,11 +71,11 @@ collect-retry: ## 🔁 [수집 실패 복구] 실패/부분완료 대회 재시�
 	@echo -e "$(YELLOW)[2/2] full CSV 재생성...$(RESET)"
 	$(PYTHON) collect_full_history.py export
 
-rating: ## 🏆 [레이팅 계산] 경기 레저 Parquet 생성 -> Glicko-2 레이팅 계산
+rating: ## 🏆 [레이팅 계산] 경기 레저 Parquet 생성 -> TrueSkill 레이팅 계산
 	@echo -e "$(YELLOW)[1/2] rating.ledger.build: Parquet 레저 구축...$(RESET)"
-	$(PYTHON) -m rating.ledger.build --results data/records_anon.csv --out out/ledger
-	@echo -e "$(YELLOW)[2/2] rating.engine.runner: Glicko-2 레이팅 산출...$(RESET)"
-	$(PYTHON) -m rating.engine.runner --ledger out/ledger --out out/ratings_baseline.parquet --report out/baseline_report.md --engine glicko2 --rating-period meet
+	$(PYTHON) -m rating.ledger.build --results $(shell if [ -f data/records_full.csv ]; then echo data/records_full.csv; else echo data/records_anon.csv; fi) --out out/ledger
+	@echo -e "$(YELLOW)[2/2] rating.engine.runner: TrueSkill 레이팅 산출...$(RESET)"
+	$(PYTHON) -m rating.engine.runner --ledger out/ledger --out out/ratings_baseline.parquet --report out/baseline_report.md --engine trueskill --rating-period meet
 	@echo -e "$(GREEN)✅ 레이팅 산출 완료! (out/ratings_baseline.parquet)$(RESET)"
 
 rating-eval: rating ## 📊 [레이팅 백테스트] 정책별 비교 및 예측력 백테스트 리포트 생성

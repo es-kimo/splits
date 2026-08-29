@@ -201,23 +201,40 @@ $$\text{이탈률}(g) = 100 - \text{잔존율}(g)$$
 
 ---
 
-## 6. Glicko-2 레이팅 시스템 사양
+## 6. 선수 기량 레이팅 시스템 사양 (TrueSkill & Glicko-2)
 
-개별 경기 기록(초 단위)은 빙질, 링크장, 레이스 작전에 따라 편차가 크므로, 선수 간 상대적 기량을 측정하기 위해 **Glicko-2 기반 승패 레이팅**을 적용합니다.
+개별 경기 기록(초 단위)은 빙질, 링크장, 기온, 레이스 작전에 따라 편차가 크므로, 선수 간 상대적 기량을 측정하기 위해 **승패 기반 베이지안 레이팅 시스템**을 적용합니다.
 
-### 6.1 Pairwise 대결 변환 정책
-$N$명이 출전한 한 개 레이스($\text{Race}$) 결과를 $\binom{N}{2}$개의 1:1 대결로 분해합니다.
+### 6.1 최적 모델 확정 근거 (ADR 0006)
+12개 모델 설정(정책 3종 × 기간 2종 × 엔진 2종)을 2025~2026 2개 홀드아웃 시즌(총 18,425경기)에서 전수 백테스트한 결과, **`conservative / meet / trueskill`**이 최종 1위(GO 판정)로 채택되었습니다.
 
-$$\text{Score}(A, B) = \begin{cases} 1.0, & \text{Rank}_A < \text{Rank}_B \text{ (A 승)} \\ 0.5, & \text{Rank}_A = \text{Rank}_B \text{ (무승부)} \\ 0.0, & \text{Rank}_A > \text{Rank}_B \text{ (A 패)} \end{cases}$$
+| 모델 설정 (정책/주기/엔진) | 로그 손실 (Log-Loss) | 승자 예측 정확도 (Accuracy) | Brier 점수 | ECE (캘리브레이션 오차) | 베이스라인 대비 개선율 | 최종 판정 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **🥇 conservative / meet / trueskill** | **0.55523** | **71.33%** | **0.18822** | **0.01788** | **+11.01%** | **GO (선택)** |
+| 🥈 conservative / month / trueskill | 0.55924 | 70.84% | 0.19001 | 0.01763 | +10.37% | - |
+| 🥉 aggressive / meet / trueskill | 0.56118 | 70.50% | 0.19072 | 0.01197 | +10.05% | - |
+| 5위 conservative / meet / glicko2 | 0.57896 | 69.12% | 0.19793 | 0.01122 | +7.20% | - |
+| 6위 aggressive / meet / glicko2 | 0.58005 | 68.92% | 0.19841 | 0.01199 | +7.03% | - |
 
-### 6.2 모델 파라미터 및 업데이트 규칙
-- **평점 ($\mu$)**: 기본값 $1500$
-- **불확실성 / RD ($\phi$)**: 기본값 $350$ (활동이 없을수록 시간에 따라 증가)
-- **변동성 ($\sigma$)**: 기본값 $0.06$
-- **시스템 제약 ($\tau$)**: $0.2$
-- **레이팅 주기 (Rating Period)**: 대회 단위(`meet`)로 일괄 배치(Batch) 업데이트 진행.
+---
 
-### 6.3 백테스트 검증 기준
-- **Holdout 시즌**: 최근 2개 시즌
-- **평가 지표**: Log-Loss(교차 엔트로피 손실), Prediction Accuracy(승자 적중률), Calibration Error(ECE).
-- ADR 의사결정: `docs/adr/0001-rating-feasibility.md` ~ `0007-sigma-inversion.md` 참조.
+### 6.2 TrueSkill 엔진 동작 원리
+쇼트트랙은 4~6명이 동시에 달리는 다자간 순위 레이스이므로, 다자간 팩터 그래프(Factor Graph)와 가우시안 신념 분포(Gaussian Belief Distribution)를 다루는 TrueSkill이 1:1 기반의 Glicko-2보다 수학적으로 우수한 예측력을 보였습니다.
+
+1. **실력 모델링 ($\mu, \sigma$)**:
+   - 선수의 실력 $s \sim \mathcal{N}(\mu, \sigma^2)$ 정규분포로 추적
+   - 초기값: $\mu_0 = 25.0$, $\sigma_0 = 8.333$
+   - **평점 ($\mu$)**: 선수의 평균 실력
+   - **불확실성 ($\sigma$)**: 실력의 신뢰구간 (경기를 치를수록 축소)
+2. **보수적 랭킹 점수 (Conservative Rating)**:
+   $$\text{Rating} = \mu - 3\sigma$$
+   신인 선수의 과대평가를 방지하고 99% 신뢰수준에서의 하한 기량을 랭킹 지표로 사용.
+3. **업데이트 주기 (Rating Period: `meet`)**:
+   경기 순서에 따른 비결정성 왜곡을 막기 위해 대회 단위(`meet`)로 일괄 배치(Batch) 업데이트 진행.
+4. **추출 정책 (Policy: `conservative`)**:
+   실격(DQ), 기권(DNF), 부전승(ADV) 판정 노이즈를 배제하고, 온전히 레이스를 마친 순수 완주자들의 순위만을 학습 데이터로 투입.
+
+---
+
+### 6.3 참고 ADR 문서
+- `docs/adr/0001-rating-feasibility.md` ~ `docs/adr/0006-backtest-verdict-rerun.md` (R-01 ~ R-05 판정 및 백테스트 재실행 기록)
