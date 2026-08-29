@@ -101,6 +101,17 @@ class PairwiseExample:
         """P(winner > loser)를 P(left > right)로 돌려놓습니다."""
         return float(winner_probability) if self.label == 1 else 1.0 - float(winner_probability)
 
+    def orient_delta(self, winner_delta: float) -> float:
+        """승자 기준 격차를 left 기준으로 돌려놓습니다.
+
+        `sigmoid(-x) == 1 - sigmoid(x)`이므로 부호만 뒤집으면 `orient`와 같은
+        방향 변환이 됩니다. 로그 손실은 이 변환에 대해 불변이므로 적합 결과
+        자체는 어느 좌표계에서 재든 같습니다. 그럼에도 이 좌표계를 쓰는 이유는
+        적합에 쓰는 (delta, label) 쌍이 실제로 채점되는 (probability, actual)
+        쌍과 같은 프레임에 있어야 하기 때문입니다.
+        """
+        return float(winner_delta) if self.label == 1 else -float(winner_delta)
+
 
 @dataclass(frozen=True)
 class BaselinePrediction:
@@ -126,6 +137,56 @@ def _sigmoid(value: float) -> float:
 
 def _clamp_probability(value: float) -> float:
     return min(max(float(value), 1e-6), 1.0 - 1e-6)
+
+
+def fit_logistic_scale(
+    deltas: Sequence[float],
+    labels: Sequence[int],
+    *,
+    lo: float = 0.01,
+    hi: float = 20.0,
+    grid_points: int = 60,
+) -> float:
+    """`P = sigmoid(delta / scale)`의 scale을 log loss 최소화로 적합합니다.
+
+    베이스라인은 이기고 싶은 대상이 아니라 넘어야 하는 기준이므로, 스케일을
+    임의의 상수로 두면 안 됩니다. 상수가 너무 작으면 확률이 0/1로 포화해
+    동전 던지기보다 나쁜 기준선이 만들어집니다.
+
+    scale이 커질수록 예측은 0.5로 수렴하므로, 적합이 정상 동작하면 결과는
+    구조적으로 `ln 2` 이하입니다.
+
+    반드시 홀드아웃 **이전** 구간의 (delta, label)로만 호출해야 합니다.
+    """
+    if len(deltas) != len(labels):
+        raise ValueError("[error] deltas/labels 길이가 일치하지 않습니다.")
+    if not deltas:
+        return float(hi)
+
+    def loss(scale: float) -> float:
+        total = 0.0
+        for delta, label in zip(deltas, labels):
+            probability = _clamp_probability(_sigmoid(float(delta) / scale))
+            total -= math.log(probability) if label == 1 else math.log(1.0 - probability)
+        return total / float(len(labels))
+
+    ratio = (hi / lo) ** (1.0 / float(grid_points - 1))
+    grid = [lo * (ratio**index) for index in range(grid_points)]
+    best = min(grid, key=loss)
+
+    # 최적 격자 칸 안쪽을 한 번 더 조입니다(1차원, 사실상 볼록).
+    low = max(best / ratio, lo)
+    high = min(best * ratio, hi)
+    for _ in range(40):
+        if high - low < 1e-6:
+            break
+        left = low + (high - low) / 3.0
+        right = high - (high - low) / 3.0
+        if loss(left) <= loss(right):
+            high = right
+        else:
+            low = left
+    return float((low + high) / 2.0)
 
 
 def build_pairwise_outcomes(race: RaceObservation) -> list[ComparisonOutcome]:
@@ -242,8 +303,10 @@ class HeadToHeadBaseline:
 
 class PreviousSeasonBestTimeBaseline:
     name = "B2"
+    default_scale = 0.02
 
-    def __init__(self, *, season_year: int, races: Sequence[RaceObservation]) -> None:
+    def __init__(self, *, season_year: int, races: Sequence[RaceObservation], scale: float | None = None) -> None:
+        self.scale = float(scale) if scale is not None else float(self.default_scale)
         self._season_year = int(season_year)
         self._best_times: dict[tuple[str, str], float] = {}
         for race in races:
@@ -258,16 +321,22 @@ class PreviousSeasonBestTimeBaseline:
                 if current is None or participant.time_sec < current:
                     self._best_times[key] = float(participant.time_sec)
 
-    def predict(self, example: PairwiseExample) -> BaselinePrediction:
+    def delta(self, example: PairwiseExample) -> float | None:
+        """승자 기준 상대 기록차. 커버 불가면 None."""
         event_key = example.event or "(unknown-event)"
         winner_time = self._best_times.get((example.winner_id, event_key))
         loser_time = self._best_times.get((example.loser_id, event_key))
         if winner_time is None or loser_time is None:
+            return None
+        return (loser_time - winner_time) / max(winner_time, loser_time, 1e-6)
+
+    def predict(self, example: PairwiseExample) -> BaselinePrediction:
+        gap = self.delta(example)
+        if gap is None:
             return BaselinePrediction(probability=0.5, covered=False)
-        if abs(winner_time - loser_time) < 1e-9:
+        if abs(gap) < 1e-9:
             return BaselinePrediction(probability=0.5, covered=True)
-        ratio_gap = (loser_time - winner_time) / max(winner_time, loser_time, 1e-6)
-        probability = _sigmoid(ratio_gap / 0.02)
+        probability = _sigmoid(gap / self.scale)
         return BaselinePrediction(probability=_clamp_probability(probability), covered=True)
 
     def update(self, races: Sequence[RaceObservation]) -> None:
@@ -276,25 +345,37 @@ class PreviousSeasonBestTimeBaseline:
 
 class LastMeetPercentileBaseline:
     name = "B3"
+    default_scale = 0.15
 
-    def __init__(self) -> None:
+    def __init__(self, *, scale: float | None = None, allow_cross_event: bool = False) -> None:
+        self.scale = float(scale) if scale is not None else float(self.default_scale)
+        # 500M 백분위로 3000M 승부를 예측하지 않습니다. 종목이 다르면 기권합니다.
+        self.allow_cross_event = bool(allow_cross_event)
         self._scores_by_event: dict[tuple[str, str], tuple[date, float]] = {}
         self._scores_any_event: dict[str, tuple[date, float]] = {}
 
-    def predict(self, example: PairwiseExample) -> BaselinePrediction:
+    def delta(self, example: PairwiseExample) -> float | None:
+        """승자 기준 직전 대회 백분위 차. 커버 불가면 None."""
         event_key = example.event or "(unknown-event)"
         winner = self._lookup_score(example.winner_id, event_key)
         loser = self._lookup_score(example.loser_id, event_key)
         if winner is None or loser is None:
+            return None
+        return winner - loser
+
+    def predict(self, example: PairwiseExample) -> BaselinePrediction:
+        gap = self.delta(example)
+        if gap is None:
             return BaselinePrediction(probability=0.5, covered=False)
-        delta = winner - loser
-        probability = _sigmoid(delta / 0.15)
+        probability = _sigmoid(gap / self.scale)
         return BaselinePrediction(probability=_clamp_probability(probability), covered=True)
 
     def _lookup_score(self, athlete_id: str, event_key: str) -> float | None:
         event_row = self._scores_by_event.get((athlete_id, event_key))
         if event_row is not None:
             return event_row[1]
+        if not self.allow_cross_event:
+            return None
         any_row = self._scores_any_event.get(athlete_id)
         if any_row is not None:
             return any_row[1]

@@ -24,6 +24,7 @@ from .baselines import (
     RaceObservation,
     RaceParticipant,
     build_pairwise_examples,
+    fit_logistic_scale,
 )
 from .metrics import MetricSummary, compute_metrics, write_calibration_svg
 
@@ -67,6 +68,7 @@ class ConfigResult:
     rating_period: RatingPeriod
     engine: EngineChoice
     holdout_seasons: tuple[int, ...]
+    baseline_scales: "BaselineScales"
     metrics_by_predictor: dict[str, Metrics]
     common_subset_metrics: dict[str, Metrics]
     calibration_path: Path
@@ -312,6 +314,65 @@ def _config_key(policy: str, rating_period: RatingPeriod, engine: EngineChoice) 
     return f"{policy}|{rating_period}|{engine}"
 
 
+@dataclass(frozen=True)
+class BaselineScales:
+    b2: float
+    b3: float
+    b2_sample: int
+    b3_sample: int
+
+
+def _fit_baseline_scales(
+    races: Sequence[RaceObservation],
+    periods: Sequence[Sequence[RaceObservation]],
+    holdout_set: set[int],
+    previous_season: int,
+) -> BaselineScales:
+    """B2/B3의 로지스틱 스케일을 홀드아웃 **이전** 구간에서만 적합합니다.
+
+    베이스라인은 넘어야 하는 기준이므로 최대한 유리하게 세워야 합니다. 스케일을
+    상수로 박아두면 확률이 포화해 동전 던지기보다 나쁜 기준선이 되고, 그러면
+    개선율이라는 숫자 자체가 의미를 잃습니다.
+    """
+    # B2는 고정된 한 시즌의 최고기록을 참조하므로, 적합용 인스턴스는 참조 시즌을
+    # 한 시즌 앞으로 당겨 적합 구간이 참조 시즌보다 뒤에 오도록 만듭니다.
+    b2_fit = PreviousSeasonBestTimeBaseline(season_year=previous_season - 1, races=races)
+    b3_fit = LastMeetPercentileBaseline()
+
+    b2_deltas: list[float] = []
+    b2_labels: list[int] = []
+    b3_deltas: list[float] = []
+    b3_labels: list[int] = []
+
+    comparison_id = 0
+    for period_races in periods:
+        if any(race.season_year in holdout_set for race in period_races):
+            continue
+        examples = build_pairwise_examples(period_races, start_id=comparison_id)
+        in_b2_window = any(race.season_year == previous_season for race in period_races)
+        for example in examples:
+            if in_b2_window:
+                gap = b2_fit.delta(example)
+                if gap is not None:
+                    b2_deltas.append(example.orient_delta(gap))
+                    b2_labels.append(example.label)
+            gap = b3_fit.delta(example)
+            if gap is not None:
+                b3_deltas.append(example.orient_delta(gap))
+                b3_labels.append(example.label)
+        if examples:
+            comparison_id = int(examples[-1].comparison_id) + 1
+        b3_fit.update(period_races)
+
+    b2_scale = (
+        fit_logistic_scale(b2_deltas, b2_labels)
+        if b2_deltas
+        else float(PreviousSeasonBestTimeBaseline.default_scale)
+    )
+    b3_scale = fit_logistic_scale(b3_deltas, b3_labels) if b3_deltas else float(LastMeetPercentileBaseline.default_scale)
+    return BaselineScales(b2=b2_scale, b3=b3_scale, b2_sample=len(b2_labels), b3_sample=len(b3_labels))
+
+
 def _evaluate_config(
     *,
     policy: str,
@@ -332,12 +393,14 @@ def _evaluate_config(
     previous_season = min(holdout_seasons) - 1
     periods = _group_periods(races, rating_period)
 
+    scales = _fit_baseline_scales(races, periods, holdout_set, previous_season)
+
     model = _build_model(engine, rating_period)
     baselines: list[BaselinePredictor] = [
         ConstantBaseline(),
         HeadToHeadBaseline(fixed_probability=head2head_prob),
-        PreviousSeasonBestTimeBaseline(season_year=previous_season, races=races),
-        LastMeetPercentileBaseline(),
+        PreviousSeasonBestTimeBaseline(season_year=previous_season, races=races, scale=scales.b2),
+        LastMeetPercentileBaseline(scale=scales.b3),
     ]
 
     rows: list[dict[str, Any]] = []
@@ -433,6 +496,7 @@ def _evaluate_config(
         rating_period=rating_period,
         engine=engine,
         holdout_seasons=holdout_seasons,
+        baseline_scales=scales,
         metrics_by_predictor=metrics_by_predictor,
         common_subset_metrics=common_subset_metrics,
         calibration_path=calibration_path,
@@ -583,6 +647,23 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
     for result in results:
         lines.append(
             f"| {result.policy} | {result.rating_period} | {result.engine} | {result.metrics_by_predictor['B0'].log_loss:.5f} | {result.metrics_by_predictor['B1'].log_loss:.5f} | {result.metrics_by_predictor['B2'].log_loss:.5f} | {result.metrics_by_predictor['B3'].log_loss:.5f} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "베이스라인 로지스틱 스케일은 홀드아웃 이전 구간에서 log loss 최소화로 적합했습니다.",
+            "",
+            "| policy | period | B2 scale | B2 적합표본 | B3 scale | B3 적합표본 |",
+            "| --- | --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for result in results:
+        if result.engine != "glicko2":
+            continue
+        scales = result.baseline_scales
+        lines.append(
+            f"| {result.policy} | {result.rating_period} | {scales.b2:.5f} | {scales.b2_sample:,} | {scales.b3:.5f} | {scales.b3_sample:,} |"
         )
 
     lines.extend(
