@@ -1,1 +1,1 @@
-"""Ledger utilities for rating feasibility and comparison extraction."""
+"""Ledger utilities for rating feasibility, extraction, and deterministic replay."""
