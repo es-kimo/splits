@@ -9,6 +9,7 @@
 - 📖 **데이터 생태계 지도 & 사전**: [docs/data_catalog.md](docs/data_catalog.md)
 - 🚀 **파이프라인 운영 런북 & Makefile 가이드**: [docs/pipeline_runbook.md](docs/pipeline_runbook.md) (단축 실행: `make help`)
 - 📐 **도메인 규칙 & 분석 알고리즘 명세서**: [docs/domain_rules.md](docs/domain_rules.md)
+- 🏗️ **모듈화 & 리팩토링 아키텍처 청사진**: [docs/architecture_refactoring.md](docs/architecture_refactoring.md)
 
 ## 1) 위상정렬(선수 단계) 파이프라인
 
