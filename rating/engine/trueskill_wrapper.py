@@ -47,8 +47,8 @@ class TrueSkillEngine(Predictor):
         return float(self._env.cdf((left.mu - right.mu) / denominator))
 
     def effective_rating(self, athlete_id: str, as_of: date) -> Rating:
-        del as_of
-        return self._state.get(athlete_id, self._initial_rating())
+        current = self._state.get(athlete_id, self._initial_rating())
+        return self._effective_with_inactivity(current, as_of)
 
     def update(self, state: dict[str, RatingLike], race_results: Sequence[RaceResult]) -> dict[str, Rating]:
         updated: dict[str, Rating] = {athlete_id: self._coerce_rating(rating) for athlete_id, rating in state.items()}
@@ -62,7 +62,17 @@ class TrueSkillEngine(Predictor):
                 continue
             rating_groups: list[tuple[object, ...]] = []
             for group in grouped_entries:
-                rating_groups.append(tuple(self._to_trueskill_rating(updated.get(entry.athlete_id, self._initial_rating())) for entry in group))
+                rating_groups.append(
+                    tuple(
+                        self._to_trueskill_rating(
+                            self._effective_with_inactivity(
+                                updated.get(entry.athlete_id, self._initial_rating()),
+                                race.race_date,
+                            )
+                        )
+                        for entry in group
+                    )
+                )
             rated_groups = self._env.rate(rating_groups=rating_groups, ranks=ranks)
             for group_entries, group_ratings in zip(grouped_entries, rated_groups):
                 for entry, rated in zip(group_entries, group_ratings):
@@ -106,6 +116,25 @@ class TrueSkillEngine(Predictor):
         sigma = float(rating.phi if rating.phi > 0 else self.params.initial_sigma)
         return self._env.create_rating(mu=float(rating.mu), sigma=sigma)
 
+    def _effective_with_inactivity(self, rating: Rating, as_of: date) -> Rating:
+        periods = elapsed_periods(rating.last_active, as_of, self.params.rating_period)
+        if periods <= 0:
+            return rating
+        inflated_sigma = self._inflate_sigma(rating.phi, periods)
+        return Rating(
+            mu=float(rating.mu),
+            phi=float(inflated_sigma),
+            sigma=float(rating.sigma),
+            last_active=rating.last_active,
+            n_games=int(rating.n_games),
+        )
+
+    def _inflate_sigma(self, sigma: float, periods: int) -> float:
+        if periods <= 0:
+            return float(sigma)
+        inflated = math.sqrt((float(sigma) * float(sigma)) + (float(self.params.tau) * float(self.params.tau) * float(periods)))
+        return float(min(inflated, self.params.initial_sigma))
+
     def _initial_rating(self) -> Rating:
         return Rating(
             mu=float(self.params.initial_mu),
@@ -114,4 +143,3 @@ class TrueSkillEngine(Predictor):
             last_active=None,
             n_games=0,
         )
-
