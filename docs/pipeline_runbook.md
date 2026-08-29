@@ -43,6 +43,7 @@ make help
   dev                  🌐 Astro 로컬 개발 서버 실행 (웹 UI 실시간 확인)
   rating               🏆 [레이팅 계산] 경기 레저 Parquet 생성 -> Glicko-2 레이팅 계산
   rating-eval          📊 [레이팅 백테스트] 정책별 비교 및 예측력 백테스트 리포트 생성
+  rating-sigma-diagnosis 🔬 [sigma 진단] 실력 차이를 통제해 sigma-오차 역전이 교락인지 버그인지 판정
   setup                🛠️ 파이썬 패키지 및 Astro 웹 의존성 설치
   test                 🧪 [단위 테스트] pytest 전체 실행
   update-weekly        🔄 [주간 증분] 신규 대회 수집 -> records_anon 갱신 -> 통계 -> 사이트 빌드
@@ -170,6 +171,7 @@ flowchart LR
     B --> C["rating.engine.runner (Glicko-2 계산)"]
     C --> D["out/ratings_baseline.parquet"]
     D --> E["make rating-eval (백테스트 리포트 생성)"]
+    E --> F["make rating-sigma-diagnosis (sigma 역전 진단)"]
 ```
 
 ```bash
@@ -178,8 +180,16 @@ make rating
 
 # 2. 최근 2개 시즌 홀드아웃 백테스트 리포트 생성
 make rating-eval
+
+# 3. (선택) sigma-오차 역전이 교락인지 버그인지 판정
+make rating-sigma-diagnosis
 ```
 - 산출물: `out/ratings_baseline.parquet`, `out/backtest_report.md`, `out/backtest_calibration/*.svg`
+- 진단 산출물: `out/sigma_diagnosis_report.md`, `out/sigma_diagnosis/n_games_vs_sigma.svg`
+
+> 백테스트 세그먼트 표에서 sigma가 큰 구간이 더 정확해 보이면 실력 차이 교락을 먼저 의심하세요.
+> `make rating-sigma-diagnosis`가 `|mu 차이|`를 통제한 뒤 다시 재어 줍니다. 판정 배경은
+> [ADR 0007](adr/0007-sigma-inversion.md)에 있습니다.
 
 ---
 

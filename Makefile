@@ -1,4 +1,4 @@
-.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-eval audit test clean
+.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-eval rating-sigma-diagnosis audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -82,6 +82,11 @@ rating-eval: rating ## 📊 [레이팅 백테스트] 정책별 비교 및 예측
 	@echo -e "$(YELLOW)rating.eval.backtest: 백테스트 평가 실행...$(RESET)"
 	$(PYTHON) -m rating.eval.backtest --ledger out/ledger --holdout-seasons 2 --all-configs --out out/backtest_report.md
 	@echo -e "$(GREEN)✅ 백테스트 완료! (out/backtest_report.md)$(RESET)"
+
+rating-sigma-diagnosis: ## 🔬 [sigma 진단] 실력 차이를 통제해 sigma-오차 역전이 교락인지 버그인지 판정
+	@echo -e "$(YELLOW)rating.eval.sigma_diagnosis: |mu 차이| 통제 후 sigma-오차 관계 측정...$(RESET)"
+	$(PYTHON) -m rating.eval.sigma_diagnosis --ledger out/ledger --out out/sigma_diagnosis_report.md
+	@echo -e "$(GREEN)✅ 진단 완료! (out/sigma_diagnosis_report.md, out/sigma_diagnosis/n_games_vs_sigma.svg)$(RESET)"
 
 audit: ## 🔍 [품질 감사] 커밋 정책 준수 검사 & ID 병합 신뢰도 감사
 	@echo -e "$(YELLOW)[1/2] 커밋 정책 감사 (개인정보 누출 방지)...$(RESET)"
