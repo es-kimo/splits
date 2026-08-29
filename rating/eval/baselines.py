@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass
 from datetime import date
@@ -61,6 +62,44 @@ class PairwiseExample:
     winner_time_sec: float | None
     loser_time_sec: float | None
     source_status: str
+
+    @property
+    def _flipped(self) -> bool:
+        """비교의 방향을 결정하는 결과 무관 난수 비트.
+
+        선수 ID 사전순으로 방향을 잡으면 ID가 출생연도를 담고 있어 라벨이
+        0.627로 쏠립니다(나이가 많을수록 대체로 강함). 결과와 무관하되 실력과도
+        무관한 기준이 필요하므로, 정렬된 쌍과 race_id의 해시로 방향을 정합니다.
+        결정적이라 재실행해도 같은 방향이 나옵니다.
+        """
+        low, high = sorted((self.winner_id, self.loser_id))
+        seed = f"{self.race_id}|{low}|{high}".encode("utf-8")
+        return hashlib.blake2b(seed, digest_size=8).digest()[0] & 1 == 1
+
+    @property
+    def left_id(self) -> str:
+        """승패와 무관한 기준으로 고정한 비교의 왼쪽 선수."""
+        low, high = sorted((self.winner_id, self.loser_id))
+        return high if self._flipped else low
+
+    @property
+    def right_id(self) -> str:
+        low, high = sorted((self.winner_id, self.loser_id))
+        return low if self._flipped else high
+
+    @property
+    def label(self) -> int:
+        """left가 실제로 이겼으면 1, 아니면 0.
+
+        (승자, 패자) 순서로만 예제를 만들면 라벨이 전부 1이 되어 캘리브레이션을
+        잴 수 없습니다. 방향을 결과와 무관하게 고정하면 라벨이 0/1로 갈리고,
+        log loss / accuracy / Brier는 변환에 대해 불변인 채 ECE만 실제 값이 됩니다.
+        """
+        return 1 if self.left_id == self.winner_id else 0
+
+    def orient(self, winner_probability: float) -> float:
+        """P(winner > loser)를 P(left > right)로 돌려놓습니다."""
+        return float(winner_probability) if self.label == 1 else 1.0 - float(winner_probability)
 
 
 @dataclass(frozen=True)

@@ -81,7 +81,8 @@ class ModelAdapter:
     initial_phi: float
 
     def predict(self, example: PairwiseExample) -> float:
-        return float(self.predictor.predict_prob(example.winner_id, example.loser_id, example.race_date))
+        """P(left > right) — 방향은 example이 결과와 무관하게 고정합니다."""
+        return float(self.predictor.predict_prob(example.left_id, example.right_id, example.race_date))
 
     def update(self, races: Sequence[RaceObservation]) -> None:
         race_results = [
@@ -263,8 +264,8 @@ def evaluate(predictor: Predictor, holdout: pl.DataFrame, *, rating_period: Rati
                 {
                     "comparison_id": int(example.comparison_id),
                     "race_id": example.race_id,
-                    "probability": float(predictor.predict_prob(example.winner_id, example.loser_id, example.race_date)),
-                    "actual": 1,
+                    "probability": float(predictor.predict_prob(example.left_id, example.right_id, example.race_date)),
+                    "actual": example.label,
                     "covered": True,
                 }
             )
@@ -354,7 +355,7 @@ def _evaluate_config(
                         "predictor": model.name,
                         "comparison_id": example.comparison_id,
                         "race_id": example.race_id,
-                        "actual": 1,
+                        "actual": example.label,
                         "probability": float(model_prob),
                         "covered": True,
                         "round_class": example.round_class,
@@ -373,8 +374,9 @@ def _evaluate_config(
                             "predictor": baseline.name,
                             "comparison_id": example.comparison_id,
                             "race_id": example.race_id,
-                            "actual": 1,
-                            "probability": float(baseline_pred.probability),
+                            "actual": example.label,
+                            # 베이스라인은 P(winner > loser)를 내므로 예제 방향으로 되돌립니다.
+                            "probability": example.orient(baseline_pred.probability),
                             "covered": bool(baseline_pred.covered),
                             "round_class": example.round_class,
                             "grade_text": example.grade_text,
