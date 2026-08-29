@@ -34,11 +34,14 @@ ALIASES = {
     "advanced_raw": ["advanced", "ADV", "AD"],
     "season_text": ["season", "season_year", "대회연도"],
     "grade_text": ["grade", "학년", "학령구간", "학년_계산"],
+    "birth_year": ["birth_year", "출생연도", "출생년도"],
+    "division_text": ["division_text", "학령구간"],
     "gender": ["gender", "성별"],
     "class_cd": ["class_cd", "classCd"],
     "meet_name": ["meet_name", "대회명"],
     "category": ["category", "종별"],
     "distance_text": ["distance", "거리"],
+    "sf_flag": ["sf_flag", "SF여부"],
     "date": ["date", "일자", "일자_정규화"],
 }
 
@@ -108,6 +111,15 @@ def _parse_year(season_text: Any, date_text: Any) -> int | None:
         return None
 
 
+def _parse_birth_year(value: Any) -> int | None:
+    year = _parse_int(value)
+    if year is None:
+        return None
+    if year < 1900 or year > 2099:
+        return None
+    return year
+
+
 def _parse_time_seconds(value: Any) -> float | None:
     text = _norm(value)
     if not text:
@@ -164,6 +176,14 @@ def split_division(category: Any, gender: Any) -> tuple[str, str]:
     return gender_text, band
 
 
+def resolve_division_text(division_text: Any, category: Any, gender: Any) -> str:
+    text = _norm(division_text)
+    if text:
+        return text
+    _, band = split_division(category, gender)
+    return _norm(band)
+
+
 def division_key(category: Any, gender: Any) -> str:
     """레이스를 가르는 최소 단위(성별 + 연령/급 구간)의 정규 키."""
     gender_text, band = split_division(category, gender)
@@ -196,6 +216,7 @@ def _build_reconstructed_race_id(row: dict[str, Any]) -> str:
     event = _event_key(_norm(row.get("event")), _norm(row.get("category")), _norm(row.get("distance_text")))
     round_text = _norm(row.get("round")) or _norm(row.get("round_kind"))
     heat_no = _extract_heat_no(round_text)
+    sf_flag = _clean_piece(row.get("sf_flag")).upper() or "-"
     date_text = _clean_piece(row.get("date")) or "-"
     # 부문(성별 + 연령/급 구간)이 빠지면 같은 대회/종목/라운드의 서로 다른 부문이
     # 하나의 레이스로 병합되어, 붙은 적 없는 선수 쌍이 비교로 생성됩니다.
@@ -209,6 +230,7 @@ def _build_reconstructed_race_id(row: dict[str, Any]) -> str:
             _clean_piece(event),
             _clean_piece(round_text),
             _clean_piece(heat_no) or "-",
+            sf_flag,
             _clean_piece(date_text),
         ]
     )
@@ -269,6 +291,8 @@ def _normalize_status(status_raw: str, advanced_raw: str, place_num: int | None,
     if "adv" in advanced_lower or "adv" in status_lower:
         return STATUS_ADV
     if status_lower in ALLOW_FINISH_TOKENS:
+        if place_num is None and time_sec is None:
+            return STATUS_DNS
         return STATUS_FIN
     if any(token in status_lower for token in DENY_PEN_TOKENS):
         return STATUS_PEN
@@ -343,11 +367,14 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
             _coalesce_alias(results, "advanced_raw").alias("advanced_raw"),
             _coalesce_alias(results, "season_text").alias("season_text"),
             _coalesce_alias(results, "grade_text").alias("grade_text"),
+            _coalesce_alias(results, "birth_year").alias("birth_year"),
+            _coalesce_alias(results, "division_text").alias("division_text"),
             _coalesce_alias(results, "gender").alias("gender"),
             _coalesce_alias(results, "class_cd").alias("class_cd"),
             _coalesce_alias(results, "meet_name").alias("meet_name"),
             _coalesce_alias(results, "category").alias("category"),
             _coalesce_alias(results, "distance_text").alias("distance_text"),
+            _coalesce_alias(results, "sf_flag").alias("sf_flag"),
             _coalesce_alias(results, "date").alias("date"),
         ]
     ).select(
@@ -365,11 +392,14 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
             "advanced_raw",
             "season_text",
             "grade_text",
+            "birth_year",
+            "division_text",
             "gender",
             "class_cd",
             "meet_name",
             "category",
             "distance_text",
+            "sf_flag",
             "date",
         ]
     )
@@ -413,6 +443,13 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
             pl.struct(["category", "gender"])
             .map_elements(lambda row: division_key(row["category"], row["gender"]), return_dtype=pl.Utf8)
             .alias("division"),
+            pl.struct(["division_text", "category", "gender"])
+            .map_elements(
+                lambda row: resolve_division_text(row.get("division_text"), row.get("category"), row.get("gender")),
+                return_dtype=pl.Utf8,
+            )
+            .alias("division_text"),
+            pl.col("birth_year").map_elements(_parse_birth_year, return_dtype=pl.Int64).alias("birth_year"),
             pl.struct(["class_cd", "meet_name", "round", "round_kind"])
             .map_elements(
                 lambda row: _classify_class_cd(
@@ -427,7 +464,19 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
         ]
     )
     reconstructed = pl.struct(
-        ["meet_id", "meet_name", "season_text", "event", "category", "gender", "distance_text", "round", "round_kind", "date"]
+        [
+            "meet_id",
+            "meet_name",
+            "season_text",
+            "event",
+            "category",
+            "gender",
+            "distance_text",
+            "round",
+            "round_kind",
+            "sf_flag",
+            "date",
+        ]
     ).map_elements(
         _build_reconstructed_race_id,
         return_dtype=pl.Utf8,
@@ -533,7 +582,8 @@ def _status_filtered_participants(rows: list[dict[str, Any]], policy: Extraction
             active_rows.append(copied)
             continue
         copied = dict(row)
-        copied["effective_place"] = copied.get("place_num")
+        place = copied.get("place_num")
+        copied["effective_place"] = int(place) if place is not None and int(place) > 0 else None
         active_rows.append(copied)
 
     ranked = [

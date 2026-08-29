@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import argparse
 import math
+import shutil
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 import polars as pl
 
 from rating.calibration import Calibrator, fit as fit_calibrator
+from rating.engine.age import build_debut_prior_provider, fit_debut_priors
 from rating.engine.glicko2 import Glicko2Engine, Glicko2Params
+from rating.engine.runner import run_replay
+from rating.engine.trueskill_wrapper import TrueSkillEngine, TrueSkillParams
 from rating.engine.types import Predictor, RaceEntry, RaceResult, RatingLike, RatingPeriod, elapsed_periods
 from rating.ledger.policies import POLICIES
 from rating.ledger.schema import load_race_ledger, validate_ledger
@@ -41,6 +46,7 @@ from .metrics import (
 )
 
 EngineChoice = Literal["glicko2", "trueskill"]
+ConfigChoice = Literal["baseline", "age_adjusted"]
 
 _REQUIRED_LEDGER_COLUMNS = {
     "race_ordering_key",
@@ -76,6 +82,7 @@ class Metrics:
 
 @dataclass(frozen=True)
 class ConfigResult:
+    config_name: ConfigChoice
     policy: str
     rating_period: RatingPeriod
     engine: EngineChoice
@@ -207,6 +214,10 @@ def _ensure_eval_columns(frame: pl.DataFrame) -> pl.DataFrame:
         out = out.with_columns(pl.lit("").alias("grade_text"))
     if "gender" not in out.columns:
         out = out.with_columns(pl.lit("").alias("gender"))
+    if "division_text" not in out.columns:
+        out = out.with_columns(pl.lit("").alias("division_text"))
+    if "birth_year" not in out.columns:
+        out = out.with_columns(pl.lit(None).cast(pl.Int64).alias("birth_year"))
     return out
 
 
@@ -267,6 +278,8 @@ def _to_races(frame: pl.DataFrame) -> list[RaceObservation]:
                 grade_text=_norm(first.get("grade_text")) or "(unknown-grade)",
                 gender=_norm(first.get("gender")) or "(unknown-gender)",
                 participants=tuple(participants),
+                division_text=_norm(first.get("division_text")),
+                birth_year=_to_int(first.get("birth_year")) or None,
             )
         )
     return races
@@ -373,22 +386,74 @@ TAU_GRID: dict[str, tuple[float, ...]] = {
     "trueskill": (25.0 / 300.0, 0.25, 0.5, 1.0, 2.0),
 }
 
+_DEBUT_PROVIDER_CACHE: dict[tuple[str, RatingPeriod, int], Callable[[str], tuple[float, float] | None]] = {}
 
-def _build_model(engine: EngineChoice, rating_period: RatingPeriod, tau: float | None = None) -> ModelAdapter:
+
+def _athlete_meta_path(ledger_path: Path) -> Path:
+    if ledger_path.is_dir() and ledger_path.name == "race_ledger":
+        return ledger_path.parent / "athlete_meta.parquet"
+    return ledger_path / "athlete_meta.parquet"
+
+
+def _ledger_root_for_replay(ledger_path: Path) -> Path:
+    if ledger_path.is_dir() and ledger_path.name == "race_ledger":
+        return ledger_path.parent
+    return ledger_path
+
+
+def _fit_debut_prior_provider(
+    ledger_path: Path, *, rating_period: RatingPeriod, previous_season: int
+) -> Callable[[str], tuple[float, float] | None]:
+    key = (str(ledger_path.resolve()), rating_period, int(previous_season))
+    cached = _DEBUT_PROVIDER_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    athlete_meta_path = _athlete_meta_path(ledger_path)
+    if not athlete_meta_path.exists():
+        raise FileNotFoundError(f"[error] age_adjusted 설정에 필요한 athlete_meta가 없습니다: {athlete_meta_path}")
+    athlete_meta = pl.read_parquet(athlete_meta_path)
+    work_dir = Path(tempfile.mkdtemp(prefix="backtest-debut-priors-"))
+    try:
+        replay = run_replay(
+            ledger_path=_ledger_root_for_replay(ledger_path),
+            output_path=work_dir / "ratings.parquet",
+            report_path=work_dir / "report.md",
+            engine_name="trueskill",
+            rating_period=rating_period,
+            calibrator_out=work_dir / "calibrator.json",
+            run_manifest_out=work_dir / "run_manifest.json",
+        )
+        priors = fit_debut_priors(
+            replay.snapshots,
+            athlete_meta,
+            up_to_season=int(previous_season),
+        )
+        provider = build_debut_prior_provider(priors, athlete_meta)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+    _DEBUT_PROVIDER_CACHE[key] = provider
+    return provider
+
+
+def _build_model(
+    engine: EngineChoice,
+    rating_period: RatingPeriod,
+    tau: float | None = None,
+    prior_provider: Callable[[str], tuple[float, float] | None] | None = None,
+) -> ModelAdapter:
     if engine == "glicko2":
         params = Glicko2Params(rating_period=rating_period) if tau is None else Glicko2Params(rating_period=rating_period, tau=tau)
         return ModelAdapter(
             name="glicko2",
-            predictor=Glicko2Engine(params=params),
+            predictor=Glicko2Engine(params=params, prior_provider=prior_provider),
             state={},
             initial_phi=params.initial_phi,
             rating_period=rating_period,
             initial_mu=params.initial_mu,
         )
-    from rating.engine.trueskill_wrapper import TrueSkillEngine, TrueSkillParams
-
     ts_params = TrueSkillParams(rating_period=rating_period) if tau is None else TrueSkillParams(rating_period=rating_period, tau=tau)
-    predictor: Predictor = TrueSkillEngine(params=ts_params)
+    predictor: Predictor = TrueSkillEngine(params=ts_params, prior_provider=prior_provider)
     return ModelAdapter(
         name="trueskill",
         predictor=predictor,
@@ -405,6 +470,8 @@ def _fit_engine_tau(
     steps: Sequence[ScheduleStep],
     holdout_set: set[int],
     previous_season: int,
+    *,
+    prior_provider: Callable[[str], tuple[float, float] | None] | None = None,
 ) -> tuple[float, dict[float, float]]:
     """마지막 학습 시즌을 검증 구간으로 써서 tau를 고릅니다.
 
@@ -414,7 +481,7 @@ def _fit_engine_tau(
     """
     scores: dict[float, float] = {}
     for tau in TAU_GRID[engine]:
-        model = _build_model(engine, rating_period, tau=tau)
+        model = _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider)
         loss_sum = 0.0
         count = 0
         for step in steps:
@@ -436,8 +503,8 @@ def _fit_engine_tau(
     return best_tau, scores
 
 
-def _config_key(policy: str, rating_period: RatingPeriod, engine: EngineChoice) -> str:
-    return f"{policy}|{rating_period}|{engine}"
+def _config_key(config_name: ConfigChoice, policy: str, rating_period: RatingPeriod, engine: EngineChoice) -> str:
+    return f"{config_name}|{policy}|{rating_period}|{engine}"
 
 
 EVALUATION_POLICY = "conservative"
@@ -634,6 +701,7 @@ def _fit_calibrator(
 
 def _evaluate_config(
     *,
+    config_name: ConfigChoice,
     policy: str,
     ledger_path: Path,
     eval_ledger_path: Path,
@@ -669,16 +737,35 @@ def _evaluate_config(
     holdout_set = set(holdout_seasons)
     previous_season = min(holdout_seasons) - 1
     steps = _build_schedule(train_races, eval_races, rating_period)
+    prior_provider: Callable[[str], tuple[float, float] | None] | None = None
+    if config_name == "age_adjusted" and engine == "trueskill":
+        prior_provider = _fit_debut_prior_provider(
+            ledger_path,
+            rating_period=rating_period,
+            previous_season=previous_season,
+        )
 
     scales = _fit_baseline_scales(
         steps, eval_races, holdout_set, previous_season, head2head_prob=head2head_prob
     )
-    tau, tau_scores = _fit_engine_tau(engine, rating_period, steps, holdout_set, previous_season)
+    tau, tau_scores = _fit_engine_tau(
+        engine,
+        rating_period,
+        steps,
+        holdout_set,
+        previous_season,
+        prior_provider=prior_provider,
+    )
 
     # 보정기는 홀드아웃 이전 구간에서 적합하고, 두 엔진에 동일하게 적용합니다.
-    scaler = _fit_calibrator(_build_model(engine, rating_period, tau=tau), steps, holdout_set, previous_season)
+    scaler = _fit_calibrator(
+        _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider),
+        steps,
+        holdout_set,
+        previous_season,
+    )
 
-    model = _build_model(engine, rating_period, tau=tau)
+    model = _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider)
     baselines = _make_baselines(
         head2head_prob=head2head_prob,
         previous_season=previous_season,
@@ -690,7 +777,7 @@ def _evaluate_config(
     comparison_id = 0
     holdout_comparisons = 0
     total_comparisons = 0
-    config = _config_key(policy, rating_period, engine)
+    config = _config_key(config_name, policy, rating_period, engine)
 
     for step in steps:
         for meet_races in step.eval_meets:
@@ -716,6 +803,7 @@ def _evaluate_config(
                             "grade_text": example.grade_text,
                             "event": example.event,
                             "source_status": example.source_status,
+                            "pair_age": example.age,
                             "pair_phi": float(diagnostics["pair_sigma_max"]),
                             "pair_n_games": int(diagnostics["pair_n_games_min"]),
                             "pair_sigma_max": float(diagnostics["pair_sigma_max"]),
@@ -742,6 +830,7 @@ def _evaluate_config(
                                 "grade_text": example.grade_text,
                                 "event": example.event,
                                 "source_status": example.source_status,
+                                "pair_age": example.age,
                                 "pair_phi": None,
                                 "pair_n_games": None,
                                 "pair_sigma_max": None,
@@ -801,6 +890,7 @@ def _evaluate_config(
         title=f"{policy}/{rating_period}/{engine} calibration",
     )
     result = ConfigResult(
+        config_name=config_name,
         policy=policy,
         rating_period=rating_period,
         engine=engine,
@@ -838,6 +928,17 @@ def _segment_band_n_games(value: Any) -> str:
     if games <= 20:
         return "6-20"
     return "21+"
+
+
+def _segment_band_age(value: Any) -> str:
+    age = _to_int(value)
+    if age <= 0:
+        return "(unknown-age)"
+    if age <= 12:
+        return "<=12"
+    if age <= 15:
+        return "13-15"
+    return "16+"
 
 
 def _segment_band_sigma(value: Any, q1: float, q2: float) -> str:
@@ -881,12 +982,14 @@ def _render_segment_section(best_result: ConfigResult) -> str:
     segmented = model_rows.with_columns(
         [
             pl.col("pair_n_games").map_elements(_segment_band_n_games, return_dtype=pl.Utf8).alias("n_games_band"),
+            pl.col("pair_age").map_elements(_segment_band_age, return_dtype=pl.Utf8).alias("age_band"),
             pl.col("pair_sigma_max").map_elements(lambda value: _segment_band_sigma(value, q1, q2), return_dtype=pl.Utf8).alias("sigma_band"),
         ]
     )
 
     axes = [
         ("n_games", "n_games_band"),
+        ("age", "age_band"),
         ("sigma", "sigma_band"),
         ("round", "round_class"),
         ("grade", "grade_text"),
@@ -964,14 +1067,14 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         "",
         "## 모델 설정 요약",
         "",
-        "| policy | period | engine | n | log_loss | accuracy | brier | ece | B3 대비 개선율 | 70% 과신 |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| config | policy | period | engine | n | log_loss | accuracy | brier | ece | B3 대비 개선율 | 70% 과신 |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for row in model_rows:
         result: ConfigResult = row["result"]
         model: Metrics = row["model"]
         lines.append(
-            f"| {result.policy} | {result.rating_period} | {result.engine} | {model.sample_size:,} | {model.log_loss:.5f} | {model.accuracy:.4f} | {model.brier:.5f} | {model.ece:.5f} | {row['improvement'] * 100:.2f}% | {'Y' if model.overconfidence_70 else 'N'} |"
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {model.sample_size:,} | {model.log_loss:.5f} | {model.accuracy:.4f} | {model.brier:.5f} | {model.ece:.5f} | {row['improvement'] * 100:.2f}% | {'Y' if model.overconfidence_70 else 'N'} |"
         )
 
     lines.extend(
@@ -982,8 +1085,8 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
             "같은 레이스의 비교들은 독립이 아니므로 레이스를 통째로 리샘플링합니다.",
             "구간이 겹치면 두 설정의 차이를 노이즈와 구분할 수 없습니다.",
             "",
-            "| policy | period | engine | log_loss | CI 하한 | CI 상한 | 최적 설정과 겹침 |",
-            "| --- | --- | --- | ---: | ---: | ---: | --- |",
+            "| config | policy | period | engine | log_loss | CI 하한 | CI 상한 | 최적 설정과 겹침 |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | --- |",
         ]
     )
     best_ci = _log_loss_ci(best["result"])
@@ -993,7 +1096,7 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         is_best = result is best["result"]
         overlap = "(최적)" if is_best else ("Y" if interval.overlaps(best_ci) else "N")
         lines.append(
-            f"| {result.policy} | {result.rating_period} | {result.engine} | {interval.point:.5f} | "
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {interval.point:.5f} | "
             f"{interval.low:.5f} | {interval.high:.5f} | {overlap} |"
         )
 
@@ -1002,13 +1105,13 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
             "",
             "## 12설정 × 4베이스라인 로그손실",
             "",
-            "| policy | period | engine | B0 | B1 | B2 | B3 |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: |",
+            "| config | policy | period | engine | B0 | B1 | B2 | B3 |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
         ]
     )
     for result in results:
         lines.append(
-            f"| {result.policy} | {result.rating_period} | {result.engine} | {result.metrics_by_predictor['B0'].log_loss:.5f} | {result.metrics_by_predictor['B1'].log_loss:.5f} | {result.metrics_by_predictor['B2'].log_loss:.5f} | {result.metrics_by_predictor['B3'].log_loss:.5f} |"
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {result.metrics_by_predictor['B0'].log_loss:.5f} | {result.metrics_by_predictor['B1'].log_loss:.5f} | {result.metrics_by_predictor['B2'].log_loss:.5f} | {result.metrics_by_predictor['B3'].log_loss:.5f} |"
         )
 
     lines.extend(
@@ -1016,8 +1119,8 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
             "",
             "베이스라인 로지스틱 스케일은 홀드아웃 이전 구간에서 log loss 최소화로 적합했습니다.",
             "",
-            "| policy | period | B2 scale | B2 적합표본 | B3 scale | B3 적합표본 |",
-            "| --- | --- | ---: | ---: | ---: | ---: |",
+            "| config | policy | period | B2 scale | B2 적합표본 | B3 scale | B3 적합표본 |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: |",
         ]
     )
     for result in results:
@@ -1025,7 +1128,7 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
             continue
         scales = result.baseline_scales
         lines.append(
-            f"| {result.policy} | {result.rating_period} | {scales.b2:.5f} | {scales.b2_sample:,} | {scales.b3:.5f} | {scales.b3_sample:,} |"
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {scales.b2:.5f} | {scales.b2_sample:,} | {scales.b3:.5f} | {scales.b3_sample:,} |"
         )
 
     lines.extend(
@@ -1033,14 +1136,14 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
             "",
             "## 공통 부분집합 비교 (B1/B2 both-covered)",
             "",
-            "| policy | period | engine | subset_n | model | B0 | B1 | B2 | B3 |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| config | policy | period | engine | subset_n | model | B0 | B1 | B2 | B3 |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for result in results:
         common = result.common_subset_metrics
         lines.append(
-            f"| {result.policy} | {result.rating_period} | {result.engine} | {result.comparison_count:,} | {common[result.engine].log_loss:.5f} | {common['B0'].log_loss:.5f} | {common['B1'].log_loss:.5f} | {common['B2'].log_loss:.5f} | {common['B3'].log_loss:.5f} |"
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {result.comparison_count:,} | {common[result.engine].log_loss:.5f} | {common['B0'].log_loss:.5f} | {common['B1'].log_loss:.5f} | {common['B2'].log_loss:.5f} | {common['B3'].log_loss:.5f} |"
         )
 
     lines.extend(
@@ -1053,8 +1156,8 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
             "두 엔진에 동일한 보정을 적용한 뒤 비교합니다. 보정기는 홀드아웃 직전 시즌에서 적합했습니다.",
             "단조 변환이라 정확도는 보정 전후가 같습니다.",
             "",
-            "| policy | period | engine | slope | intercept | log_loss 보정전 | 보정후 | ECE 보정전 | 보정후 |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| config | policy | period | engine | slope | intercept | log_loss 보정전 | 보정후 | ECE 보정전 | 보정후 |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for row in model_rows:
@@ -1062,7 +1165,7 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         raw = result.raw_metrics
         model = row["model"]
         lines.append(
-            f"| {result.policy} | {result.rating_period} | {result.engine} | {result.scaler.slope:.4f} | "
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {result.scaler.slope:.4f} | "
             f"{result.scaler.intercept:+.4f} | {raw.log_loss:.5f} | {model.log_loss:.5f} | "
             f"{raw.ece:.5f} | {model.ece:.5f} |"
         )
@@ -1076,8 +1179,8 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
             "관측 ECE가 노이즈 바닥 위인지 확인해야 게이트를 해석할 수 있습니다.",
             "예측 확률은 그대로 두고 라벨만 그 확률에서 뽑아 귀무분포를 만들었습니다.",
             "",
-            "| policy | period | engine | 관측 ECE | 귀무 p50 | 귀무 p95 | 귀무 p99 | 노이즈 초과 |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
+            "| config | policy | period | engine | 관측 ECE | 귀무 p50 | 귀무 p95 | 귀무 p99 | 노이즈 초과 |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for row in model_rows:
@@ -1085,7 +1188,7 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         null = result.calibration_null
         observed = row["model"].ece
         lines.append(
-            f"| {result.policy} | {result.rating_period} | {result.engine} | {observed:.5f} | "
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {observed:.5f} | "
             f"{null.p50:.5f} | {null.p95:.5f} | {null.p99:.5f} | {'Y' if observed > null.p95 else 'N'} |"
         )
 
@@ -1097,8 +1200,8 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
             "확률이 극단으로 몰리면(판별력은 있는데 스케일이 깨진 상태) 여기서 먼저 드러납니다.",
             "tau는 홀드아웃 이전 구간에서 log loss로 골랐습니다.",
             "",
-            "| policy | period | engine | tau | p 표준편차 | p<0.1 또는 >0.9 | 불확실성 p50 | 불확실성 p10 |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+            "| config | policy | period | engine | tau | p 표준편차 | p<0.1 또는 >0.9 | 불확실성 p50 | 불확실성 p10 |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for row in model_rows:
@@ -1111,7 +1214,7 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         p10 = sigmas[int(len(sigmas) * 0.10)] if sigmas else 0.0
         spread = float(pl.Series(probabilities).std() or 0.0)
         lines.append(
-            f"| {result.policy} | {result.rating_period} | {result.engine} | {result.engine_tau:.4f} | "
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {result.engine_tau:.4f} | "
             f"{spread:.4f} | {extreme:.1%} | {p50:.3f} | {p10:.3f} |"
         )
 
@@ -1119,11 +1222,11 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
     report_dir = report_path.parent
     for result in results:
         rel = result.calibration_path.relative_to(report_dir) if result.calibration_path.is_relative_to(report_dir) else result.calibration_path
-        lines.append(f"- `{result.policy}/{result.rating_period}/{result.engine}`: ![]({rel.as_posix()})")
+        lines.append(f"- `{result.config_name}/{result.policy}/{result.rating_period}/{result.engine}`: ![]({rel.as_posix()})")
 
     lines.extend(["", _render_segment_section(best["result"]), "", "## GO/STOP 판정", ""])
     best_result: ConfigResult = best["result"]
-    lines.append(f"- best_config: `{best_result.policy}/{best_result.rating_period}/{best_result.engine}`")
+    lines.append(f"- best_config: `{best_result.config_name}/{best_result.policy}/{best_result.rating_period}/{best_result.engine}`")
     lines.append(f"- best_log_loss: **{best['model'].log_loss:.5f}**")
     lines.append(f"- B3_log_loss: **{best['b3'].log_loss:.5f}**")
     lines.append(f"- improvement_vs_B3: **{best['improvement'] * 100:.2f}%**")
@@ -1168,7 +1271,7 @@ def _write_adr(results: Sequence[ConfigResult], path: Path) -> None:
         "",
         "## 최적 설정 관측값",
         "",
-        f"- best_config: **{best_result.policy}/{best_result.rating_period}/{best_result.engine}**",
+        f"- best_config: **{best_result.config_name}/{best_result.policy}/{best_result.rating_period}/{best_result.engine}**",
         f"- model log loss: **{best_model.log_loss:.5f}** (accuracy {best_model.accuracy:.4f}, brier {best_model.brier:.5f})",
         f"- improvement vs B3: **{best_improvement * 100:.2f}%**",
         f"- ECE: **{best_model.ece:.5f}**",
@@ -1293,6 +1396,7 @@ def _discover_policy_ledgers(root: Path) -> dict[str, Path]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="R-05 백테스트 하네스를 실행합니다.")
     parser.add_argument("--ledger", default="out/ledger", help="레이스 레저 루트 디렉터리")
+    parser.add_argument("--config", default="baseline", choices=["baseline", "age_adjusted"], help="실험 설정")
     parser.add_argument("--holdout-seasons", type=int, default=2, help="홀드아웃 시즌 수")
     parser.add_argument("--all-configs", action="store_true", help="정책×period×엔진 전체 설정 실행")
     parser.add_argument("--policy", default="conservative", choices=sorted(POLICIES.keys()), help="단일 실행 정책")
@@ -1350,6 +1454,7 @@ def main() -> None:
         for period in periods:
             for engine in engines:
                 result = _evaluate_config(
+                    config_name=args.config,
                     policy=policy,
                     ledger_path=ledger_path,
                     eval_ledger_path=eval_ledger_path,

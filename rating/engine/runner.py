@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import polars as pl
 
@@ -192,6 +192,30 @@ def _ledger_digest(ledger_path: Path) -> str:
     return hasher.hexdigest()
 
 
+def _file_digest(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as fp:
+        for chunk in iter(lambda: fp.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _resolve_age_meta_path(ledger_path: Path) -> Path | None:
+    direct = ledger_path / "athlete_meta.parquet"
+    if direct.exists():
+        return direct
+    if ledger_path.name == "race_ledger":
+        parent = ledger_path.parent / "athlete_meta.parquet"
+        if parent.exists():
+            return parent
+    race_root = ledger_path / "race_ledger"
+    if race_root.exists():
+        sibling = ledger_path / "athlete_meta.parquet"
+        if sibling.exists():
+            return sibling
+    return None
+
+
 def _percentile(values: list[float], q: float) -> float:
     if not values:
         return 0.0
@@ -319,6 +343,10 @@ def run_replay(
     integrity_top_k: int = 200,
     calibrator_out: Path | None = None,
     run_manifest_out: Path | None = None,
+    prior_provider: Callable[[str], tuple[float, float] | None] | None = None,
+    debut_prior_digest: str | None = None,
+    tau_by_age_band: dict[str, float] | None = None,
+    age_meta_digest: str | None = None,
 ) -> ReplayResult:
     started = time.perf_counter()
     race_ledger = load_race_ledger(ledger_path)
@@ -343,6 +371,7 @@ def run_replay(
             epsilon=float(epsilon),
             max_iterations=int(max_iterations),
             pairwise_size_weight=pairwise_size_weight,
+            prior_provider=prior_provider,
         )
         engine_params: dict[str, Any] = {
             "tau": float(glicko_params.tau),
@@ -355,7 +384,7 @@ def run_replay(
     elif engine_name == "trueskill":
         from .trueskill_wrapper import TrueSkillEngine
 
-        predictor = TrueSkillEngine()
+        predictor = TrueSkillEngine(prior_provider=prior_provider)
         engine_params = {
             "tau": float(predictor.params.tau),
             "initial_mu": float(predictor.params.initial_mu),
@@ -414,6 +443,15 @@ def run_replay(
 
     raw_prob_digest = _float_digest(calibration_probabilities)
     calibrated_prob_digest = _float_digest(calibrated_probabilities)
+    tau_manifest = (
+        {str(key): float(value) for key, value in sorted(tau_by_age_band.items(), key=lambda item: str(item[0]))}
+        if tau_by_age_band
+        else {}
+    )
+    resolved_age_meta_digest = age_meta_digest
+    if resolved_age_meta_digest is None:
+        age_meta_path = _resolve_age_meta_path(ledger_path)
+        resolved_age_meta_digest = _file_digest(age_meta_path) if age_meta_path is not None else ""
     manifest_body = {
         "engine": engine_name,
         "engine_params": engine_params,
@@ -425,6 +463,9 @@ def run_replay(
         "calibrator_json": calibrator_json,
         "raw_prob_digest": raw_prob_digest,
         "calibrated_prob_digest": calibrated_prob_digest,
+        "debut_prior_digest": _norm(debut_prior_digest),
+        "tau_by_age_band": tau_manifest,
+        "age_meta_digest": _norm(resolved_age_meta_digest),
     }
     run_id = hashlib.sha256(json.dumps(manifest_body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     manifest = {

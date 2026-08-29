@@ -83,6 +83,17 @@ def test_pairwise_size_weight_reduces_large_race_impact():
     assert weighted["a4"].mu > unweighted["a4"].mu
 
 
+def test_glicko_initial_rating_uses_prior_provider():
+    params = Glicko2Params(initial_mu=1500.0, initial_phi=350.0, initial_sigma=0.06)
+    engine = Glicko2Engine(params=params, prior_provider=lambda athlete_id: (1400.0, 200.0) if athlete_id == "rookie" else None)
+    rookie = engine.effective_rating("rookie", date(2024, 1, 1))
+    veteran = engine.effective_rating("veteran", date(2024, 1, 1))
+    assert rookie.mu == pytest.approx(1400.0)
+    assert rookie.phi == pytest.approx(200.0)
+    assert rookie.sigma == pytest.approx(0.06)
+    assert veteran.mu == pytest.approx(1500.0)
+    assert veteran.phi == pytest.approx(350.0)
+
 
 def test_volatility_solver_converges_when_illinois_stalls():
     """Illinois는 B가 해에 도달해도 부호가 안 바뀌면 A가 따라오지 못해 멈춥니다.

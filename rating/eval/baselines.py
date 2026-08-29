@@ -32,6 +32,8 @@ class RaceObservation:
     grade_text: str
     gender: str
     participants: tuple[RaceParticipant, ...]
+    division_text: str = ""
+    birth_year: int | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,9 @@ class PairwiseExample:
     winner_time_sec: float | None
     loser_time_sec: float | None
     source_status: str
+    division_text: str = ""
+    birth_year: int | None = None
+    age: int | None = None
 
     @property
     def _flipped(self) -> bool:
@@ -237,6 +242,9 @@ def build_pairwise_examples(races: Sequence[RaceObservation], *, start_id: int =
     rows: list[PairwiseExample] = []
     cursor = int(start_id)
     for race in races:
+        age: int | None = None
+        if race.birth_year is not None and 1900 <= int(race.birth_year) <= 2099:
+            age = int(race.season_year) - int(race.birth_year)
         for outcome in build_pairwise_outcomes(race):
             rows.append(
                 PairwiseExample(
@@ -258,6 +266,9 @@ def build_pairwise_examples(races: Sequence[RaceObservation], *, start_id: int =
                     winner_time_sec=outcome.winner.time_sec,
                     loser_time_sec=outcome.loser.time_sec,
                     source_status=outcome.source_status,
+                    division_text=race.division_text,
+                    birth_year=race.birth_year,
+                    age=age,
                 )
             )
             cursor += 1

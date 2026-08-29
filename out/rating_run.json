@@ -1,21 +1,25 @@
 {
-  "engine": "glicko2",
+  "engine": "trueskill",
   "engine_params": {
-    "tau": 0.5,
-    "initial_mu": 1500.0,
-    "initial_phi": 350.0,
-    "initial_sigma": 0.06,
+    "tau": 0.08333333333333333,
+    "initial_mu": 25.0,
+    "initial_sigma": 8.333333333333334,
+    "beta": 4.166666666666667,
+    "draw_probability": 0.0,
     "rating_period": "meet",
     "pairwise_size_weight": true
   },
   "rating_period": "meet",
-  "ledger_digest": "d6ddb8ab1b0444fab48abeeef877de3ead94f22edbcc38cde4cee9756ff91df1",
+  "ledger_digest": "b21645d1c512ed2f9050dd957109b4b167bf245a54bfa32c69ce01b7e052b099",
   "calibration_fit_fold": "season=2026",
-  "calibration_sample_size": 8152,
-  "calibrator_digest": "61882cd6a661",
-  "calibrator_json": "{\"fit_fold\":\"season=2026\",\"fit_iterations\":200,\"fit_learning_rate\":0.5,\"intercept\":0.03959127555667899,\"method\":\"platt\",\"sample_size\":8152,\"slope\":0.6448655789984736}",
-  "raw_prob_digest": "86a2132e990278ea19f897ad5f8bc5d5eccc16285ae203aadc9448591e7b9959",
-  "calibrated_prob_digest": "e4ef67d47c5d3311b4df0f6d204da8dc8f80c4be6fabd7451ab312afa5d01c1a",
-  "run_id": "503970fdad61ff2f",
-  "created_at": "2026-08-29T22:42:15"
+  "calibration_sample_size": 8450,
+  "calibrator_digest": "eadde35696a3",
+  "calibrator_json": "{\"fit_fold\":\"season=2026\",\"fit_iterations\":200,\"fit_learning_rate\":0.5,\"intercept\":-0.0006951350607004987,\"method\":\"platt\",\"sample_size\":8450,\"slope\":0.4852692391618908}",
+  "raw_prob_digest": "deedb1a07fb4757b91d2ece659f282bfd42f267b37fd2f71f663b8b02efdb62a",
+  "calibrated_prob_digest": "e0a8f637aa2ae7bc6a00653f765400b7bcfb0b9287d858bdbc9dd5f144a8e2dd",
+  "debut_prior_digest": "",
+  "tau_by_age_band": {},
+  "age_meta_digest": "d2e7b1d4e8f0403285e3ca4d9a5e65c7c5b7b01dc755dc594e00416f47335be8",
+  "run_id": "75e30d8f0045b68c",
+  "created_at": "2026-08-30T00:03:14"
 }

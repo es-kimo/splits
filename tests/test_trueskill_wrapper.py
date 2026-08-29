@@ -79,3 +79,14 @@ def test_trueskill_update_uses_inactivity_adjusted_sigma(monkeypatch: pytest.Mon
     assert captured_sigmas == pytest.approx([expected, expected])
     assert updated["a"].phi == pytest.approx(expected)
     assert updated["b"].phi == pytest.approx(expected)
+
+
+def test_trueskill_initial_rating_uses_prior_provider():
+    params = TrueSkillParams(initial_mu=25.0, initial_sigma=8.0)
+    engine = TrueSkillEngine(params=params, prior_provider=lambda athlete_id: (30.0, 4.0) if athlete_id == "rookie" else None)
+    rookie = engine.effective_rating("rookie", date(2024, 1, 1))
+    veteran = engine.effective_rating("veteran", date(2024, 1, 1))
+    assert rookie.mu == pytest.approx(30.0)
+    assert rookie.phi == pytest.approx(4.0)
+    assert veteran.mu == pytest.approx(25.0)
+    assert veteran.phi == pytest.approx(8.0)
