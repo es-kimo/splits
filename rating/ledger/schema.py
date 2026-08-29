@@ -41,6 +41,8 @@ RACE_LEDGER_SCHEMA: dict[str, pl.DataType] = {
 RACE_LEDGER_OPTIONAL_COLUMNS: dict[str, pl.Expr] = {
     "grade_text": pl.lit("").cast(pl.Utf8),
     "gender": pl.lit("").cast(pl.Utf8),
+    "division_text": pl.lit("").cast(pl.Utf8),
+    "birth_year": pl.lit(None).cast(pl.Int64),
 }
 
 
@@ -128,6 +130,8 @@ def build_ranking_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
             "round_class",
             "grade_text",
             "gender",
+            "division_text",
+            "birth_year",
             "weight",
         ]
     )
@@ -135,9 +139,10 @@ def build_ranking_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
 
 def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
     _ensure_required_columns(race_ledger, set(RACE_LEDGER_SCHEMA.keys()))
+    normalized = _with_optional_columns(race_ledger)
 
     out_rows: list[dict[str, Any]] = []
-    for race in race_ledger.sort(["race_ordering_key", "rank", "athlete_id"], nulls_last=True).partition_by(
+    for race in normalized.sort(["race_ordering_key", "rank", "athlete_id"], nulls_last=True).partition_by(
         "race_id", maintain_order=True
     ):
         race_rows = race.to_dicts()
@@ -175,6 +180,8 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
                         "event": _norm(winner.get("event")),
                         "grade_text": _norm(winner.get("grade_text")),
                         "gender": _norm(winner.get("gender")),
+                        "division_text": _norm(winner.get("division_text")),
+                        "birth_year": int(winner.get("birth_year")) if winner.get("birth_year") is not None else None,
                         "race_date": _norm(winner.get("race_date")),
                         "season_year": int(winner.get("season_year") or 0),
                         "meet_id": _norm(winner.get("meet_id")),
@@ -201,6 +208,8 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
                         "event": _norm(winner.get("event")),
                         "grade_text": _norm(winner.get("grade_text")),
                         "gender": _norm(winner.get("gender")),
+                        "division_text": _norm(winner.get("division_text")),
+                        "birth_year": int(winner.get("birth_year")) if winner.get("birth_year") is not None else None,
                         "race_date": _norm(winner.get("race_date")),
                         "season_year": int(winner.get("season_year") or 0),
                         "meet_id": _norm(winner.get("meet_id")),
@@ -227,6 +236,8 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
                 "event": pl.Utf8,
                 "grade_text": pl.Utf8,
                 "gender": pl.Utf8,
+                "division_text": pl.Utf8,
+                "birth_year": pl.Int64,
                 "race_date": pl.Utf8,
                 "season_year": pl.Int64,
                 "meet_id": pl.Utf8,
@@ -257,6 +268,8 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
             "event",
             "grade_text",
             "gender",
+            "division_text",
+            "birth_year",
             "race_date",
             "season_year",
             "meet_id",
@@ -278,8 +291,8 @@ def assert_rank_ties_are_consistent(frame: pl.DataFrame) -> None:
     """같은 순위를 공유하는 참가자는 진짜 동착이어야 합니다.
 
     동착(같은 기록으로 공동 순위)은 원천에 실제로 존재하므로 허용합니다. 다만
-    기록이 서로 다른데 순위만 같거나, 한 순위에 네 명 이상이 몰리는 것은 동착이
-    아니라 레이스 키가 너무 성겨서 서로 다른 부문이 병합된 신호입니다.
+    기록이 서로 다른데 순위만 같고 인원도 과도하게 몰리면 동착이 아니라 레이스
+    키가 너무 성겨서 서로 다른 부문이 병합된 신호로 봅니다.
     """
     ranked = frame.filter(pl.col("rank") > 0)
     if ranked.is_empty():
@@ -287,10 +300,10 @@ def assert_rank_ties_are_consistent(frame: pl.DataFrame) -> None:
 
     grouped = ranked.group_by(["race_ordering_key", "rank"]).agg(
         pl.len().alias("n"),
-        pl.col("time_sec").n_unique().alias("distinct_times"),
+        pl.col("time_sec").drop_nulls().n_unique().alias("distinct_non_null_times"),
     )
 
-    crowded = grouped.filter(pl.col("n") > MAX_RANK_TIE_MULTIPLICITY)
+    crowded = grouped.filter((pl.col("n") > MAX_RANK_TIE_MULTIPLICITY) & (pl.col("distinct_non_null_times") > 1))
     if not crowded.is_empty():
         worst = crowded.sort(["n", "race_ordering_key", "rank"], descending=[True, False, False]).row(0, named=True)
         raise ValueError(
@@ -299,14 +312,14 @@ def assert_rank_ties_are_consistent(frame: pl.DataFrame) -> None:
             f"(race_ordering_key={worst['race_ordering_key']}, rank={worst['rank']}). " + _RACE_KEY_HINT
         )
 
-    inconsistent = grouped.filter((pl.col("n") > 1) & (pl.col("distinct_times") > 1))
+    inconsistent = grouped.filter((pl.col("n") > 1) & (pl.col("distinct_non_null_times") > 1))
     if not inconsistent.is_empty():
         worst = inconsistent.sort(["race_ordering_key", "rank"]).row(0, named=True)
         raise ValueError(
             "[error] 같은 순위인데 기록이 서로 다릅니다. 동착이 아닙니다. "
             f"위반 {inconsistent.height:,}건 "
             f"(race_ordering_key={worst['race_ordering_key']}, rank={worst['rank']}, "
-            f"서로 다른 기록 {worst['distinct_times']}종). " + _RACE_KEY_HINT
+            f"서로 다른 기록 {worst['distinct_non_null_times']}종). " + _RACE_KEY_HINT
         )
 
 

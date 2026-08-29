@@ -99,6 +99,9 @@ def test_run_replay_generates_snapshot_and_report(tmp_path: Path):
     assert manifest["run_id"] == result.run_id
     assert "calibrator_json" in manifest
     assert manifest["calibration_sample_size"] == result.calibrator.sample_size
+    assert "debut_prior_digest" in manifest
+    assert "tau_by_age_band" in manifest
+    assert "age_meta_digest" in manifest
 
 
 def test_run_replay_is_byte_deterministic(tmp_path: Path):
@@ -133,6 +136,9 @@ def test_run_replay_is_byte_deterministic(tmp_path: Path):
     manifest_b = json.loads((tmp_path / "manifest-b.json").read_text(encoding="utf-8"))
     assert manifest_a["raw_prob_digest"] == manifest_b["raw_prob_digest"]
     assert manifest_a["calibrated_prob_digest"] == manifest_b["calibrated_prob_digest"]
+    assert manifest_a["debut_prior_digest"] == manifest_b["debut_prior_digest"]
+    assert manifest_a["tau_by_age_band"] == manifest_b["tau_by_age_band"]
+    assert manifest_a["age_meta_digest"] == manifest_b["age_meta_digest"]
 
 
 def test_month_period_collapses_same_month_meets(tmp_path: Path):

@@ -102,8 +102,15 @@ class TestRankTieInvariant:
             assert_rank_ties_are_consistent(frame)
 
     def test_crowded_rank_is_rejected(self):
-        """부문 병합의 전형적 신호: 한 순위에 여러 부문의 1위가 몰립니다."""
-        frame = pl.DataFrame([_ledger_row(1, f"a{i}", None) for i in range(4)])
+        """한 순위에 과도한 인원이 몰리고 기록까지 다르면 병합 오염으로 봅니다."""
+        frame = pl.DataFrame(
+            [
+                _ledger_row(1, "a1", 174.1),
+                _ledger_row(1, "a2", 174.2),
+                _ledger_row(1, "a3", 174.3),
+                _ledger_row(1, "a4", 174.4),
+            ]
+        )
         with pytest.raises(ValueError, match="넘는 참가자가 있습니다"):
             assert_rank_ties_are_consistent(frame)
 

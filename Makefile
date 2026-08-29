@@ -78,6 +78,15 @@ rating: ## 🏆 [레이팅 계산] 경기 레저 Parquet 생성 -> TrueSkill 레
 	$(PYTHON) -m rating.engine.runner --ledger out/ledger --out out/ratings_baseline.parquet --report out/baseline_report.md --engine trueskill --rating-period meet
 	@echo -e "$(GREEN)✅ 레이팅 산출 완료! (out/ratings_baseline.parquet)$(RESET)"
 
+rating-age: ## 📈 [연령 모델] records_anon 기반 레저/메타 구축 -> 연령 정규화 리포트 생성
+	@echo -e "$(YELLOW)[1/3] rating.ledger.build: 연령 메타 포함 레저 구축...$(RESET)"
+	$(PYTHON) -m rating.ledger.build --results data/records_anon.csv --policy conservative --out out/ledger
+	@echo -e "$(YELLOW)[2/3] rating.engine.runner: TrueSkill 스냅샷 생성...$(RESET)"
+	$(PYTHON) -m rating.engine.runner --ledger out/ledger --out out/ratings_baseline.parquet --report out/baseline_report.md --engine trueskill --rating-period meet
+	@echo -e "$(YELLOW)[3/3] rating.engine.age: 연령 베이스라인/정규화 산출...$(RESET)"
+	$(PYTHON) -m rating.engine.age --ratings out/ratings_baseline.parquet --ledger out/ledger --out out/age_curves.md --adjusted-out out/ratings_age_adjusted.parquet
+	@echo -e "$(GREEN)✅ 연령 산출 완료! (out/age_curves.md, out/ratings_age_adjusted.parquet)$(RESET)"
+
 rating-eval: rating ## 📊 [레이팅 백테스트] 정책별 비교 및 예측력 백테스트 리포트 생성
 	@echo -e "$(YELLOW)rating.eval.backtest: 백테스트 평가 실행...$(RESET)"
 	$(PYTHON) -m rating.eval.backtest --ledger out/ledger --holdout-seasons 2 --all-configs --out out/backtest_report.md

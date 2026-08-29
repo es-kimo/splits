@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date
-from typing import Sequence
+from typing import Callable, Sequence
 
 from .glicko2 import Rating
 from .types import Predictor, RaceEntry, RaceResult, RatingLike, RatingPeriod, elapsed_periods
@@ -25,10 +25,16 @@ class TrueSkillParams:
 
 
 class TrueSkillEngine(Predictor):
-    def __init__(self, params: TrueSkillParams | None = None) -> None:
+    def __init__(
+        self,
+        params: TrueSkillParams | None = None,
+        *,
+        prior_provider: Callable[[str], tuple[float, float] | None] | None = None,
+    ) -> None:
         if _trueskill is None:
             raise RuntimeError("[error] trueskill 패키지가 필요합니다. `pip install -r requirements.txt`를 먼저 실행하세요.")
         self.params = params or TrueSkillParams()
+        self._prior_provider = prior_provider
         self._env = _trueskill.TrueSkill(
             mu=self.params.initial_mu,
             sigma=self.params.initial_sigma,
@@ -47,7 +53,7 @@ class TrueSkillEngine(Predictor):
         return float(self._env.cdf((left.mu - right.mu) / denominator))
 
     def effective_rating(self, athlete_id: str, as_of: date) -> Rating:
-        current = self._state.get(athlete_id, self._initial_rating())
+        current = self._state.get(athlete_id, self._initial_rating(athlete_id))
         return self._effective_with_inactivity(current, as_of)
 
     def update(self, state: dict[str, RatingLike], race_results: Sequence[RaceResult]) -> dict[str, Rating]:
@@ -66,7 +72,7 @@ class TrueSkillEngine(Predictor):
                     tuple(
                         self._to_trueskill_rating(
                             self._effective_with_inactivity(
-                                updated.get(entry.athlete_id, self._initial_rating()),
+                                updated.get(entry.athlete_id, self._initial_rating(entry.athlete_id)),
                                 race.race_date,
                             )
                         )
@@ -76,7 +82,7 @@ class TrueSkillEngine(Predictor):
             rated_groups = self._env.rate(rating_groups=rating_groups, ranks=ranks)
             for group_entries, group_ratings in zip(grouped_entries, rated_groups):
                 for entry, rated in zip(group_entries, group_ratings):
-                    current = updated.get(entry.athlete_id, self._initial_rating())
+                    current = updated.get(entry.athlete_id, self._initial_rating(entry.athlete_id))
                     updated[entry.athlete_id] = Rating(
                         mu=float(rated.mu),
                         phi=float(rated.sigma),
@@ -135,10 +141,20 @@ class TrueSkillEngine(Predictor):
         inflated = math.sqrt((float(sigma) * float(sigma)) + (float(self.params.tau) * float(self.params.tau) * float(periods)))
         return float(min(inflated, self.params.initial_sigma))
 
-    def _initial_rating(self) -> Rating:
+    def _initial_rating(self, athlete_id: str | None = None) -> Rating:
+        initial_mu = float(self.params.initial_mu)
+        initial_sigma = float(self.params.initial_sigma)
+        if athlete_id and self._prior_provider is not None:
+            prior = self._prior_provider(athlete_id)
+            if prior is not None:
+                prior_mu, prior_sigma = prior
+                if math.isfinite(prior_mu):
+                    initial_mu = float(prior_mu)
+                if math.isfinite(prior_sigma) and prior_sigma > 0:
+                    initial_sigma = float(prior_sigma)
         return Rating(
-            mu=float(self.params.initial_mu),
-            phi=float(self.params.initial_sigma),
+            mu=initial_mu,
+            phi=initial_sigma,
             sigma=0.0,
             last_active=None,
             n_games=0,

@@ -49,6 +49,7 @@ def _result(**overrides) -> ConfigResult:
     }
     metrics.update(overrides.pop("metrics", {}))
     base = {
+        "config_name": "baseline",
         "policy": "conservative",
         "rating_period": "meet",
         "engine": "glicko2",

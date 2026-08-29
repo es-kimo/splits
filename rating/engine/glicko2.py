@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date
-from typing import Literal, Sequence
+from typing import Callable, Literal, Sequence
 
 from .types import Comparison, Predictor, RaceResult, RatingLike, build_pairwise_comparisons, elapsed_periods
 
@@ -36,11 +36,13 @@ class Glicko2Engine(Predictor):
         epsilon: float = 1e-6,
         max_iterations: int = 100,
         pairwise_size_weight: bool = True,
+        prior_provider: Callable[[str], tuple[float, float] | None] | None = None,
     ) -> None:
         self.params = params or Glicko2Params()
         self.epsilon = float(epsilon)
         self.max_iterations = int(max_iterations)
         self.pairwise_size_weight = bool(pairwise_size_weight)
+        self._prior_provider = prior_provider
         self._state: dict[str, Rating] = {}
 
     def predict_prob(self, a: str, b: str, as_of: date) -> float:
@@ -53,7 +55,7 @@ class Glicko2Engine(Predictor):
         return min(max(expected, 0.0), 1.0)
 
     def effective_rating(self, athlete_id: str, as_of: date) -> Rating:
-        return self._decay_without_games(self._state.get(athlete_id, self._initial_rating()), as_of)
+        return self._decay_without_games(self._state.get(athlete_id, self._initial_rating(athlete_id)), as_of)
 
     def update(self, state: dict[str, RatingLike], race_results: Sequence[RaceResult]) -> dict[str, Rating]:
         typed_state = {athlete_id: self._coerce_rating(rating) for athlete_id, rating in state.items()}
@@ -86,7 +88,7 @@ class Glicko2Engine(Predictor):
 
         previous_state = dict(state)
         period_state: dict[str, Rating] = {
-            athlete_id: self._period_rating(previous_state.get(athlete_id, self._initial_rating()), period_date)
+            athlete_id: self._period_rating(previous_state.get(athlete_id, self._initial_rating(athlete_id)), period_date)
             for athlete_id in opponent_map
         }
 
@@ -100,7 +102,10 @@ class Glicko2Engine(Predictor):
             variance_inv = 0.0
             delta_sum = 0.0
             for opponent_id, score, weight in outcomes:
-                opponent = period_state.get(opponent_id, self._period_rating(previous_state.get(opponent_id, self._initial_rating()), period_date))
+                opponent = period_state.get(
+                    opponent_id,
+                    self._period_rating(previous_state.get(opponent_id, self._initial_rating(opponent_id)), period_date),
+                )
                 opp_mu, opp_phi = self._to_internal(opponent.mu, opponent.phi)
                 g = self._g(opp_phi)
                 expected = 1.0 / (1.0 + math.exp(-g * (mu - opp_mu)))
@@ -171,10 +176,20 @@ class Glicko2Engine(Predictor):
             n_games=int(rating.n_games),
         )
 
-    def _initial_rating(self) -> Rating:
+    def _initial_rating(self, athlete_id: str | None = None) -> Rating:
+        initial_mu = float(self.params.initial_mu)
+        initial_phi = float(self.params.initial_phi)
+        if athlete_id and self._prior_provider is not None:
+            prior = self._prior_provider(athlete_id)
+            if prior is not None:
+                prior_mu, prior_phi = prior
+                if math.isfinite(prior_mu):
+                    initial_mu = float(prior_mu)
+                if math.isfinite(prior_phi) and prior_phi > 0:
+                    initial_phi = float(prior_phi)
         return Rating(
-            mu=float(self.params.initial_mu),
-            phi=float(self.params.initial_phi),
+            mu=initial_mu,
+            phi=initial_phi,
             sigma=float(self.params.initial_sigma),
             last_active=None,
             n_games=0,

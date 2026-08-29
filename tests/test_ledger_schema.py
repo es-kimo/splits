@@ -6,7 +6,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from rating.ledger.build import _build_race_ledger, _snapshot_parquet_hashes, _write_partitioned
+from rating.ledger.build import (
+    _build_athlete_meta,
+    _build_race_ledger,
+    _merge_external_athlete_meta,
+    _snapshot_parquet_hashes,
+    _write_partitioned,
+)
 from rating.ledger.extract import _prepare_rows_for_policy
 from rating.ledger.ordering import build_race_sequence_map, make_ordering_key, make_race_ordering_key
 from rating.ledger.policies import CONSERVATIVE
@@ -52,6 +58,10 @@ def _ledger_row(
         "round": "결승Final",
         "round_kind": "결승",
         "round_class": round_class,
+        "grade_text": "5,6",
+        "gender": "남",
+        "division_text": "초등",
+        "birth_year": 2013,
         "place_num": rank if status != "DNF" else None,
         "time_sec": 43.0 + rank,
         "weight": 1.0,
@@ -177,6 +187,46 @@ def test_validate_ledger_rejects_unknown_round_class():
         validate_ledger(frame)
 
 
+def test_validate_ledger_allows_crowded_tie_when_times_are_missing():
+    rows = [
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a1", rank=1, status="FIN"),
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a2", rank=2, status="FIN"),
+    ]
+    for idx in range(3, 8):
+        rows.append(
+            {
+                **_ledger_row(
+                    race_date="20250321",
+                    meet_id="m1",
+                    race_seq=1,
+                    race_id="r1",
+                    athlete_id=f"a{idx}",
+                    rank=3,
+                    status="FIN",
+                ),
+                "time_sec": None,
+                "place_num": 3,
+            }
+        )
+    validate_ledger(pl.DataFrame(rows))
+
+
+def test_validate_ledger_rejects_crowded_tie_with_mixed_times():
+    rows = [
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a1", rank=1, status="FIN"),
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a2", rank=2, status="FIN"),
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a3", rank=3, status="FIN"),
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a4", rank=3, status="FIN"),
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a5", rank=3, status="FIN"),
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a6", rank=3, status="FIN"),
+        _ledger_row(race_date="20250321", meet_id="m1", race_seq=1, race_id="r1", athlete_id="a7", rank=3, status="FIN"),
+    ]
+    rows[2]["time_sec"] = 100.0
+    rows[3]["time_sec"] = 101.0
+    with pytest.raises(ValueError, match="한 순위에"):
+        validate_ledger(pl.DataFrame(rows))
+
+
 def test_race_sequence_fallback_is_deterministic():
     rows = [
         {
@@ -258,3 +308,76 @@ def test_rebuild_hashes_are_identical_for_same_input(tmp_path: Path):
     _write_partitioned(ledger_second, out_dir, ["ordering_key", "athlete_id"])
     second_hashes = _snapshot_parquet_hashes(out_dir)
     assert first_hashes == second_hashes
+
+
+def test_build_athlete_meta_summarizes_debut_and_birth_year():
+    frame = pl.DataFrame(
+        [
+            {"athlete_id": "a1", "season_year": 2023, "birth_year": 2013, "gender": "남", "division_text": "초등"},
+            {"athlete_id": "a1", "season_year": 2023, "birth_year": 2013, "gender": "남", "division_text": "초등"},
+            {"athlete_id": "a1", "season_year": 2024, "birth_year": 2013, "gender": "남", "division_text": "중등"},
+            {"athlete_id": "a2", "season_year": 2025, "birth_year": None, "gender": "", "division_text": ""},
+        ]
+    )
+    meta = _build_athlete_meta(frame)
+    assert meta.columns == ["athlete_id", "birth_year", "sex", "debut_season", "debut_division", "last_season", "n_seasons"]
+    got = {row["athlete_id"]: row for row in meta.to_dicts()}
+    assert got["a1"]["birth_year"] == 2013
+    assert got["a1"]["sex"] == "남"
+    assert got["a1"]["debut_season"] == 2023
+    assert got["a1"]["debut_division"] == "초등"
+    assert got["a1"]["last_season"] == 2024
+    assert got["a1"]["n_seasons"] == 2
+    assert got["a2"]["birth_year"] is None
+    assert got["a2"]["debut_season"] == 2025
+
+
+def test_build_athlete_meta_rejects_birth_year_conflict():
+    frame = pl.DataFrame(
+        [
+            {"athlete_id": "a1", "season_year": 2024, "birth_year": 2012, "gender": "남", "division_text": "초등"},
+            {"athlete_id": "a1", "season_year": 2025, "birth_year": 2013, "gender": "남", "division_text": "중등"},
+        ]
+    )
+    with pytest.raises(ValueError, match="출생연도 충돌"):
+        _build_athlete_meta(frame)
+
+
+def test_merge_external_athlete_meta_fills_missing_fields():
+    base = pl.DataFrame(
+        [
+            {
+                "athlete_id": "a1",
+                "birth_year": None,
+                "sex": "",
+                "debut_season": 2023,
+                "debut_division": "초등",
+                "last_season": 2024,
+                "n_seasons": 2,
+            }
+        ]
+    )
+    external = pl.DataFrame([{"athlete_id": "a1", "birth_year": 2013, "sex": "남"}])
+    merged = _merge_external_athlete_meta(base, external)
+    row = merged.row(0, named=True)
+    assert row["birth_year"] == 2013
+    assert row["sex"] == "남"
+
+
+def test_merge_external_athlete_meta_rejects_conflict():
+    base = pl.DataFrame(
+        [
+            {
+                "athlete_id": "a1",
+                "birth_year": 2012,
+                "sex": "남",
+                "debut_season": 2023,
+                "debut_division": "초등",
+                "last_season": 2024,
+                "n_seasons": 2,
+            }
+        ]
+    )
+    external = pl.DataFrame([{"athlete_id": "a1", "birth_year": 2013, "sex": "남"}])
+    with pytest.raises(ValueError, match="출생연도 충돌"):
+        _merge_external_athlete_meta(base, external)
