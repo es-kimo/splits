@@ -22,6 +22,7 @@ HEAT_NUMBER_RE = re.compile(r"(\d+)\s*조|heat\s*([0-9]+)", re.IGNORECASE)
 ALIASES = {
     "meet_id": ["meet_id", "toCd"],
     "race_id": ["race_id"],
+    "race_seq": ["race_seq", "raceSeq", "경기순서", "경기순번"],
     "athlete_id": ["athlete_hash", "익명키", "idNo"],
     "event": ["event", "세부종목"],
     "round": ["round", "라운드"],
@@ -294,6 +295,7 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
         [
             _coalesce_alias(results, "meet_id").alias("meet_id"),
             _coalesce_alias(results, "race_id").alias("race_id"),
+            _coalesce_alias(results, "race_seq").alias("race_seq"),
             _coalesce_alias(results, "athlete_id").alias("athlete_id"),
             _coalesce_alias(results, "event").alias("event"),
             _coalesce_alias(results, "round").alias("round"),
@@ -315,6 +317,7 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
         [
             "meet_id",
             "race_id",
+            "race_seq",
             "athlete_id",
             "event",
             "round",
@@ -342,6 +345,7 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
             )
             .alias("event"),
             pl.col("place").map_elements(_parse_int, return_dtype=pl.Int64).alias("place_num"),
+            pl.col("race_seq").map_elements(_parse_int, return_dtype=pl.Int64).alias("race_seq_num"),
             pl.col("time").map_elements(_parse_time_seconds, return_dtype=pl.Float64).alias("time_sec"),
             pl.struct(["season_text", "date"])
             .map_elements(
