@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -176,6 +177,74 @@ def compute_metrics(
         brier=brier_sum / float(size),
         coverage=coverage,
         calibration=calibration,
+    )
+
+
+@dataclass(frozen=True)
+class BootstrapInterval:
+    point: float
+    low: float
+    high: float
+    resamples: int
+
+    def overlaps(self, other: "BootstrapInterval") -> bool:
+        return self.low <= other.high and other.low <= self.high
+
+
+def bootstrap_log_loss_ci(
+    actuals: Sequence[int],
+    probabilities: Sequence[float],
+    groups: Sequence[str],
+    *,
+    resamples: int = 1000,
+    seed: int = 20260829,
+    alpha: float = 0.05,
+) -> BootstrapInterval:
+    """레이스 단위 블록 부트스트랩으로 log loss 신뢰구간을 냅니다.
+
+    같은 레이스에서 나온 비교들은 독립이 아닙니다. 한 선수가 그 날 유난히 잘
+    타면 그 레이스의 모든 비교가 함께 움직입니다. 비교 단위로 리샘플링하면
+    구간이 실제보다 좁게 나오므로, 레이스를 통째로 뽑습니다.
+    """
+    if not (len(actuals) == len(probabilities) == len(groups)):
+        raise ValueError("[error] actuals/probabilities/groups 길이가 일치하지 않습니다.")
+    if not actuals:
+        return BootstrapInterval(point=0.0, low=0.0, high=0.0, resamples=0)
+
+    by_group: dict[str, list[float]] = {}
+    for actual, probability, group in zip(actuals, probabilities, groups):
+        p = clamp_probability(probability)
+        term = -(math.log(p) if int(actual) == 1 else math.log(1.0 - p))
+        by_group.setdefault(group, []).append(term)
+
+    blocks = list(by_group.values())
+    block_sums = [sum(terms) for terms in blocks]
+    block_sizes = [len(terms) for terms in blocks]
+    point = sum(block_sums) / float(sum(block_sizes))
+
+    rng = random.Random(seed)
+    block_count = len(blocks)
+    estimates: list[float] = []
+    for _ in range(resamples):
+        total = 0.0
+        count = 0
+        for _ in range(block_count):
+            index = rng.randrange(block_count)
+            total += block_sums[index]
+            count += block_sizes[index]
+        if count > 0:
+            estimates.append(total / float(count))
+
+    if not estimates:
+        return BootstrapInterval(point=point, low=point, high=point, resamples=0)
+    estimates.sort()
+    low_index = max(0, min(len(estimates) - 1, int((alpha / 2.0) * len(estimates))))
+    high_index = max(0, min(len(estimates) - 1, int((1.0 - alpha / 2.0) * len(estimates))))
+    return BootstrapInterval(
+        point=point,
+        low=estimates[low_index],
+        high=estimates[high_index],
+        resamples=len(estimates),
     )
 
 

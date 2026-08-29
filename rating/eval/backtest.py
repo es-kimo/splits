@@ -27,7 +27,7 @@ from .baselines import (
     fit_logistic_scale,
 )
 from .invariants import LN2, assert_harness_invariants
-from .metrics import MetricSummary, compute_metrics, write_calibration_svg
+from .metrics import BootstrapInterval, MetricSummary, bootstrap_log_loss_ci, compute_metrics, write_calibration_svg
 
 EngineChoice = Literal["glicko2", "trueskill"]
 
@@ -645,6 +645,16 @@ def _render_segment_section(best_result: ConfigResult) -> str:
     return "\n".join(lines)
 
 
+def _log_loss_ci(result: ConfigResult, *, resamples: int = 1000) -> BootstrapInterval:
+    predictions = result.metrics_by_predictor[result.engine].predictions
+    return bootstrap_log_loss_ci(
+        predictions["actual"].to_list(),
+        predictions["probability"].to_list(),
+        predictions["race_id"].to_list(),
+        resamples=resamples,
+    )
+
+
 def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
     if not results:
         raise ValueError("[error] 백테스트 결과가 없습니다.")
@@ -686,6 +696,29 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         model: Metrics = row["model"]
         lines.append(
             f"| {result.policy} | {result.rating_period} | {result.engine} | {model.sample_size:,} | {model.log_loss:.5f} | {model.accuracy:.4f} | {model.brier:.5f} | {model.ece:.5f} | {row['improvement'] * 100:.2f}% | {'Y' if model.overconfidence_70 else 'N'} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 로그손실 95% 신뢰구간 (레이스 단위 블록 부트스트랩)",
+            "",
+            "같은 레이스의 비교들은 독립이 아니므로 레이스를 통째로 리샘플링합니다.",
+            "구간이 겹치면 두 설정의 차이를 노이즈와 구분할 수 없습니다.",
+            "",
+            "| policy | period | engine | log_loss | CI 하한 | CI 상한 | 최적 설정과 겹침 |",
+            "| --- | --- | --- | ---: | ---: | ---: | --- |",
+        ]
+    )
+    best_ci = _log_loss_ci(best["result"])
+    for row in model_rows:
+        result = row["result"]
+        interval = _log_loss_ci(result)
+        is_best = result is best["result"]
+        overlap = "(최적)" if is_best else ("Y" if interval.overlaps(best_ci) else "N")
+        lines.append(
+            f"| {result.policy} | {result.rating_period} | {result.engine} | {interval.point:.5f} | "
+            f"{interval.low:.5f} | {interval.high:.5f} | {overlap} |"
         )
 
     lines.extend(
