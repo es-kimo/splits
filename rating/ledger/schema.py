@@ -38,6 +38,11 @@ RACE_LEDGER_SCHEMA: dict[str, pl.DataType] = {
     "weight": pl.Float64,
 }
 
+RACE_LEDGER_OPTIONAL_COLUMNS: dict[str, pl.Expr] = {
+    "grade_text": pl.lit("").cast(pl.Utf8),
+    "gender": pl.lit("").cast(pl.Utf8),
+}
+
 
 def _norm(value: Any) -> str:
     if value is None:
@@ -92,9 +97,20 @@ def _ensure_known_values(frame: pl.DataFrame, column: str, allowed: frozenset[st
     raise ValueError(f"[error] {label} 허용값 외 항목이 있습니다: {values}")
 
 
+def _with_optional_columns(frame: pl.DataFrame) -> pl.DataFrame:
+    missing_exprs: list[pl.Expr] = []
+    for name, expr in RACE_LEDGER_OPTIONAL_COLUMNS.items():
+        if name not in frame.columns:
+            missing_exprs.append(expr.alias(name))
+    if not missing_exprs:
+        return frame
+    return frame.with_columns(missing_exprs)
+
+
 def build_ranking_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
     _ensure_required_columns(race_ledger, set(RACE_LEDGER_SCHEMA.keys()))
-    return race_ledger.sort(["ordering_key", "athlete_id"], nulls_last=True).select(
+    normalized = _with_optional_columns(race_ledger)
+    return normalized.sort(["ordering_key", "athlete_id"], nulls_last=True).select(
         [
             "ordering_key",
             "race_ordering_key",
@@ -110,6 +126,8 @@ def build_ranking_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
             "round",
             "round_kind",
             "round_class",
+            "grade_text",
+            "gender",
             "weight",
         ]
     )
@@ -154,6 +172,9 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
                         "round": _norm(winner.get("round")),
                         "round_kind": _norm(winner.get("round_kind")),
                         "round_class": _norm(winner.get("round_class")),
+                        "event": _norm(winner.get("event")),
+                        "grade_text": _norm(winner.get("grade_text")),
+                        "gender": _norm(winner.get("gender")),
                         "race_date": _norm(winner.get("race_date")),
                         "season_year": int(winner.get("season_year") or 0),
                         "meet_id": _norm(winner.get("meet_id")),
@@ -177,6 +198,9 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
                         "round": _norm(winner.get("round")),
                         "round_kind": _norm(winner.get("round_kind")),
                         "round_class": _norm(winner.get("round_class")),
+                        "event": _norm(winner.get("event")),
+                        "grade_text": _norm(winner.get("grade_text")),
+                        "gender": _norm(winner.get("gender")),
                         "race_date": _norm(winner.get("race_date")),
                         "season_year": int(winner.get("season_year") or 0),
                         "meet_id": _norm(winner.get("meet_id")),
@@ -200,6 +224,9 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
                 "round": pl.Utf8,
                 "round_kind": pl.Utf8,
                 "round_class": pl.Utf8,
+                "event": pl.Utf8,
+                "grade_text": pl.Utf8,
+                "gender": pl.Utf8,
                 "race_date": pl.Utf8,
                 "season_year": pl.Int64,
                 "meet_id": pl.Utf8,
@@ -227,6 +254,9 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
             "round",
             "round_kind",
             "round_class",
+            "event",
+            "grade_text",
+            "gender",
             "race_date",
             "season_year",
             "meet_id",
@@ -234,6 +264,50 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
             "weight",
         ]
     )
+
+
+MAX_RANK_TIE_MULTIPLICITY = 3
+
+_RACE_KEY_HINT = (
+    "race_id가 서로 다른 부문을 하나의 레이스로 병합하고 있을 가능성이 높습니다. "
+    "extract._build_reconstructed_race_id의 부문(division) 성분을 확인하세요."
+)
+
+
+def assert_rank_ties_are_consistent(frame: pl.DataFrame) -> None:
+    """같은 순위를 공유하는 참가자는 진짜 동착이어야 합니다.
+
+    동착(같은 기록으로 공동 순위)은 원천에 실제로 존재하므로 허용합니다. 다만
+    기록이 서로 다른데 순위만 같거나, 한 순위에 네 명 이상이 몰리는 것은 동착이
+    아니라 레이스 키가 너무 성겨서 서로 다른 부문이 병합된 신호입니다.
+    """
+    ranked = frame.filter(pl.col("rank") > 0)
+    if ranked.is_empty():
+        return
+
+    grouped = ranked.group_by(["race_ordering_key", "rank"]).agg(
+        pl.len().alias("n"),
+        pl.col("time_sec").n_unique().alias("distinct_times"),
+    )
+
+    crowded = grouped.filter(pl.col("n") > MAX_RANK_TIE_MULTIPLICITY)
+    if not crowded.is_empty():
+        worst = crowded.sort(["n", "race_ordering_key", "rank"], descending=[True, False, False]).row(0, named=True)
+        raise ValueError(
+            f"[error] 한 순위에 {MAX_RANK_TIE_MULTIPLICITY}명을 넘는 참가자가 있습니다. "
+            f"위반 {crowded.height:,}건, 최다 {worst['n']}명 "
+            f"(race_ordering_key={worst['race_ordering_key']}, rank={worst['rank']}). " + _RACE_KEY_HINT
+        )
+
+    inconsistent = grouped.filter((pl.col("n") > 1) & (pl.col("distinct_times") > 1))
+    if not inconsistent.is_empty():
+        worst = inconsistent.sort(["race_ordering_key", "rank"]).row(0, named=True)
+        raise ValueError(
+            "[error] 같은 순위인데 기록이 서로 다릅니다. 동착이 아닙니다. "
+            f"위반 {inconsistent.height:,}건 "
+            f"(race_ordering_key={worst['race_ordering_key']}, rank={worst['rank']}, "
+            f"서로 다른 기록 {worst['distinct_times']}종). " + _RACE_KEY_HINT
+        )
 
 
 def validate_ledger(df: pl.DataFrame) -> None:
@@ -277,6 +351,7 @@ def validate_ledger(df: pl.DataFrame) -> None:
 
     _ensure_unique(df, ["ordering_key"], "race_ledger ordering_key")
     _ensure_unique(df, ["race_id", "athlete_id"], "race_ledger race_id+athlete_id")
+    assert_rank_ties_are_consistent(df)
     _ensure_known_values(df, "round_class", KNOWN_ROUND_CLASSES, "round_class")
     _ensure_known_values(df, "status", KNOWN_STATUSES, "status")
 

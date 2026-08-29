@@ -13,6 +13,8 @@ from typing import Any
 import networkx as nx
 import pandas as pd
 
+from .extract import division_key
+
 SHORTTRACK_CLASS_CD = "2"
 GO_GIANT_COMPONENT_MIN = 0.90
 CONDITIONAL_GO_GIANT_COMPONENT_MIN = 0.70
@@ -232,11 +234,15 @@ def _build_reconstructed_race_id(row: pd.Series) -> str:
     round_text = _norm(row.get("round")) or _norm(row.get("round_kind"))
     heat_no = _extract_heat_no(round_text)
     date_text = _clean_key_piece(row.get("date")) or "-"
-    if not (meet_id and event and round_text):
+    # extract.py와 동일한 부문 키를 씁니다. 두 모듈이 같은 레이스 정의를 갖도록
+    # 유지해야 R-01 연결성과 R-05 백테스트가 같은 그래프 위에서 돌아갑니다.
+    division = division_key(row.get("category"), row.get("gender"))
+    if not (meet_id and event and round_text and division != "-:-"):
         return ""
     return "|".join(
         [
             _clean_key_piece(meet_id),
+            _clean_key_piece(division),
             _clean_key_piece(event),
             _clean_key_piece(round_text),
             _clean_key_piece(heat_no) or "-",
