@@ -181,66 +181,6 @@ def compute_metrics(
 
 
 @dataclass(frozen=True)
-class PlattScaler:
-    """로짓을 선형 변환해 확률 스케일만 바로잡는 사후 보정.
-
-    `p' = sigmoid(a * logit(p) + b)`. a < 1이면 예측이 0.5 쪽으로 당겨져
-    과신이 완화됩니다. 단조 변환이라 **판별력(정확도·AUC)은 바뀌지 않고**
-    캘리브레이션만 달라집니다. 캘리브레이션은 이렇게 고칠 수 있지만 판별력은
-    어떤 후처리로도 못 늘리므로, 엔진 비교는 보정 후에 해야 공정합니다.
-    """
-
-    slope: float
-    intercept: float
-    sample_size: int
-
-    def apply(self, probability: float) -> float:
-        p = clamp_probability(probability)
-        logit = math.log(p / (1.0 - p))
-        return clamp_probability(1.0 / (1.0 + math.exp(-(self.slope * logit + self.intercept))))
-
-
-IDENTITY_SCALER = PlattScaler(slope=1.0, intercept=0.0, sample_size=0)
-
-
-def fit_platt_scaler(
-    probabilities: Sequence[float],
-    labels: Sequence[int],
-    *,
-    iterations: int = 200,
-    learning_rate: float = 0.5,
-) -> PlattScaler:
-    """보정 구간의 (예측, 실제)로 slope/intercept를 log loss 최소화로 적합합니다.
-
-    반드시 홀드아웃 **이전** 구간에서만 호출해야 합니다.
-    """
-    if len(probabilities) != len(labels):
-        raise ValueError("[error] probabilities/labels 길이가 일치하지 않습니다.")
-    if not probabilities:
-        return IDENTITY_SCALER
-
-    logits = []
-    for probability in probabilities:
-        p = clamp_probability(probability)
-        logits.append(math.log(p / (1.0 - p)))
-    targets = [int(value) for value in labels]
-    size = float(len(targets))
-
-    slope, intercept = 1.0, 0.0
-    for _ in range(iterations):
-        grad_slope = 0.0
-        grad_intercept = 0.0
-        for logit, label in zip(logits, targets):
-            predicted = 1.0 / (1.0 + math.exp(-max(min(slope * logit + intercept, 60.0), -60.0)))
-            error = predicted - label
-            grad_slope += error * logit
-            grad_intercept += error
-        slope -= learning_rate * (grad_slope / size)
-        intercept -= learning_rate * (grad_intercept / size)
-    return PlattScaler(slope=slope, intercept=intercept, sample_size=len(targets))
-
-
-@dataclass(frozen=True)
 class CalibrationNull:
     """완전히 캘리브레이션된 예측기가 같은 표본에서 낼 ECE 분포.
 
@@ -400,4 +340,3 @@ def calibration_to_svg(calibration: CalibrationSummary, title: str) -> str:
 def write_calibration_svg(path: Path, calibration: CalibrationSummary, title: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(calibration_to_svg(calibration, title), encoding="utf-8")
-

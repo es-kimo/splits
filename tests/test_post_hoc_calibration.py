@@ -7,13 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from rating.eval.metrics import (
-    IDENTITY_SCALER,
-    calibration_null,
-    compute_calibration,
-    compute_metrics,
-    fit_platt_scaler,
-)
+from rating.calibration import IDENTITY_CALIBRATOR, fit
+from rating.eval.metrics import calibration_null, compute_calibration, compute_metrics
 
 
 def _overconfident_sample(n: int = 6000, seed: int = 3):
@@ -35,22 +30,22 @@ def _overconfident_sample(n: int = 6000, seed: int = 3):
 class TestPlattScaler:
     def test_identity_scaler_changes_nothing(self):
         for p in (0.05, 0.5, 0.93):
-            assert IDENTITY_SCALER.apply(p) == pytest.approx(p, rel=1e-9)
+            assert IDENTITY_CALIBRATOR.apply(p) == pytest.approx(p, rel=1e-9)
 
     def test_fit_recovers_a_shrinking_slope_for_overconfidence(self):
         probabilities, labels = _overconfident_sample()
-        scaler = fit_platt_scaler(probabilities, labels)
+        scaler = fit(probabilities, labels, fold_id="season=2024")
         assert scaler.slope < 1.0
 
     def test_calibration_improves_after_scaling(self):
         probabilities, labels = _overconfident_sample()
-        scaler = fit_platt_scaler(probabilities, labels)
+        scaler = fit(probabilities, labels, fold_id="season=2024")
         scaled = [scaler.apply(p) for p in probabilities]
         assert compute_calibration(labels, scaled).ece < compute_calibration(labels, probabilities).ece
 
     def test_log_loss_improves_after_scaling(self):
         probabilities, labels = _overconfident_sample()
-        scaler = fit_platt_scaler(probabilities, labels)
+        scaler = fit(probabilities, labels, fold_id="season=2024")
         scaled = [scaler.apply(p) for p in probabilities]
         assert compute_metrics(labels, scaled).log_loss < compute_metrics(labels, probabilities).log_loss
 
@@ -61,14 +56,14 @@ class TestPlattScaler:
         못 고치는 약점을 같은 무게로 재게 됩니다.
         """
         probabilities, labels = _overconfident_sample()
-        scaler = fit_platt_scaler(probabilities, labels)
+        scaler = fit(probabilities, labels, fold_id="season=2024")
         scaled = [scaler.apply(p) for p in probabilities]
         assert compute_metrics(labels, scaled).accuracy == pytest.approx(
             compute_metrics(labels, probabilities).accuracy, abs=0.02
         )
 
     def test_preserves_ordering(self):
-        scaler = fit_platt_scaler(*_overconfident_sample())
+        scaler = fit(*_overconfident_sample(), fold_id="season=2024")
         values = [0.05, 0.2, 0.5, 0.8, 0.95]
         scaled = [scaler.apply(p) for p in values]
         assert scaled == sorted(scaled)
@@ -77,15 +72,22 @@ class TestPlattScaler:
         rng = random.Random(9)
         probabilities = [rng.uniform(0.1, 0.9) for _ in range(6000)]
         labels = [1 if rng.random() < p else 0 for p in probabilities]
-        scaler = fit_platt_scaler(probabilities, labels)
+        scaler = fit(probabilities, labels, fold_id="season=2024")
         assert scaler.slope == pytest.approx(1.0, abs=0.25)
 
-    def test_empty_input_returns_identity(self):
-        assert fit_platt_scaler([], []) == IDENTITY_SCALER
+    def test_empty_input_is_rejected(self):
+        with pytest.raises(ValueError, match="입력이 비어 있습니다"):
+            fit([], [], fold_id="season=2024")
 
     def test_rejects_mismatched_lengths(self):
         with pytest.raises(ValueError, match="길이가 일치하지 않습니다"):
-            fit_platt_scaler([0.5, 0.5], [1])
+            fit([0.5, 0.5], [1], fold_id="season=2024")
+
+    def test_json_roundtrip_is_stable(self):
+        scaler = fit(*_overconfident_sample(), fold_id="season=2024")
+        restored = scaler.from_json(scaler.to_json())
+        assert restored == scaler
+        assert restored.digest() == scaler.digest()
 
 
 class TestCalibrationNull:

@@ -3,15 +3,17 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 
+from rating.calibration import Calibrator, fit as fit_calibrator
 from rating.ledger.schema import load_race_ledger, validate_ledger
 from rating.ledger.season import parse_kst_date
 
@@ -26,6 +28,10 @@ class ReplayResult:
     race_count: int
     period_count: int
     elapsed_seconds: float
+    calibrator: Calibrator
+    run_id: str
+    calibrator_path: Path
+    run_manifest_path: Path
 
 
 def _norm(value: Any) -> str:
@@ -140,6 +146,52 @@ def _snapshot_rows(state: dict[str, Rating], athlete_ids: set[str], valid_date: 
     return out
 
 
+def _is_left_first(race_id: str, left_id: str, right_id: str) -> bool:
+    seed = f"{race_id}|{left_id}|{right_id}".encode("utf-8")
+    return int(hashlib.sha256(seed).hexdigest(), 16) % 2 == 0
+
+
+def _calibration_examples_for_race(race: RaceResult) -> list[tuple[str, str, date, int]]:
+    examples: list[tuple[str, str, date, int]] = []
+    entries = sorted(race.entries, key=lambda item: (int(item.rank), item.athlete_id))
+    for left_index in range(len(entries)):
+        left = entries[left_index]
+        if left.rank <= 0:
+            continue
+        for right_index in range(left_index + 1, len(entries)):
+            right = entries[right_index]
+            if right.rank <= 0 or left.rank == right.rank:
+                continue
+            first_id, second_id = sorted((left.athlete_id, right.athlete_id))
+            if _is_left_first(race.race_id, first_id, second_id):
+                oriented_left = left if left.athlete_id == first_id else right
+                oriented_right = right if oriented_left is left else left
+            else:
+                oriented_left = left if left.athlete_id == second_id else right
+                oriented_right = right if oriented_left is left else left
+            label = 1 if oriented_left.rank < oriented_right.rank else 0
+            examples.append((oriented_left.athlete_id, oriented_right.athlete_id, race.race_date, label))
+    return examples
+
+
+def _float_digest(values: list[float]) -> str:
+    payload = "\n".join(f"{float(value):.12f}" for value in values)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _ledger_digest(ledger_path: Path) -> str:
+    files = sorted(path for path in ledger_path.rglob("*.parquet") if path.is_file())
+    if not files:
+        raise FileNotFoundError(f"[error] parquet 입력 파일이 없습니다: {ledger_path}")
+    hasher = hashlib.sha256()
+    for path in files:
+        rel = path.relative_to(ledger_path).as_posix()
+        hasher.update(rel.encode("utf-8"))
+        hasher.update(b"\n")
+        hasher.update(path.read_bytes())
+    return hasher.hexdigest()
+
+
 def _percentile(values: list[float], q: float) -> float:
     if not values:
         return 0.0
@@ -221,6 +273,16 @@ def _build_report(
         f"- athlete_count: **{len(result.final_state):,}**",
         f"- snapshot_rows: **{result.snapshots.height:,}**",
         f"- elapsed_seconds: **{result.elapsed_seconds:.3f}**",
+        f"- run_id: `{result.run_id}`",
+        "",
+        "## 보정기",
+        "",
+        f"- method: `{result.calibrator.method}`",
+        f"- fit_fold: `{result.calibrator.fit_fold}`",
+        f"- sample_size: **{result.calibrator.sample_size:,}**",
+        f"- slope/intercept: `{result.calibrator.slope:.6f}` / `{result.calibrator.intercept:+.6f}`",
+        f"- calibrator_json: `{result.calibrator_path.as_posix()}`",
+        f"- run_manifest: `{result.run_manifest_path.as_posix()}`",
         "",
         "## 최종 상태 분포 요약",
         "",
@@ -255,42 +317,81 @@ def run_replay(
     epsilon: float = 1e-6,
     pairwise_size_weight: bool = True,
     integrity_top_k: int = 200,
+    calibrator_out: Path | None = None,
+    run_manifest_out: Path | None = None,
 ) -> ReplayResult:
     started = time.perf_counter()
     race_ledger = load_race_ledger(ledger_path)
     validate_ledger(race_ledger)
     races = _to_race_results(race_ledger)
+    if not races:
+        raise ValueError(f"[error] 평가 가능한 race가 없습니다: {ledger_path}")
     periods = _group_periods(races, rating_period)
+    calibration_season = max(race.race_date.year for race in races)
+    calibration_fold = f"season={calibration_season}"
 
     if engine_name == "glicko2":
+        glicko_params = Glicko2Params(
+            tau=float(tau),
+            initial_mu=float(initial_mu),
+            initial_phi=float(initial_phi),
+            initial_sigma=float(initial_sigma),
+            rating_period=rating_period,
+        )
         predictor = Glicko2Engine(
-            params=Glicko2Params(
-                tau=float(tau),
-                initial_mu=float(initial_mu),
-                initial_phi=float(initial_phi),
-                initial_sigma=float(initial_sigma),
-                rating_period=rating_period,
-            ),
+            params=glicko_params,
             epsilon=float(epsilon),
             max_iterations=int(max_iterations),
             pairwise_size_weight=pairwise_size_weight,
         )
+        engine_params: dict[str, Any] = {
+            "tau": float(glicko_params.tau),
+            "initial_mu": float(glicko_params.initial_mu),
+            "initial_phi": float(glicko_params.initial_phi),
+            "initial_sigma": float(glicko_params.initial_sigma),
+            "rating_period": glicko_params.rating_period,
+            "pairwise_size_weight": bool(pairwise_size_weight),
+        }
     elif engine_name == "trueskill":
         from .trueskill_wrapper import TrueSkillEngine
 
         predictor = TrueSkillEngine()
+        engine_params = {
+            "tau": float(predictor.params.tau),
+            "initial_mu": float(predictor.params.initial_mu),
+            "initial_sigma": float(predictor.params.initial_sigma),
+            "beta": float(predictor.params.beta),
+            "draw_probability": float(predictor.params.draw_probability),
+            "rating_period": predictor.params.rating_period,
+            "pairwise_size_weight": bool(pairwise_size_weight),
+        }
     else:
         raise ValueError(f"[error] 지원하지 않는 엔진입니다: {engine_name}")
 
     state: dict[str, Rating] = {}
     snapshot_rows: list[dict[str, Any]] = []
+    calibration_probabilities: list[float] = []
+    calibration_labels: list[int] = []
     for period_date, period_races in periods:
+        for race in period_races:
+            if race.race_date.year != calibration_season:
+                continue
+            for left_id, right_id, as_of, label in _calibration_examples_for_race(race):
+                calibration_probabilities.append(float(predictor.predict_prob(left_id, right_id, as_of)))
+                calibration_labels.append(int(label))
         state = predictor.update(state, period_races)  # type: ignore[assignment]
         active_ids: set[str] = set()
         for race in period_races:
             for entry in race.entries:
                 active_ids.add(entry.athlete_id)
         snapshot_rows.extend(_snapshot_rows(state, active_ids, period_date))
+
+    calibrator = fit_calibrator(
+        calibration_probabilities,
+        calibration_labels,
+        fold_id=calibration_fold,
+    )
+    calibrated_probabilities = [calibrator.apply(value) for value in calibration_probabilities]
 
     snapshot_schema = {
         "athlete_id": pl.Utf8,
@@ -306,6 +407,35 @@ def run_replay(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     snapshots.write_parquet(output_path)
 
+    calibrator_path = calibrator_out or (output_path.parent / "calibrator.json")
+    calibrator_path.parent.mkdir(parents=True, exist_ok=True)
+    calibrator_json = calibrator.to_json()
+    calibrator_path.write_text(calibrator_json, encoding="utf-8")
+
+    raw_prob_digest = _float_digest(calibration_probabilities)
+    calibrated_prob_digest = _float_digest(calibrated_probabilities)
+    manifest_body = {
+        "engine": engine_name,
+        "engine_params": engine_params,
+        "rating_period": rating_period,
+        "ledger_digest": _ledger_digest(ledger_path),
+        "calibration_fit_fold": calibration_fold,
+        "calibration_sample_size": len(calibration_labels),
+        "calibrator_digest": calibrator.digest(),
+        "calibrator_json": calibrator_json,
+        "raw_prob_digest": raw_prob_digest,
+        "calibrated_prob_digest": calibrated_prob_digest,
+    }
+    run_id = hashlib.sha256(json.dumps(manifest_body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    manifest = {
+        **manifest_body,
+        "run_id": run_id,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    run_manifest_path = run_manifest_out or (output_path.parent / "rating_run.json")
+    run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    run_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
     elapsed = time.perf_counter() - started
     result = ReplayResult(
         snapshots=snapshots,
@@ -313,6 +443,10 @@ def run_replay(
         race_count=len(races),
         period_count=len(periods),
         elapsed_seconds=float(elapsed),
+        calibrator=calibrator,
+        run_id=run_id,
+        calibrator_path=calibrator_path,
+        run_manifest_path=run_manifest_path,
     )
 
     report_text = _build_report(
@@ -341,6 +475,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-iterations", type=int, default=100, help="Glicko-2 volatility 최대 반복 횟수")
     parser.add_argument("--disable-size-weight", action="store_true", help="pairwise 1/(N-1) 보정을 비활성화")
     parser.add_argument("--integrity-top-k", type=int, default=200, help="국가대표 온전성 검사 상위권 기준")
+    parser.add_argument("--calibrator-out", default="out/calibrator.json", help="보정기 JSON 출력 경로")
+    parser.add_argument("--run-manifest-out", default="out/rating_run.json", help="실행 manifest JSON 출력 경로")
     return parser
 
 
@@ -361,6 +497,8 @@ def main() -> None:
         epsilon=float(args.epsilon),
         pairwise_size_weight=not bool(args.disable_size_weight),
         integrity_top_k=int(args.integrity_top_k),
+        calibrator_out=Path(args.calibrator_out).expanduser(),
+        run_manifest_out=Path(args.run_manifest_out).expanduser(),
     )
     print(f"[ok] engine={args.engine}")
     print(f"[ok] rating_period={args.rating_period}")
@@ -370,6 +508,9 @@ def main() -> None:
     print(f"[ok] snapshot_rows={result.snapshots.height:,}")
     print(f"[ok] out={args.out}")
     print(f"[ok] report={args.report}")
+    print(f"[ok] run_id={result.run_id}")
+    print(f"[ok] calibrator={args.calibrator_out}")
+    print(f"[ok] manifest={args.run_manifest_out}")
 
 
 if __name__ == "__main__":

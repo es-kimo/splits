@@ -1,8 +1,9 @@
 # ADR 0006 — 백테스트 판정 재실행 (R-05)
 
 - 상태: Accepted
-- 작성시각: 2026-08-29T22:26:01
+- 작성시각: 2026-08-29T22:51:03
 - 선행: `docs/adr/0005-backtest-verdict.md` (Superseded)
+- 후속: `docs/adr/0008-calibration.md` (보정기 프로덕션화/재적합 프로토콜)
 
 ## 문맥
 

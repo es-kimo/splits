@@ -1,0 +1,21 @@
+{
+  "engine": "glicko2",
+  "engine_params": {
+    "tau": 0.5,
+    "initial_mu": 1500.0,
+    "initial_phi": 350.0,
+    "initial_sigma": 0.06,
+    "rating_period": "meet",
+    "pairwise_size_weight": true
+  },
+  "rating_period": "meet",
+  "ledger_digest": "d6ddb8ab1b0444fab48abeeef877de3ead94f22edbcc38cde4cee9756ff91df1",
+  "calibration_fit_fold": "season=2026",
+  "calibration_sample_size": 8152,
+  "calibrator_digest": "61882cd6a661",
+  "calibrator_json": "{\"fit_fold\":\"season=2026\",\"fit_iterations\":200,\"fit_learning_rate\":0.5,\"intercept\":0.03959127555667899,\"method\":\"platt\",\"sample_size\":8152,\"slope\":0.6448655789984736}",
+  "raw_prob_digest": "86a2132e990278ea19f897ad5f8bc5d5eccc16285ae203aadc9448591e7b9959",
+  "calibrated_prob_digest": "e4ef67d47c5d3311b4df0f6d204da8dc8f80c4be6fabd7451ab312afa5d01c1a",
+  "run_id": "503970fdad61ff2f",
+  "created_at": "2026-08-29T22:42:15"
+}
