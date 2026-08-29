@@ -180,15 +180,12 @@ def test_trueskill_sigma_decreases_with_more_races():
     assert sigmas == sorted(sigmas, reverse=True)
 
 
-def test_trueskill_sigma_does_not_recover_after_a_layoff():
-    """R-19가 기록한 결함을 고정합니다.
-
-    Glicko-2는 쉬는 동안 불확실성을 되돌리지만 TrueSkill은 그러지 않습니다.
-    이 동작이 바뀌면 ADR 0007의 관측이 낡은 것이므로 함께 갱신해야 합니다.
-    """
+def test_trueskill_sigma_recovers_after_a_layoff():
+    """R-20 수정: 쉬는 동안 TrueSkill 불확실성은 다시 커져야 합니다."""
     from rating.engine.types import RaceEntry, RaceResult
 
-    engine = TrueSkillEngine(params=TrueSkillParams(rating_period="meet"))
+    params = TrueSkillParams(rating_period="meet")
+    engine = TrueSkillEngine(params=params)
     race = RaceResult(
         race_id="r0",
         race_date=date(2020, 1, 1),
@@ -203,7 +200,8 @@ def test_trueskill_sigma_does_not_recover_after_a_layoff():
     right_after = engine.effective_rating("a", date(2020, 2, 1))
     four_years_later = engine.effective_rating("a", date(2024, 1, 1))
     assert elapsed_periods(right_after.last_active, date(2024, 1, 1), "meet") == 48
-    assert four_years_later.phi == pytest.approx(right_after.phi)
+    assert four_years_later.phi > right_after.phi
+    assert four_years_later.phi <= params.initial_sigma
 
 
 def test_glicko2_effective_rating_reflects_the_inactivity_decay():

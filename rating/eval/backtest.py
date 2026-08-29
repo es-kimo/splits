@@ -1246,7 +1246,7 @@ def _write_adr(results: Sequence[ConfigResult], path: Path) -> None:
     lines.append(
         "- 세그먼트 표에서 sigma가 큰 구간이 더 정확해 보이는 것은 실력 차이 교락입니다. "
         "`|mu 차이|`를 통제하면 정상 방향으로 돌아옵니다. 근거는 `docs/adr/0007-sigma-inversion.md`에 있습니다. "
-        "다만 TrueSkill은 휴지기에 sigma를 되돌리지 않으므로, 오래 쉰 선수의 확률은 과신 쪽으로 치우칩니다."
+        "R-20에서 TrueSkill 비활동 sigma 팽창을 추가해 오래 쉰 선수 과신 결함을 보정했습니다."
     )
 
     tau_values = sorted(best_result.engine_tau_scores.items(), key=lambda item: item[1])
