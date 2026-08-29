@@ -30,10 +30,14 @@ from .baselines import (
 from .invariants import LN2, assert_harness_invariants
 from .metrics import (
     BootstrapInterval,
+    CalibrationNull,
     MetricSummary,
+    PlattScaler,
     bootstrap_log_loss_ci,
+    calibration_null,
     clamp_probability,
     compute_metrics,
+    fit_platt_scaler,
     write_calibration_svg,
 )
 
@@ -82,6 +86,9 @@ class ConfigResult:
     total_comparison_count: int
     engine_tau: float
     engine_tau_scores: dict[float, float]
+    scaler: PlattScaler
+    raw_metrics: Metrics
+    calibration_null: CalibrationNull
     metrics_by_predictor: dict[str, Metrics]
     common_subset_metrics: dict[str, Metrics]
     calibration_path: Path
@@ -535,6 +542,34 @@ def _fit_baseline_scales(
     return BaselineScales(b2=b2_scale, b3=b3_scale, b2_sample=len(b2_labels), b3_sample=len(b3_labels))
 
 
+def _fit_calibrator(
+    model: ModelAdapter,
+    steps: Sequence[ScheduleStep],
+    holdout_set: set[int],
+    previous_season: int,
+) -> PlattScaler:
+    """마지막 학습 시즌에서 사후 보정기를 적합합니다.
+
+    모델을 처음부터 다시 재생하며 보정 시즌의 (예측, 실제)를 모읍니다. 예측은
+    항상 갱신보다 먼저 일어나므로 보정 구간에도 누수가 없고, 홀드아웃은 전혀
+    건드리지 않습니다. 반환된 보정기는 두 엔진에 동일하게 적용됩니다.
+    """
+    probabilities: list[float] = []
+    labels: list[int] = []
+    for step in steps:
+        if any(race.season_year in holdout_set for race in step.train_races):
+            continue
+        for meet_races in step.eval_meets:
+            if any(race.season_year in holdout_set for race in meet_races):
+                continue
+            if any(race.season_year == previous_season for race in meet_races):
+                for example in build_pairwise_examples(meet_races):
+                    probabilities.append(model.predict(example))
+                    labels.append(example.label)
+        model.update(step.train_races)
+    return fit_platt_scaler(probabilities, labels)
+
+
 def _evaluate_config(
     *,
     policy: str,
@@ -578,6 +613,9 @@ def _evaluate_config(
     )
     tau, tau_scores = _fit_engine_tau(engine, rating_period, steps, holdout_set, previous_season)
 
+    # 보정기는 홀드아웃 이전 구간에서 적합하고, 두 엔진에 동일하게 적용합니다.
+    scaler = _fit_calibrator(_build_model(engine, rating_period, tau=tau), steps, holdout_set, previous_season)
+
     model = _build_model(engine, rating_period, tau=tau)
     baselines = _make_baselines(
         head2head_prob=head2head_prob,
@@ -601,6 +639,7 @@ def _evaluate_config(
                 holdout_comparisons += len(examples)
                 for example in examples:
                     phi, n_games = model.pair_uncertainty(example)
+                    raw_probability = float(model.predict(example))
                     rows.append(
                         {
                             "config": config,
@@ -608,7 +647,8 @@ def _evaluate_config(
                             "comparison_id": example.comparison_id,
                             "race_id": example.race_id,
                             "actual": example.label,
-                            "probability": float(model.predict(example)),
+                            "probability": scaler.apply(raw_probability),
+                            "raw_probability": raw_probability,
                             "covered": True,
                             "round_class": example.round_class,
                             "grade_text": example.grade_text,
@@ -629,6 +669,7 @@ def _evaluate_config(
                                 "actual": example.label,
                                 # 베이스라인은 P(winner > loser)를 내므로 예제 방향으로 되돌립니다.
                                 "probability": example.orient(prediction.probability),
+                                "raw_probability": example.orient(prediction.probability),
                                 "covered": bool(prediction.covered),
                                 "round_class": example.round_class,
                                 "grade_text": example.grade_text,
@@ -674,6 +715,13 @@ def _evaluate_config(
         common_subset_metrics[predictor] = _to_metrics(summary, subset)
 
     model_metrics = metrics_by_predictor[model.name]
+    raw_summary = compute_metrics(
+        actuals=model_metrics.predictions["actual"].to_list(),
+        probabilities=model_metrics.predictions["raw_probability"].to_list(),
+        covered=model_metrics.predictions["covered"].to_list(),
+    )
+    raw_metrics = _to_metrics(raw_summary, model_metrics.predictions)
+    null = calibration_null(model_metrics.predictions["probability"].to_list())
     calibration_path = calibration_dir / f"{policy}-{rating_period}-{engine}.svg"
     write_calibration_svg(
         calibration_path,
@@ -690,6 +738,9 @@ def _evaluate_config(
         total_comparison_count=total_comparisons,
         engine_tau=tau,
         engine_tau_scores=tau_scores,
+        scaler=scaler,
+        raw_metrics=raw_metrics,
+        calibration_null=null,
         metrics_by_predictor=metrics_by_predictor,
         common_subset_metrics=common_subset_metrics,
         calibration_path=calibration_path,
@@ -901,6 +952,52 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         common = result.common_subset_metrics
         lines.append(
             f"| {result.policy} | {result.rating_period} | {result.engine} | {result.comparison_count:,} | {common[result.engine].log_loss:.5f} | {common['B0'].log_loss:.5f} | {common['B1'].log_loss:.5f} | {common['B2'].log_loss:.5f} | {common['B3'].log_loss:.5f} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 사후 보정 (Platt scaling)",
+            "",
+            "캘리브레이션은 사후 보정으로 고칠 수 있지만 판별력은 어떤 후처리로도 못 늘립니다.",
+            "보정 전 비교는 고칠 수 있는 약점과 못 고치는 약점을 같은 무게로 재게 되므로,",
+            "두 엔진에 동일한 보정을 적용한 뒤 비교합니다. 보정기는 홀드아웃 직전 시즌에서 적합했습니다.",
+            "단조 변환이라 정확도는 보정 전후가 같습니다.",
+            "",
+            "| policy | period | engine | slope | intercept | log_loss 보정전 | 보정후 | ECE 보정전 | 보정후 |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in model_rows:
+        result = row["result"]
+        raw = result.raw_metrics
+        model = row["model"]
+        lines.append(
+            f"| {result.policy} | {result.rating_period} | {result.engine} | {result.scaler.slope:.4f} | "
+            f"{result.scaler.intercept:+.4f} | {raw.log_loss:.5f} | {model.log_loss:.5f} | "
+            f"{raw.ece:.5f} | {model.ece:.5f} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## ECE 유한표본 귀무분포",
+            "",
+            "ECE는 유한표본에서 위로 편향됩니다. 완전히 캘리브레이션된 예측기도 0이 나오지 않으므로,",
+            "관측 ECE가 노이즈 바닥 위인지 확인해야 게이트를 해석할 수 있습니다.",
+            "예측 확률은 그대로 두고 라벨만 그 확률에서 뽑아 귀무분포를 만들었습니다.",
+            "",
+            "| policy | period | engine | 관측 ECE | 귀무 p50 | 귀무 p95 | 귀무 p99 | 노이즈 초과 |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for row in model_rows:
+        result = row["result"]
+        null = result.calibration_null
+        observed = row["model"].ece
+        lines.append(
+            f"| {result.policy} | {result.rating_period} | {result.engine} | {observed:.5f} | "
+            f"{null.p50:.5f} | {null.p95:.5f} | {null.p99:.5f} | {'Y' if observed > null.p95 else 'N'} |"
         )
 
     lines.extend(
