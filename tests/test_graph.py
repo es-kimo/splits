@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from rating.ledger.graph import DecisionUnavailableError, analyze_connectivity, build_graph, prepare_results
+from rating.ledger.graph import DecisionUnavailableError, _build_vertical_metrics, analyze_connectivity, build_graph, prepare_results
 
 
 def test_analyze_connectivity_detects_disconnected_fixture():
@@ -163,3 +163,23 @@ def test_decision_unavailable_when_comparable_cells_absent():
     graph = build_graph(prepared.rows)
     with pytest.raises(DecisionUnavailableError):
         analyze_connectivity(graph, prepared.rows)
+
+
+def test_isolated_cells_use_bidirectional_definition():
+    raw = pd.DataFrame(
+        [
+            {"meet_id": "m1", "race_id": "r1", "athlete_hash": "m_prev_1", "event": "500m", "round": "예선1조", "place": "1", "time": "45.1", "status": "", "season": "2023", "grade": "1,2", "gender": "남", "class_cd": "2"},
+            {"meet_id": "m1", "race_id": "r1", "athlete_hash": "m_prev_2", "event": "500m", "round": "예선1조", "place": "2", "time": "45.2", "status": "", "season": "2023", "grade": "1,2", "gender": "남", "class_cd": "2"},
+            {"meet_id": "m2", "race_id": "r2", "athlete_hash": "m_mid_1", "event": "500m", "round": "예선1조", "place": "1", "time": "45.3", "status": "", "season": "2024", "grade": "1,2", "gender": "남", "class_cd": "2"},
+            {"meet_id": "m2", "race_id": "r2", "athlete_hash": "m_mid_2", "event": "500m", "round": "예선1조", "place": "2", "time": "45.4", "status": "", "season": "2024", "grade": "1,2", "gender": "남", "class_cd": "2"},
+            {"meet_id": "m3", "race_id": "r3", "athlete_hash": "m_next_1", "event": "500m", "round": "예선1조", "place": "1", "time": "45.5", "status": "", "season": "2025", "grade": "1,2", "gender": "남", "class_cd": "2"},
+            {"meet_id": "m3", "race_id": "r3", "athlete_hash": "m_next_2", "event": "500m", "round": "예선1조", "place": "2", "time": "45.6", "status": "", "season": "2025", "grade": "1,2", "gender": "남", "class_cd": "2"},
+        ]
+    )
+    prepared = prepare_results(raw)
+    vertical = _build_vertical_metrics(prepared.rows)
+
+    assert vertical["comparable_cell_count"] == 2
+    assert vertical["bidirectional_comparable_cell_count"] == 1
+    assert vertical["isolated_cell_count"] == 1
+    assert vertical["isolated_cells"] == [{"season": 2024, "grade": "1,2", "gender": "남", "athlete_count": 2}]
