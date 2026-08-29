@@ -52,6 +52,10 @@ class TrueSkillEngine(Predictor):
             if len(race.entries) < 2:
                 continue
             grouped_entries, ranks = self._group_by_rank(race.entries)
+            # 전원이 동착이면 순위 그룹이 하나뿐이라 승패 정보가 없습니다.
+            # Glicko-2도 동순위 쌍에서는 비교를 만들지 않으므로 동일하게 건너뜁니다.
+            if len(grouped_entries) < 2:
+                continue
             rating_groups: list[tuple[object, ...]] = []
             for group in grouped_entries:
                 rating_groups.append(tuple(self._to_trueskill_rating(updated.get(entry.athlete_id, self._initial_rating())) for entry in group))

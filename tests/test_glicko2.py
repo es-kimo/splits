@@ -82,3 +82,24 @@ def test_pairwise_size_weight_reduces_large_race_impact():
     assert weighted["a1"].mu < unweighted["a1"].mu
     assert weighted["a4"].mu > unweighted["a4"].mu
 
+
+
+def test_volatility_solver_converges_when_illinois_stalls():
+    """Illinois는 B가 해에 도달해도 부호가 안 바뀌면 A가 따라오지 못해 멈춥니다.
+
+    이 인자 조합에서 괄호 폭이 6.4e-06에 고정된 채 반복만 소모하다
+    max_iterations에서 터졌습니다. tau=1.2 격자를 돌릴 때 실제로 발생했습니다.
+    """
+    engine = Glicko2Engine(params=Glicko2Params(tau=1.2))
+    sigma_prime = engine._solve_volatility(0.1, 0.06, -1.0, 0.05)
+    assert sigma_prime == pytest.approx(0.22566, rel=1e-4)
+
+
+@pytest.mark.parametrize("tau", [0.2, 0.35, 0.5, 0.8, 1.2])
+def test_volatility_solver_converges_across_the_tau_grid(tau):
+    engine = Glicko2Engine(params=Glicko2Params(tau=tau))
+    for phi in (0.05, 0.5, 2.0):
+        for sigma in (0.01, 0.06, 0.2):
+            for delta in (-5.0, -1.0, 0.5, 5.0):
+                for variance in (0.01, 0.5, 5.0):
+                    assert engine._solve_volatility(phi, sigma, delta, variance) > 0.0

@@ -54,6 +54,8 @@ def _result(**overrides) -> ConfigResult:
         "baseline_scales": BaselineScales(b2=0.07, b3=0.64, b2_sample=100, b3_sample=100),
         "holdout_comparison_count": 18_425,
         "total_comparison_count": 165_399,
+        "engine_tau": 0.5,
+        "engine_tau_scores": {0.5: 0.58},
         "metrics_by_predictor": metrics,
         "common_subset_metrics": metrics,
         "calibration_path": Path("/tmp/cal.svg"),

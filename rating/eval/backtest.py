@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -27,7 +28,14 @@ from .baselines import (
     fit_logistic_scale,
 )
 from .invariants import LN2, assert_harness_invariants
-from .metrics import BootstrapInterval, MetricSummary, bootstrap_log_loss_ci, compute_metrics, write_calibration_svg
+from .metrics import (
+    BootstrapInterval,
+    MetricSummary,
+    bootstrap_log_loss_ci,
+    clamp_probability,
+    compute_metrics,
+    write_calibration_svg,
+)
 
 EngineChoice = Literal["glicko2", "trueskill"]
 
@@ -72,6 +80,8 @@ class ConfigResult:
     baseline_scales: "BaselineScales"
     holdout_comparison_count: int
     total_comparison_count: int
+    engine_tau: float
+    engine_tau_scores: dict[float, float]
     metrics_by_predictor: dict[str, Metrics]
     common_subset_metrics: dict[str, Metrics]
     calibration_path: Path
@@ -303,14 +313,56 @@ def evaluate(predictor: Predictor, holdout: pl.DataFrame, *, rating_period: Rati
     return _to_metrics(summary, predictions)
 
 
-def _build_model(engine: EngineChoice, rating_period: RatingPeriod) -> ModelAdapter:
-    if engine == "glicko2":
-        predictor: Predictor = Glicko2Engine(params=Glicko2Params(rating_period=rating_period))
-        return ModelAdapter(name="glicko2", predictor=predictor, state={}, initial_phi=350.0)
-    from rating.engine.trueskill_wrapper import TrueSkillEngine
+# tau는 비활동/시간 경과에 따라 불확실성을 얼마나 되돌릴지 정하는 파라미터입니다.
+# 너무 작으면 sigma/phi가 무너져 확률이 극단으로 몰립니다. 두 엔진의 기본값이
+# 서로 다른 스케일이라, 각자 자기 격자에서 학습 구간 log loss로 고릅니다.
+TAU_GRID: dict[str, tuple[float, ...]] = {
+    "glicko2": (0.2, 0.35, 0.5, 0.8, 1.2),
+    "trueskill": (25.0 / 300.0, 0.25, 0.5, 1.0, 2.0),
+}
 
-    predictor = TrueSkillEngine()
+
+def _build_model(engine: EngineChoice, rating_period: RatingPeriod, tau: float | None = None) -> ModelAdapter:
+    if engine == "glicko2":
+        params = Glicko2Params(rating_period=rating_period) if tau is None else Glicko2Params(rating_period=rating_period, tau=tau)
+        return ModelAdapter(name="glicko2", predictor=Glicko2Engine(params=params), state={}, initial_phi=350.0)
+    from rating.engine.trueskill_wrapper import TrueSkillEngine, TrueSkillParams
+
+    predictor: Predictor = TrueSkillEngine() if tau is None else TrueSkillEngine(params=TrueSkillParams(tau=tau))
     return ModelAdapter(name="trueskill", predictor=predictor, state={}, initial_phi=25.0 / 3.0)
+
+
+def _fit_engine_tau(
+    engine: EngineChoice,
+    rating_period: RatingPeriod,
+    periods: Sequence[Sequence[RaceObservation]],
+    holdout_set: set[int],
+    previous_season: int,
+) -> tuple[float, dict[float, float]]:
+    """마지막 학습 시즌을 검증 구간으로 써서 tau를 고릅니다.
+
+    두 엔진을 각자의 최선 설정으로 붙이기 위한 단계입니다. 한쪽만 기본값으로
+    두고 비교하면 "어느 알고리즘이 나은가"라는 질문에 답할 수 없습니다.
+    홀드아웃은 여기서 전혀 쓰지 않습니다.
+    """
+    scores: dict[float, float] = {}
+    for tau in TAU_GRID[engine]:
+        model = _build_model(engine, rating_period, tau=tau)
+        loss_sum = 0.0
+        count = 0
+        for period_races in periods:
+            if any(race.season_year in holdout_set for race in period_races):
+                continue
+            if any(race.season_year == previous_season for race in period_races):
+                for example in build_pairwise_examples(period_races):
+                    probability = clamp_probability(model.predict(example))
+                    loss_sum -= math.log(probability) if example.label == 1 else math.log(1.0 - probability)
+                    count += 1
+            model.update(period_races)
+        scores[tau] = (loss_sum / count) if count else float("inf")
+
+    best_tau = min(scores, key=lambda key: scores[key])
+    return best_tau, scores
 
 
 def _config_key(policy: str, rating_period: RatingPeriod, engine: EngineChoice) -> str:
@@ -445,8 +497,9 @@ def _evaluate_config(
     periods = _group_periods(races, rating_period)
 
     scales = _fit_baseline_scales(races, periods, holdout_set, previous_season)
+    tau, tau_scores = _fit_engine_tau(engine, rating_period, periods, holdout_set, previous_season)
 
-    model = _build_model(engine, rating_period)
+    model = _build_model(engine, rating_period, tau=tau)
     baselines: list[BaselinePredictor] = [
         ConstantBaseline(),
         HeadToHeadBaseline(fixed_probability=head2head_prob),
@@ -554,6 +607,8 @@ def _evaluate_config(
         baseline_scales=scales,
         holdout_comparison_count=holdout_comparisons,
         total_comparison_count=total_comparisons,
+        engine_tau=tau,
+        engine_tau_scores=tau_scores,
         metrics_by_predictor=metrics_by_predictor,
         common_subset_metrics=common_subset_metrics,
         calibration_path=calibration_path,
@@ -765,6 +820,32 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         common = result.common_subset_metrics
         lines.append(
             f"| {result.policy} | {result.rating_period} | {result.engine} | {result.comparison_count:,} | {common[result.engine].log_loss:.5f} | {common['B0'].log_loss:.5f} | {common['B1'].log_loss:.5f} | {common['B2'].log_loss:.5f} | {common['B3'].log_loss:.5f} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 예측 확률 분포와 불확실성",
+            "",
+            "확률이 극단으로 몰리면(판별력은 있는데 스케일이 깨진 상태) 여기서 먼저 드러납니다.",
+            "tau는 홀드아웃 이전 구간에서 log loss로 골랐습니다.",
+            "",
+            "| policy | period | engine | tau | p 표준편차 | p<0.1 또는 >0.9 | 불확실성 p50 | 불확실성 p10 |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in model_rows:
+        result = row["result"]
+        predictions = row["model"].predictions
+        probabilities = predictions["probability"].to_list()
+        extreme = sum(1 for p in probabilities if p < 0.1 or p > 0.9) / max(len(probabilities), 1)
+        phis = sorted(value for value in predictions["pair_phi"].to_list() if value is not None)
+        p50 = phis[len(phis) // 2] if phis else 0.0
+        p10 = phis[int(len(phis) * 0.10)] if phis else 0.0
+        spread = float(pl.Series(probabilities).std() or 0.0)
+        lines.append(
+            f"| {result.policy} | {result.rating_period} | {result.engine} | {result.engine_tau:.4f} | "
+            f"{spread:.4f} | {extreme:.1%} | {p50:.3f} | {p10:.3f} |"
         )
 
     lines.extend(["", "## 캘리브레이션 플롯", ""])

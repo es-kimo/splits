@@ -229,11 +229,17 @@ class Glicko2Engine(Predictor):
                 raise RuntimeError("[error] volatility 반복에서 분모가 0입니다.")
             c = a_curr + ((a_curr - b_curr) * f_a / denom)
             f_c = self._volatility_f(c, delta=delta, phi=phi, variance=variance, a=a)
-            if f_c * f_b < 0:
+            if f_c * f_b <= 0:
                 a_curr = b_curr
                 f_a = f_b
             else:
                 f_a = f_a / 2.0
+            previous_b = b_curr
             b_curr = c
             f_b = f_c
+            # Illinois는 B가 해에 도달한 뒤에도 부호가 바뀌지 않으면 A가 따라오지
+            # 못해, 괄호 폭이 epsilon 바로 위에서 멈춘 채 무한 반복합니다. 반복점이
+            # 더 이상 움직이지 않으면 수렴한 것이므로 B를 답으로 씁니다.
+            if abs(b_curr - previous_b) <= self.epsilon:
+                return math.exp(b_curr / 2.0)
         return math.exp(a_curr / 2.0)
