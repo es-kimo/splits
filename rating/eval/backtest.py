@@ -832,14 +832,22 @@ def _render_segment_section(best_result: ConfigResult) -> str:
     return "\n".join(lines)
 
 
+_CI_CACHE: dict[int, BootstrapInterval] = {}
+
+
 def _log_loss_ci(result: ConfigResult, *, resamples: int = 1000) -> BootstrapInterval:
+    cached = _CI_CACHE.get(id(result))
+    if cached is not None:
+        return cached
     predictions = result.metrics_by_predictor[result.engine].predictions
-    return bootstrap_log_loss_ci(
+    interval = bootstrap_log_loss_ci(
         predictions["actual"].to_list(),
         predictions["probability"].to_list(),
         predictions["race_id"].to_list(),
         resamples=resamples,
     )
+    _CI_CACHE[id(result)] = interval
+    return interval
 
 
 def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
@@ -1074,6 +1082,8 @@ def _write_adr(results: Sequence[ConfigResult], path: Path) -> None:
         "- R-05 요구에 따라 정책 3종 × rating period 2종 × 엔진 2종(총 12설정)을 동일 하네스에서 비교했습니다.",
         "- 홀드아웃은 마지막 2시즌이며, 예측 시점 이전 정보만 사용하도록 period 단위 선예측 후갱신 순서를 강제했습니다.",
         "- 비교 방향은 결과와 무관한 해시로 고정하고, 베이스라인 로지스틱 스케일은 홀드아웃 이전 구간에서 적합했습니다.",
+        f"- 정책은 학습 데이터 구성에만 적용하고, 평가셋은 `{EVALUATION_POLICY}` 홀드아웃으로 전 설정 고정했습니다.",
+        "- 두 엔진에 동일한 사후 보정(Platt)을 적용한 뒤 비교했습니다. 캘리브레이션은 고칠 수 있고 판별력은 못 고치기 때문입니다.",
         "",
         "## 최적 설정 관측값",
         "",
@@ -1135,6 +1145,47 @@ def _write_adr(results: Sequence[ConfigResult], path: Path) -> None:
     )
     if verdict.blocking:
         lines.extend(["", f"GO를 막은 조건: **{', '.join(verdict.blocking)}**"])
+
+    lines.extend(["", "## 알려진 한계", ""])
+    best_ci = _log_loss_ci(best_result)
+    overlapping = [
+        f"`{other.policy}/{other.rating_period}/{other.engine}`"
+        for other in results
+        if other is not best_result and _log_loss_ci(other).overlaps(best_ci)
+    ]
+    if overlapping:
+        lines.append(
+            f"- 최적 설정의 CI가 다음과 겹칩니다: {', '.join(overlapping)}. "
+            "이들 사이의 순위는 이 홀드아웃으로 확정되지 않습니다."
+        )
+    else:
+        lines.append("- 최적 설정의 CI는 다른 모든 설정과 분리됩니다.")
+
+    predictions = best_model.predictions
+    newcomers = predictions.filter(pl.col("pair_n_games") <= 5)
+    if newcomers.height > 0:
+        newcomer_summary = compute_metrics(
+            actuals=newcomers["actual"].to_list(),
+            probabilities=newcomers["probability"].to_list(),
+        )
+        lines.append(
+            f"- 신인 구간(n_games <= 5, n={newcomer_summary.sample_size:,}): "
+            f"log loss {newcomer_summary.log_loss:.5f}, 정확도 {newcomer_summary.accuracy:.4f}. "
+            "이력이 없는 선수에게 모집단 평균 사전분포를 주기 때문이며, R-06 연령 모델이 다뤄야 할 지점입니다."
+        )
+
+    tau_values = sorted(best_result.engine_tau_scores.items(), key=lambda item: item[1])
+    if len(tau_values) >= 2:
+        spread = tau_values[-1][1] - tau_values[0][1]
+        lines.append(
+            f"- tau 격자 전체의 검증 log loss 폭은 {spread:.5f}입니다. "
+            "폭이 좁으면 tau가 사실상 식별되지 않으므로, 선택값을 과신하면 안 됩니다."
+        )
+
+    lines.append(
+        "- ECE 게이트는 고정 임계값(0.03)이라 표본 크기에 따라 엄격도가 달라집니다. "
+        "리포트의 귀무분포 표와 함께 읽어야 합니다."
+    )
     lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
