@@ -26,6 +26,7 @@ from .baselines import (
     build_pairwise_examples,
     fit_logistic_scale,
 )
+from .invariants import LN2, assert_harness_invariants
 from .metrics import MetricSummary, compute_metrics, write_calibration_svg
 
 EngineChoice = Literal["glicko2", "trueskill"]
@@ -69,6 +70,8 @@ class ConfigResult:
     engine: EngineChoice
     holdout_seasons: tuple[int, ...]
     baseline_scales: "BaselineScales"
+    holdout_comparison_count: int
+    total_comparison_count: int
     metrics_by_predictor: dict[str, Metrics]
     common_subset_metrics: dict[str, Metrics]
     calibration_path: Path
@@ -322,6 +325,54 @@ class BaselineScales:
     b3_sample: int
 
 
+@dataclass(frozen=True)
+class Gate:
+    name: str
+    passed: bool
+    observed: str
+
+
+@dataclass(frozen=True)
+class Verdict:
+    label: str
+    gates: tuple[Gate, ...]
+
+    @property
+    def blocking(self) -> tuple[str, ...]:
+        return tuple(f"{gate.name} (관측 {gate.observed})" for gate in self.gates if not gate.passed)
+
+    @property
+    def adr_status(self) -> str:
+        return "Accepted" if self.label == "GO" else "Proposed"
+
+
+def decide(model: Metrics, improvement: float) -> Verdict:
+    """판정 규칙의 유일한 구현. 리포트와 ADR이 같은 결론을 쓰게 합니다."""
+    gates = (
+        Gate("개선율 >= 5%", improvement >= 0.05, f"{improvement:.2%}"),
+        Gate("ECE <= 0.03", model.ece <= 0.03, f"{model.ece:.5f}"),
+        Gate("70% 과신 없음", not model.overconfidence_70, "Y" if model.overconfidence_70 else "N"),
+    )
+    if all(gate.passed for gate in gates):
+        label = "GO"
+    elif improvement >= 0.01:
+        label = "조건부"
+    else:
+        label = "STOP"
+    return Verdict(label=label, gates=gates)
+
+
+def _best_row(results: Sequence[ConfigResult]) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for result in results:
+        model = result.metrics_by_predictor[result.engine]
+        b3 = result.metrics_by_predictor["B3"]
+        improvement = (b3.log_loss - model.log_loss) / b3.log_loss if b3.log_loss > 0 else 0.0
+        rows.append({"result": result, "model": model, "b3": b3, "improvement": improvement})
+    rows.sort(key=lambda item: item["model"].log_loss)
+    return rows[0]
+
+
 def _fit_baseline_scales(
     races: Sequence[RaceObservation],
     periods: Sequence[Sequence[RaceObservation]],
@@ -405,10 +456,14 @@ def _evaluate_config(
 
     rows: list[dict[str, Any]] = []
     comparison_id = 0
+    holdout_comparisons = 0
+    total_comparisons = 0
     for period_races in periods:
         in_holdout = any(race.season_year in holdout_set for race in period_races)
         examples = build_pairwise_examples(period_races, start_id=comparison_id)
+        total_comparisons += len(examples)
         if in_holdout:
+            holdout_comparisons += len(examples)
             for example in examples:
                 phi, n_games = model.pair_uncertainty(example)
                 model_prob = model.predict(example)
@@ -491,17 +546,21 @@ def _evaluate_config(
         model_summary.calibration,
         title=f"{policy}/{rating_period}/{engine} calibration",
     )
-    return ConfigResult(
+    result = ConfigResult(
         policy=policy,
         rating_period=rating_period,
         engine=engine,
         holdout_seasons=holdout_seasons,
         baseline_scales=scales,
+        holdout_comparison_count=holdout_comparisons,
+        total_comparison_count=total_comparisons,
         metrics_by_predictor=metrics_by_predictor,
         common_subset_metrics=common_subset_metrics,
         calibration_path=calibration_path,
         comparison_count=len(common_ids),
     )
+    assert_harness_invariants(result)
+    return result
 
 
 def model_metrics_to_summary(metrics: Metrics) -> MetricSummary:
@@ -608,13 +667,7 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         )
     model_rows.sort(key=lambda item: item["model"].log_loss)
     best = model_rows[0]
-
-    if best["improvement"] >= 0.05 and best["model"].ece <= 0.03 and not best["model"].overconfidence_70:
-        verdict = "GO"
-    elif best["improvement"] >= 0.01:
-        verdict = "조건부"
-    else:
-        verdict = "STOP"
+    verdict = decide(best["model"], best["improvement"])
 
     lines = [
         "# R-05 Backtest Report",
@@ -688,63 +741,109 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         lines.append(f"- `{result.policy}/{result.rating_period}/{result.engine}`: ![]({rel.as_posix()})")
 
     lines.extend(["", _render_segment_section(best["result"]), "", "## GO/STOP 판정", ""])
-    lines.append(f"- best_config: `{best['result'].policy}/{best['result'].rating_period}/{best['result'].engine}`")
+    best_result: ConfigResult = best["result"]
+    lines.append(f"- best_config: `{best_result.policy}/{best_result.rating_period}/{best_result.engine}`")
     lines.append(f"- best_log_loss: **{best['model'].log_loss:.5f}**")
     lines.append(f"- B3_log_loss: **{best['b3'].log_loss:.5f}**")
     lines.append(f"- improvement_vs_B3: **{best['improvement'] * 100:.2f}%**")
-    lines.append(f"- verdict: **{verdict}**")
+    lines.append(
+        f"- holdout 비율: **{best_result.holdout_comparison_count:,} / {best_result.total_comparison_count:,}** "
+        f"({best_result.holdout_comparison_count / max(best_result.total_comparison_count, 1):.1%})"
+    )
+    lines.append(f"- verdict: **{verdict.label}**")
+    lines.extend(["", "| 조건 | 관측값 | 통과 |", "| --- | ---: | --- |"])
+    for gate in verdict.gates:
+        lines.append(f"| {gate.name} | {gate.observed} | {'Y' if gate.passed else 'N'} |")
+    if verdict.blocking:
+        lines.extend(["", f"GO를 막은 조건: {', '.join(verdict.blocking)}"])
     return "\n".join(lines) + "\n"
 
 
 def _write_adr(results: Sequence[ConfigResult], path: Path) -> None:
-    model_rows = []
-    for result in results:
-        model = result.metrics_by_predictor[result.engine]
-        b3 = result.metrics_by_predictor["B3"]
-        improvement = (b3.log_loss - model.log_loss) / b3.log_loss if b3.log_loss > 0 else 0.0
-        model_rows.append((result, model, b3, improvement))
-    model_rows.sort(key=lambda row: row[1].log_loss)
-    best_result, best_model, best_b3, best_improvement = model_rows[0]
-
-    if best_improvement >= 0.05 and best_model.ece <= 0.03 and not best_model.overconfidence_70:
-        verdict = "GO"
-    elif best_improvement >= 0.01:
-        verdict = "조건부"
-    else:
-        verdict = "STOP"
+    best = _best_row(results)
+    best_result: ConfigResult = best["result"]
+    best_model: Metrics = best["model"]
+    best_b3: Metrics = best["b3"]
+    best_improvement: float = best["improvement"]
+    verdict = decide(best_model, best_improvement)
+    metrics = best_result.metrics_by_predictor
+    holdout_ratio = best_result.holdout_comparison_count / max(best_result.total_comparison_count, 1)
 
     lines = [
-        "# ADR 0005 — 백테스트 판정 (R-05)",
+        "# ADR 0006 — 백테스트 판정 재실행 (R-05)",
         "",
-        "- 상태: Accepted",
+        # GO가 아닌 판정을 Accepted로 적으면, 무엇이 막혔는지가 기록에서 사라집니다.
+        f"- 상태: {verdict.adr_status}",
         f"- 작성시각: {datetime.now().isoformat(timespec='seconds')}",
-        "- 선행: `docs/adr/0004-glicko2-baseline.md`",
+        "- 선행: `docs/adr/0005-backtest-verdict.md` (Superseded)",
         "",
         "## 문맥",
         "",
         "- R-05 요구에 따라 정책 3종 × rating period 2종 × 엔진 2종(총 12설정)을 동일 하네스에서 비교했습니다.",
         "- 홀드아웃은 마지막 2시즌이며, 예측 시점 이전 정보만 사용하도록 period 단위 선예측 후갱신 순서를 강제했습니다.",
+        "- 비교 방향은 결과와 무관한 해시로 고정하고, 베이스라인 로지스틱 스케일은 홀드아웃 이전 구간에서 적합했습니다.",
         "",
         "## 최적 설정 관측값",
         "",
         f"- best_config: **{best_result.policy}/{best_result.rating_period}/{best_result.engine}**",
-        f"- model log loss: **{best_model.log_loss:.5f}**",
-        f"- B3 log loss: **{best_b3.log_loss:.5f}**",
+        f"- model log loss: **{best_model.log_loss:.5f}** (accuracy {best_model.accuracy:.4f}, brier {best_model.brier:.5f})",
         f"- improvement vs B3: **{best_improvement * 100:.2f}%**",
         f"- ECE: **{best_model.ece:.5f}**",
         f"- overconfidence@70: **{'Y' if best_model.overconfidence_70 else 'N'}** (n={best_model.overconfidence_70_count:,})",
         "",
-        "## 판정 규칙 적용",
+        "### 베이스라인 원값",
         "",
-        "| 조건 | 판정 |",
-        "| --- | --- |",
-        "| log loss 개선율 >= 5% AND calibration 양호 | GO |",
-        "| 1% <= 개선율 < 5% | 조건부 |",
-        "| 개선율 < 1% 또는 B3와 동등/열위 | STOP |",
+        "베이스라인이 동전 던지기보다 나쁘면 그건 발견이 아니라 구현 결함입니다. 원값을 남깁니다.",
         "",
-        f"최종 판정: **{verdict}**",
-        "",
+        "| 베이스라인 | log loss | 동전(ln2=0.69315) 대비 |",
+        "| --- | ---: | --- |",
     ]
+    for name in ("B0", "B1", "B2", "B3"):
+        if name not in metrics:
+            continue
+        loss = metrics[name].log_loss
+        # B0은 정의상 동전이므로 부동소수 반올림으로 열위 표시가 나오면 안 됩니다.
+        if abs(loss - LN2) <= 1e-6:
+            verdict_text = "동일"
+        elif loss > LN2:
+            verdict_text = "열위"
+        else:
+            verdict_text = "우위"
+        lines.append(f"| {name} | {loss:.5f} | {verdict_text} |")
+
+    lines.extend(
+        [
+            "",
+            "### 홀드아웃 규모",
+            "",
+            f"- 홀드아웃 비교: **{best_result.holdout_comparison_count:,}** / 전체 **{best_result.total_comparison_count:,}** ({holdout_ratio:.1%})",
+            f"- 홀드아웃 시즌: {', '.join(str(season) for season in best_result.holdout_seasons)}",
+            f"- 적합된 베이스라인 스케일: B2={best_result.baseline_scales.b2:.5f}, B3={best_result.baseline_scales.b3:.5f}",
+            "",
+            "## 판정 규칙 적용",
+            "",
+            "| 조건 | 관측값 | 통과 |",
+            "| --- | ---: | --- |",
+        ]
+    )
+    for gate in verdict.gates:
+        lines.append(f"| {gate.name} | {gate.observed} | {'Y' if gate.passed else 'N'} |")
+
+    lines.extend(
+        [
+            "",
+            "| 판정 | 규칙 |",
+            "| --- | --- |",
+            "| GO | 개선율 >= 5% AND ECE <= 0.03 AND 70% 과신 없음 |",
+            "| 조건부 | 1% <= 개선율 < 5%, 또는 개선율은 충분하나 캘리브레이션 게이트 미통과 |",
+            "| STOP | 개선율 < 1% 또는 B3와 동등/열위 |",
+            "",
+            f"최종 판정: **{verdict.label}**",
+        ]
+    )
+    if verdict.blocking:
+        lines.extend(["", f"GO를 막은 조건: **{', '.join(verdict.blocking)}**"])
+    lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -772,7 +871,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--head2head-prob", type=float, default=0.65, help="B1 고정 확률")
     parser.add_argument("--out", default="out/backtest_report.md", help="리포트 출력 경로")
     parser.add_argument("--calibration-dir", default="out/backtest_calibration", help="캘리브레이션 SVG 디렉터리")
-    parser.add_argument("--adr-out", default="docs/adr/0005-backtest-verdict.md", help="ADR 출력 경로")
+    parser.add_argument("--adr-out", default="docs/adr/0006-backtest-verdict-rerun.md", help="ADR 출력 경로")
     return parser
 
 
