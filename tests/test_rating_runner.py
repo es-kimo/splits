@@ -1,4 +1,5 @@
 import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -89,6 +90,15 @@ def test_run_replay_generates_snapshot_and_report(tmp_path: Path):
     assert out.columns == ["athlete_id", "valid_date", "mu", "phi", "sigma", "n_games"]
     assert out.height > 0
     assert "phi > 300 선수 비율" in report_path.read_text(encoding="utf-8")
+    assert result.calibrator.sample_size > 0
+    assert result.run_id
+    assert result.calibrator_path.exists()
+    assert result.run_manifest_path.exists()
+
+    manifest = json.loads(result.run_manifest_path.read_text(encoding="utf-8"))
+    assert manifest["run_id"] == result.run_id
+    assert "calibrator_json" in manifest
+    assert manifest["calibration_sample_size"] == result.calibrator.sample_size
 
 
 def test_run_replay_is_byte_deterministic(tmp_path: Path):
@@ -98,10 +108,31 @@ def test_run_replay_is_byte_deterministic(tmp_path: Path):
     report_a = tmp_path / "report-a.md"
     report_b = tmp_path / "report-b.md"
 
-    run_replay(ledger_path=ledger_dir, output_path=out_a, report_path=report_a, engine_name="glicko2")
-    run_replay(ledger_path=ledger_dir, output_path=out_b, report_path=report_b, engine_name="glicko2")
+    result_a = run_replay(
+        ledger_path=ledger_dir,
+        output_path=out_a,
+        report_path=report_a,
+        engine_name="glicko2",
+        calibrator_out=tmp_path / "calibrator-a.json",
+        run_manifest_out=tmp_path / "manifest-a.json",
+    )
+    result_b = run_replay(
+        ledger_path=ledger_dir,
+        output_path=out_b,
+        report_path=report_b,
+        engine_name="glicko2",
+        calibrator_out=tmp_path / "calibrator-b.json",
+        run_manifest_out=tmp_path / "manifest-b.json",
+    )
 
     assert _digest(out_a) == _digest(out_b)
+    assert result_a.run_id == result_b.run_id
+    assert result_a.calibrator.digest() == result_b.calibrator.digest()
+
+    manifest_a = json.loads((tmp_path / "manifest-a.json").read_text(encoding="utf-8"))
+    manifest_b = json.loads((tmp_path / "manifest-b.json").read_text(encoding="utf-8"))
+    assert manifest_a["raw_prob_digest"] == manifest_b["raw_prob_digest"]
+    assert manifest_a["calibrated_prob_digest"] == manifest_b["calibrated_prob_digest"]
 
 
 def test_month_period_collapses_same_month_meets(tmp_path: Path):
@@ -128,4 +159,3 @@ def test_month_period_collapses_same_month_meets(tmp_path: Path):
 
     assert meet_result.period_count == 3
     assert month_result.period_count == 2
-

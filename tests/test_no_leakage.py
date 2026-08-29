@@ -6,6 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from rating.calibration import IDENTITY_CALIBRATOR
 from rating.engine.glicko2 import Glicko2Engine, Glicko2Params
 from rating.eval.backtest import evaluate
 from rating.ledger.ordering import make_ordering_key, make_race_ordering_key
@@ -69,6 +70,7 @@ def test_meet_period_uses_pre_meet_state_for_all_races():
     metrics = evaluate(
         Glicko2Engine(params=Glicko2Params(rating_period="meet")),
         frame,
+        calibrator=IDENTITY_CALIBRATOR,
         rating_period="meet",
     )
     probs = metrics.predictions.sort("comparison_id")["probability"].to_list()
@@ -89,9 +91,9 @@ def test_month_period_uses_pre_month_state_for_all_races():
     metrics = evaluate(
         Glicko2Engine(params=Glicko2Params(rating_period="month")),
         frame,
+        calibrator=IDENTITY_CALIBRATOR,
         rating_period="month",
     )
     probs = metrics.predictions.sort("comparison_id")["probability"].to_list()
     assert len(probs) == 2
     assert probs[0] == pytest.approx(probs[1], rel=1e-9)
-

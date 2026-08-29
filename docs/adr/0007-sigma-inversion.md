@@ -3,6 +3,7 @@
 - 상태: Accepted
 - 작성시각: 2026-08-29T21:00
 - 선행: `docs/adr/0006-backtest-verdict-rerun.md` (R-05)
+- 후속: `docs/adr/0008-calibration.md` (보정기 재적합 주기/세그먼트 분리 판정)
 - 차단 해제: R-13
 
 ## 문맥

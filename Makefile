@@ -1,4 +1,4 @@
-.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-eval rating-sigma-diagnosis audit test clean
+.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-calibration rating-eval rating-sigma-diagnosis audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -82,6 +82,11 @@ rating-eval: rating ## 📊 [레이팅 백테스트] 정책별 비교 및 예측
 	@echo -e "$(YELLOW)rating.eval.backtest: 백테스트 평가 실행...$(RESET)"
 	$(PYTHON) -m rating.eval.backtest --ledger out/ledger --holdout-seasons 2 --all-configs --out out/backtest_report.md
 	@echo -e "$(GREEN)✅ 백테스트 완료! (out/backtest_report.md)$(RESET)"
+
+rating-calibration: rating ## 🧭 [보정 프로토콜] 적합 폴드·재적합 주기·세그먼트 분리 판정 리포트 생성
+	@echo -e "$(YELLOW)rating.calibration.protocol: 보정 프로토콜 평가 실행...$(RESET)"
+	$(PYTHON) -m rating.calibration.protocol --ledger out/ledger --policy conservative --rating-period meet --engine trueskill --out out/calibration_report.md
+	@echo -e "$(GREEN)✅ 보정 프로토콜 완료! (out/calibration_report.md)$(RESET)"
 
 rating-sigma-diagnosis: ## 🔬 [sigma 진단] 실력 차이를 통제해 sigma-오차 역전이 교락인지 버그인지 판정
 	@echo -e "$(YELLOW)rating.eval.sigma_diagnosis: |mu 차이| 통제 후 sigma-오차 관계 측정...$(RESET)"

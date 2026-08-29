@@ -8,7 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rating.eval.backtest import BaselineScales, ConfigResult, Metrics, decide
 from rating.eval.invariants import ENTROPY_SLACK, LN2, assert_harness_invariants, binary_entropy
-from rating.eval.metrics import IDENTITY_SCALER, CalibrationNull
+from rating.calibration import IDENTITY_CALIBRATOR
+from rating.eval.metrics import CalibrationNull
 
 
 def _metrics(
@@ -57,7 +58,7 @@ def _result(**overrides) -> ConfigResult:
         "total_comparison_count": 165_399,
         "engine_tau": 0.5,
         "engine_tau_scores": {0.5: 0.58},
-        "scaler": IDENTITY_SCALER,
+        "scaler": IDENTITY_CALIBRATOR,
         "raw_metrics": metrics["glicko2"],
         "calibration_null": CalibrationNull(p50=0.008, p95=0.011, p99=0.013, resamples=500),
         "metrics_by_predictor": metrics,

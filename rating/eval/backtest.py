@@ -9,6 +9,7 @@ from typing import Any, Literal, Sequence
 
 import polars as pl
 
+from rating.calibration import Calibrator, fit as fit_calibrator
 from rating.engine.glicko2 import Glicko2Engine, Glicko2Params
 from rating.engine.types import Predictor, RaceEntry, RaceResult, RatingLike, RatingPeriod, elapsed_periods
 from rating.ledger.policies import POLICIES
@@ -32,12 +33,10 @@ from .metrics import (
     BootstrapInterval,
     CalibrationNull,
     MetricSummary,
-    PlattScaler,
     bootstrap_log_loss_ci,
     calibration_null,
     clamp_probability,
     compute_metrics,
-    fit_platt_scaler,
     write_calibration_svg,
 )
 
@@ -86,7 +85,7 @@ class ConfigResult:
     total_comparison_count: int
     engine_tau: float
     engine_tau_scores: dict[float, float]
-    scaler: PlattScaler
+    scaler: Calibrator
     raw_metrics: Metrics
     calibration_null: CalibrationNull
     metrics_by_predictor: dict[str, Metrics]
@@ -104,9 +103,12 @@ class ModelAdapter:
     rating_period: RatingPeriod = "meet"
     initial_mu: float = 0.0
 
-    def predict(self, example: PairwiseExample) -> float:
+    def predict_raw(self, example: PairwiseExample) -> float:
         """P(left > right) — 방향은 example이 결과와 무관하게 고정합니다."""
         return float(self.predictor.predict_prob(example.left_id, example.right_id, example.race_date))
+
+    def predict_calibrated(self, example: PairwiseExample, calibrator: Calibrator) -> float:
+        return calibrator.apply(self.predict_raw(example))
 
     def update(self, races: Sequence[RaceObservation]) -> None:
         race_results = [
@@ -308,7 +310,13 @@ def _to_metrics(summary: MetricSummary, predictions: pl.DataFrame) -> Metrics:
     )
 
 
-def evaluate(predictor: Predictor, holdout: pl.DataFrame, *, rating_period: RatingPeriod = "meet") -> Metrics:
+def evaluate(
+    predictor: Predictor,
+    holdout: pl.DataFrame,
+    *,
+    calibrator: Calibrator,
+    rating_period: RatingPeriod = "meet",
+) -> Metrics:
     races = _to_races(holdout)
     periods = _group_periods(races, rating_period)
     state: dict[str, RatingLike] = {}
@@ -321,7 +329,9 @@ def evaluate(predictor: Predictor, holdout: pl.DataFrame, *, rating_period: Rati
                 {
                     "comparison_id": int(example.comparison_id),
                     "race_id": example.race_id,
-                    "probability": float(predictor.predict_prob(example.left_id, example.right_id, example.race_date)),
+                    "probability": calibrator.apply(
+                        float(predictor.predict_prob(example.left_id, example.right_id, example.race_date))
+                    ),
                     "actual": example.label,
                     "covered": True,
                 }
@@ -416,7 +426,7 @@ def _fit_engine_tau(
                 if not any(race.season_year == previous_season for race in meet_races):
                     continue
                 for example in build_pairwise_examples(meet_races):
-                    probability = clamp_probability(model.predict(example))
+                    probability = clamp_probability(model.predict_raw(example))
                     loss_sum -= math.log(probability) if example.label == 1 else math.log(1.0 - probability)
                     count += 1
             model.update(step.train_races)
@@ -597,7 +607,7 @@ def _fit_calibrator(
     steps: Sequence[ScheduleStep],
     holdout_set: set[int],
     previous_season: int,
-) -> PlattScaler:
+) -> Calibrator:
     """마지막 학습 시즌에서 사후 보정기를 적합합니다.
 
     모델을 처음부터 다시 재생하며 보정 시즌의 (예측, 실제)를 모읍니다. 예측은
@@ -614,10 +624,12 @@ def _fit_calibrator(
                 continue
             if any(race.season_year == previous_season for race in meet_races):
                 for example in build_pairwise_examples(meet_races):
-                    probabilities.append(model.predict(example))
+                    probabilities.append(model.predict_raw(example))
                     labels.append(example.label)
         model.update(step.train_races)
-    return fit_platt_scaler(probabilities, labels)
+    if not probabilities:
+        raise ValueError("[error] calibrator 적합 구간에 비교가 없습니다.")
+    return fit_calibrator(probabilities, labels, fold_id=f"season={previous_season}")
 
 
 def _evaluate_config(
@@ -689,7 +701,7 @@ def _evaluate_config(
                 holdout_comparisons += len(examples)
                 for example in examples:
                     diagnostics = model.pair_diagnostics(example)
-                    raw_probability = float(model.predict(example))
+                    raw_probability = float(model.predict_raw(example))
                     rows.append(
                         {
                             "config": config,
