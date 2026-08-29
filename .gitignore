@@ -37,3 +37,5 @@ __pycache__/
 web/node_modules/
 web/dist/
 web/.astro/
+# rating ledger parquet (records_full.csv 유래 — 원천 선수 식별자를 포함)
+/out/ledger/

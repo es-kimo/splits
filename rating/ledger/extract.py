@@ -18,6 +18,7 @@ FIGURE_CLASS_CD = "3"
 RELAY_RE = re.compile(r"(릴레이|relay|계주)", re.IGNORECASE)
 GROUP_ONLY_ROUND_RE = re.compile(r"^\d+조$")
 HEAT_NUMBER_RE = re.compile(r"(\d+)\s*조|heat\s*([0-9]+)", re.IGNORECASE)
+GENDER_PREFIX_RE = re.compile(r"^(남자|여자|남|여)")
 
 ALIASES = {
     "meet_id": ["meet_id", "toCd"],
@@ -142,6 +143,38 @@ def _event_key(event: str, category: str, distance_text: str) -> str:
     return category_text or distance
 
 
+def split_division(category: Any, gender: Any) -> tuple[str, str]:
+    """부문 라벨을 (성별, 연령/급 구간)으로 분리합니다.
+
+    원천에 따라 성별이 별도 컬럼(`성별`)에 있기도 하고 종별 문자열 접두사
+    (`남자중학부`)에 녹아 있기도 합니다. 두 소스가 같은 부문 키를 만들도록
+    양쪽을 동일한 모양으로 정규화합니다.
+    """
+    category_text = _norm(category)
+    gender_text = _norm(gender)
+    match = GENDER_PREFIX_RE.match(category_text)
+    if match:
+        band = category_text[match.end() :].strip()
+        if not gender_text:
+            gender_text = match.group(1)[0]
+    else:
+        band = category_text
+    if gender_text:
+        gender_text = gender_text[0]
+    return gender_text, band
+
+
+def division_key(category: Any, gender: Any) -> str:
+    """레이스를 가르는 최소 단위(성별 + 연령/급 구간)의 정규 키."""
+    gender_text, band = split_division(category, gender)
+    return f"{gender_text or '-'}:{band or '-'}"
+
+
+def resolve_gender(category: Any, gender: Any) -> str:
+    gender_text, _band = split_division(category, gender)
+    return gender_text
+
+
 def _extract_heat_no(round_text: str) -> str:
     match = HEAT_NUMBER_RE.search(_norm(round_text))
     if not match:
@@ -164,11 +197,15 @@ def _build_reconstructed_race_id(row: dict[str, Any]) -> str:
     round_text = _norm(row.get("round")) or _norm(row.get("round_kind"))
     heat_no = _extract_heat_no(round_text)
     date_text = _clean_piece(row.get("date")) or "-"
-    if not (meet_id and event and round_text):
+    # 부문(성별 + 연령/급 구간)이 빠지면 같은 대회/종목/라운드의 서로 다른 부문이
+    # 하나의 레이스로 병합되어, 붙은 적 없는 선수 쌍이 비교로 생성됩니다.
+    division = division_key(row.get("category"), row.get("gender"))
+    if not (meet_id and event and round_text and division != "-:-"):
         return ""
     return "|".join(
         [
             _clean_piece(meet_id),
+            _clean_piece(division),
             _clean_piece(event),
             _clean_piece(round_text),
             _clean_piece(heat_no) or "-",
@@ -369,6 +406,13 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
             )
             .alias("is_relay"),
             pl.col("category").map_elements(_is_hobby_division, return_dtype=pl.Boolean).alias("is_hobby"),
+            # 원천에 성별 컬럼이 없으면(records_full.csv) 종별 접두사에서 복원합니다.
+            pl.struct(["category", "gender"])
+            .map_elements(lambda row: resolve_gender(row["category"], row["gender"]), return_dtype=pl.Utf8)
+            .alias("gender"),
+            pl.struct(["category", "gender"])
+            .map_elements(lambda row: division_key(row["category"], row["gender"]), return_dtype=pl.Utf8)
+            .alias("division"),
             pl.struct(["class_cd", "meet_name", "round", "round_kind"])
             .map_elements(
                 lambda row: _classify_class_cd(
@@ -382,7 +426,9 @@ def _canonicalize_results(results: pl.DataFrame) -> pl.DataFrame:
             .alias("class_cd_resolved"),
         ]
     )
-    reconstructed = pl.struct(["meet_id", "meet_name", "season_text", "event", "category", "distance_text", "round", "round_kind", "date"]).map_elements(
+    reconstructed = pl.struct(
+        ["meet_id", "meet_name", "season_text", "event", "category", "gender", "distance_text", "round", "round_kind", "date"]
+    ).map_elements(
         _build_reconstructed_race_id,
         return_dtype=pl.Utf8,
     )

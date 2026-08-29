@@ -266,6 +266,50 @@ def build_pairwise_view(race_ledger: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+MAX_RANK_TIE_MULTIPLICITY = 3
+
+_RACE_KEY_HINT = (
+    "race_id가 서로 다른 부문을 하나의 레이스로 병합하고 있을 가능성이 높습니다. "
+    "extract._build_reconstructed_race_id의 부문(division) 성분을 확인하세요."
+)
+
+
+def assert_rank_ties_are_consistent(frame: pl.DataFrame) -> None:
+    """같은 순위를 공유하는 참가자는 진짜 동착이어야 합니다.
+
+    동착(같은 기록으로 공동 순위)은 원천에 실제로 존재하므로 허용합니다. 다만
+    기록이 서로 다른데 순위만 같거나, 한 순위에 네 명 이상이 몰리는 것은 동착이
+    아니라 레이스 키가 너무 성겨서 서로 다른 부문이 병합된 신호입니다.
+    """
+    ranked = frame.filter(pl.col("rank") > 0)
+    if ranked.is_empty():
+        return
+
+    grouped = ranked.group_by(["race_ordering_key", "rank"]).agg(
+        pl.len().alias("n"),
+        pl.col("time_sec").n_unique().alias("distinct_times"),
+    )
+
+    crowded = grouped.filter(pl.col("n") > MAX_RANK_TIE_MULTIPLICITY)
+    if not crowded.is_empty():
+        worst = crowded.sort(["n", "race_ordering_key", "rank"], descending=[True, False, False]).row(0, named=True)
+        raise ValueError(
+            f"[error] 한 순위에 {MAX_RANK_TIE_MULTIPLICITY}명을 넘는 참가자가 있습니다. "
+            f"위반 {crowded.height:,}건, 최다 {worst['n']}명 "
+            f"(race_ordering_key={worst['race_ordering_key']}, rank={worst['rank']}). " + _RACE_KEY_HINT
+        )
+
+    inconsistent = grouped.filter((pl.col("n") > 1) & (pl.col("distinct_times") > 1))
+    if not inconsistent.is_empty():
+        worst = inconsistent.sort(["race_ordering_key", "rank"]).row(0, named=True)
+        raise ValueError(
+            "[error] 같은 순위인데 기록이 서로 다릅니다. 동착이 아닙니다. "
+            f"위반 {inconsistent.height:,}건 "
+            f"(race_ordering_key={worst['race_ordering_key']}, rank={worst['rank']}, "
+            f"서로 다른 기록 {worst['distinct_times']}종). " + _RACE_KEY_HINT
+        )
+
+
 def validate_ledger(df: pl.DataFrame) -> None:
     required = set(RACE_LEDGER_SCHEMA.keys())
     _ensure_required_columns(df, required)
@@ -307,6 +351,7 @@ def validate_ledger(df: pl.DataFrame) -> None:
 
     _ensure_unique(df, ["ordering_key"], "race_ledger ordering_key")
     _ensure_unique(df, ["race_id", "athlete_id"], "race_ledger race_id+athlete_id")
+    assert_rank_ties_are_consistent(df)
     _ensure_known_values(df, "round_class", KNOWN_ROUND_CLASSES, "round_class")
     _ensure_known_values(df, "status", KNOWN_STATUSES, "status")
 
