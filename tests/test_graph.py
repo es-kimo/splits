@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from rating.ledger.graph import analyze_connectivity, build_graph, prepare_results
+from rating.ledger.graph import DecisionUnavailableError, analyze_connectivity, build_graph, prepare_results
 
 
 def test_analyze_connectivity_detects_disconnected_fixture():
@@ -124,3 +124,42 @@ def test_prepare_results_reconstructs_race_and_applies_filters():
     assert diagnostics["deduplicated_athlete_race_rows"] == 1
     assert diagnostics["rows_after_filter"] == 1
     assert prepared.rows["race_id"].iloc[0] != ""
+
+
+def test_decision_unavailable_when_comparable_cells_absent():
+    raw = pd.DataFrame(
+        [
+            {
+                "meet_id": "m1",
+                "race_id": "r1",
+                "athlete_hash": "a1",
+                "event": "500m",
+                "round": "예선1조",
+                "place": "1",
+                "time": "45.1",
+                "status": "",
+                "season": "2024",
+                "grade": "5,6",
+                "gender": "남",
+                "class_cd": "2",
+            },
+            {
+                "meet_id": "m1",
+                "race_id": "r1",
+                "athlete_hash": "a2",
+                "event": "500m",
+                "round": "예선1조",
+                "place": "2",
+                "time": "45.4",
+                "status": "",
+                "season": "2024",
+                "grade": "5,6",
+                "gender": "남",
+                "class_cd": "2",
+            },
+        ]
+    )
+    prepared = prepare_results(raw)
+    graph = build_graph(prepared.rows)
+    with pytest.raises(DecisionUnavailableError):
+        analyze_connectivity(graph, prepared.rows)

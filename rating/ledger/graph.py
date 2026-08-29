@@ -17,6 +17,7 @@ SHORTTRACK_CLASS_CD = "2"
 GO_GIANT_COMPONENT_MIN = 0.90
 CONDITIONAL_GO_GIANT_COMPONENT_MIN = 0.70
 ISOLATED_CELL_WARN_RATIO = 0.05
+DIVISION_BRIDGE_GO_MIN_SHARED = 10
 RELAY_RE = re.compile(r"(릴레이|relay|계주)", re.IGNORECASE)
 HEAT_NUMBER_RE = re.compile(r"(\d+)\s*조|heat\s*([0-9]+)", re.IGNORECASE)
 FINISHED_STATUS_ALLOW = {"", "ok", "finished", "finish", "완주", "정상완주"}
@@ -35,6 +36,8 @@ FINISHED_STATUS_DENY_TOKENS = [
     "실패",
     "부정출발",
 ]
+ELEMENTARY_DIVISION_LABELS = {"1", "2", "3", "4", "5", "6", "1,2", "3,4", "5,6"}
+CORE_STAGE_BRIDGE_PAIRS = [("초등", "중등"), ("중등", "고등"), ("고등", "대학·일반")]
 
 ALIASES = {
     "meet_id": ["meet_id", "toCd"],
@@ -63,10 +66,15 @@ class PreparedResults:
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
+class DecisionUnavailableError(RuntimeError):
+    """Raised when connectivity metrics are not decision-ready."""
+
+
 @dataclass
 class ConnectivityReport:
     generated_at: str
     overall: dict[str, Any]
+    by_gender: dict[str, Any]
     season: dict[str, Any]
     grade: dict[str, Any]
     vertical: dict[str, Any]
@@ -132,6 +140,15 @@ def _parse_grade_number(value: Any) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _normalize_gender(value: Any) -> str:
+    text = _norm(value).lower()
+    if text in {"남", "남자", "m", "male", "man"}:
+        return "남"
+    if text in {"여", "여자", "f", "female", "woman"}:
+        return "여"
+    return _norm(value)
 
 
 def _percentile(values: list[float], q: float) -> float | None:
@@ -241,7 +258,7 @@ def _canonicalize_results(frame: pd.DataFrame) -> pd.DataFrame:
             "status": _read_alias_series(frame, "status"),
             "season_text": _read_alias_series(frame, "season"),
             "grade_text": _read_alias_series(frame, "grade").map(_parse_grade_text),
-            "gender": _read_alias_series(frame, "gender"),
+            "gender": _read_alias_series(frame, "gender").map(_normalize_gender),
             "class_cd": _read_alias_series(frame, "class_cd"),
             "meet_name": _read_alias_series(frame, "meet_name"),
             "category": _read_alias_series(frame, "category"),
@@ -474,15 +491,40 @@ def _build_season_metrics(meta: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def _division_label(grade_text: Any, category: Any) -> str:
+    grade = _norm(grade_text)
+    if grade:
+        return grade
+    return _norm(category)
+
+
+def _division_stage(label: Any) -> str:
+    text = _norm(label).replace(" ", "")
+    if not text:
+        return ""
+    if "유치" in text:
+        return "유치"
+    if text in ELEMENTARY_DIVISION_LABELS or "초등" in text or "12세이하" in text:
+        return "초등"
+    if any(token in text for token in ["중학", "중등", "주니어"]):
+        return "중등"
+    if any(token in text for token in ["고등", "고교"]):
+        return "고등"
+    if any(token in text for token in ["대학", "실업", "일반", "동호인", "남자부", "여자부", "일반부"]):
+        return "대학·일반"
+    return ""
+
+
 def _build_grade_meta_graph(base: pd.DataFrame) -> nx.Graph:
     graph = nx.Graph()
-    for _, race in base.groupby("race_id", sort=False):
-        grades = sorted({value for value in race["grade_text"].tolist() if value})
-        for grade in grades:
-            graph.add_node(grade)
-        if len(grades) < 2:
+    pair_base = base[["athlete_id", "division_label"]].drop_duplicates()
+    for _, row in pair_base.iterrows():
+        graph.add_node(_norm(row["division_label"]))
+    for _, group in pair_base.groupby("athlete_id", sort=False):
+        divisions = sorted({_norm(value) for value in group["division_label"].tolist() if _norm(value)})
+        if len(divisions) < 2:
             continue
-        for left, right in combinations(grades, 2):
+        for left, right in combinations(divisions, 2):
             if graph.has_edge(left, right):
                 graph[left][right]["weight"] += 1
             else:
@@ -491,7 +533,12 @@ def _build_grade_meta_graph(base: pd.DataFrame) -> nx.Graph:
 
 
 def _build_grade_metrics(meta: pd.DataFrame) -> dict[str, Any]:
-    base = meta[(meta["season_year"].notna()) & (meta["grade_text"] != "") & (meta["gender"] != "")].copy()
+    base = meta[(meta["season_year"].notna()) & (meta["gender"] != "")].copy()
+    base["division_label"] = [
+        _division_label(grade_text, category)
+        for grade_text, category in zip(base["grade_text"].tolist(), base["category"].tolist())
+    ]
+    base = base[base["division_label"] != ""].copy()
     if base.empty:
         return {
             "cell_count": 0,
@@ -504,34 +551,42 @@ def _build_grade_metrics(meta: pd.DataFrame) -> dict[str, Any]:
             "grade_meta_edges": [],
             "grade_meta_nodes": [],
             "top_cells": [],
+            "division_transition_athlete_count": 0,
+            "division_transition_athlete_ratio": 0.0,
         }
 
     cell_table = (
-        base.groupby(["season_year", "grade_text", "gender"], dropna=False)["athlete_id"]
+        base.groupby(["season_year", "division_label", "gender"], dropna=False)["athlete_id"]
         .nunique()
         .reset_index(name="athlete_count")
-        .sort_values(["season_year", "grade_text", "gender"], ascending=[True, True, True])
+        .sort_values(["season_year", "division_label", "gender"], ascending=[True, True, True])
     )
     cell_sizes = [float(value) for value in cell_table["athlete_count"].tolist()]
-    mixed_grade_count = 0
+    mixed_division_count = 0
     for _, race in base.groupby("race_id", sort=False):
-        grades = {value for value in race["grade_text"].tolist() if value}
-        if len(grades) >= 2:
-            mixed_grade_count += 1
+        divisions = {value for value in race["division_label"].tolist() if value}
+        if len(divisions) >= 2:
+            mixed_division_count += 1
 
     grade_graph = _build_grade_meta_graph(base)
     edge_rows = sorted(
-        [{"left": left, "right": right, "shared_race_count": int(data.get("weight", 0))} for left, right, data in grade_graph.edges(data=True)],
-        key=lambda item: (-item["shared_race_count"], item["left"], item["right"]),
+        [{"left": left, "right": right, "shared_athlete_count": int(data.get("weight", 0))} for left, right, data in grade_graph.edges(data=True)],
+        key=lambda item: (-item["shared_athlete_count"], item["left"], item["right"]),
     )
     component_count = nx.number_connected_components(grade_graph) if grade_graph.number_of_nodes() else 0
+
+    division_counts = (
+        base[["athlete_id", "division_label"]].drop_duplicates().groupby("athlete_id", sort=False)["division_label"].nunique()
+    )
+    transition_athletes = int((division_counts >= 2).sum()) if not division_counts.empty else 0
+    athlete_total = int(len(division_counts))
 
     top_cells = []
     for _, row in cell_table.sort_values("athlete_count", ascending=False).head(20).iterrows():
         top_cells.append(
             {
                 "season": int(row["season_year"]),
-                "grade": _norm(row["grade_text"]),
+                "grade": _norm(row["division_label"]),
                 "gender": _norm(row["gender"]),
                 "athlete_count": int(row["athlete_count"]),
             }
@@ -541,22 +596,31 @@ def _build_grade_metrics(meta: pd.DataFrame) -> dict[str, Any]:
         "cell_count": int(len(cell_table)),
         "cell_athlete_p10": _percentile(cell_sizes, 0.10) or 0.0,
         "cell_athlete_p50": _percentile(cell_sizes, 0.50) or 0.0,
-        "mixed_grade_race_count": int(mixed_grade_count),
+        "mixed_grade_race_count": int(mixed_division_count),
         "grade_meta_node_count": int(grade_graph.number_of_nodes()),
         "grade_meta_edge_count": int(grade_graph.number_of_edges()),
         "grade_meta_component_count": int(component_count),
         "grade_meta_edges": edge_rows,
         "grade_meta_nodes": sorted(_norm(node) for node in grade_graph.nodes()),
         "top_cells": top_cells,
+        "division_transition_athlete_count": transition_athletes,
+        "division_transition_athlete_ratio": _safe_ratio(transition_athletes, athlete_total),
     }
 
 
 def _build_vertical_metrics(meta: pd.DataFrame) -> dict[str, Any]:
-    base = meta[(meta["season_year"].notna()) & (meta["grade_num"].notna())].copy()
+    base = meta[(meta["season_year"].notna()) & (meta["gender"] != "")].copy()
+    base["division_label"] = [
+        _division_label(grade_text, category)
+        for grade_text, category in zip(base["grade_text"].tolist(), base["category"].tolist())
+    ]
+    base = base[base["division_label"] != ""].copy()
     if base.empty:
         return {
             "longitudinal_athlete_count": 0,
             "longitudinal_athlete_ratio": 0.0,
+            "transition_candidate_athlete_count": 0,
+            "transition_candidate_athlete_ratio": 0.0,
             "comparable_cell_count": 0,
             "isolated_cell_count": 0,
             "shared_athlete_min": 0,
@@ -565,42 +629,63 @@ def _build_vertical_metrics(meta: pd.DataFrame) -> dict[str, Any]:
             "isolated_athlete_ratio": 0.0,
             "cell_bridge_rows": [],
             "isolated_cells": [],
+            "division_bridge_edge_count": 0,
+            "division_bridge_min_shared_athletes": 0,
+            "division_bridge_p10_shared_athletes": 0.0,
+            "division_bridge_p50_shared_athletes": 0.0,
+            "division_bridge_edges": [],
+            "core_stage_bridge_min_shared_athletes": 0,
+            "core_stage_bridge_rows": [],
         }
 
     base["season_year"] = pd.to_numeric(base["season_year"], errors="coerce").astype("Int64")
-    base["grade_num"] = pd.to_numeric(base["grade_num"], errors="coerce").astype("Int64")
-    unique_entries = base[["athlete_id", "season_year", "grade_num"]].drop_duplicates()
+    unique_entries = base[["athlete_id", "season_year", "division_label", "gender"]].drop_duplicates()
 
-    cell_map: dict[tuple[int, int], set[str]] = defaultdict(set)
+    athlete_total = int(unique_entries["athlete_id"].nunique())
+    season_counts = unique_entries.groupby("athlete_id", sort=False)["season_year"].nunique()
+    transition_candidates = int((season_counts >= 2).sum()) if not season_counts.empty else 0
+
+    season_gender_pool: dict[tuple[int, str], set[str]] = defaultdict(set)
     for _, row in unique_entries.iterrows():
-        season = int(row["season_year"])
-        grade = int(row["grade_num"])
         athlete = _norm(row["athlete_id"])
-        if athlete:
-            cell_map[(season, grade)].add(athlete)
+        gender = _normalize_gender(row["gender"])
+        if not athlete or not gender:
+            continue
+        season_gender_pool[(int(row["season_year"]), gender)].add(athlete)
+
+    cell_map: dict[tuple[int, str, str], set[str]] = defaultdict(set)
+    for _, row in unique_entries.iterrows():
+        athlete = _norm(row["athlete_id"])
+        gender = _normalize_gender(row["gender"])
+        division = _norm(row["division_label"])
+        if not athlete or not gender or not division:
+            continue
+        season = int(row["season_year"])
+        cell_map[(season, division, gender)].add(athlete)
 
     bridge_rows = []
     isolated_cells = []
     isolated_athletes: set[str] = set()
     shared_values = []
 
-    for season, grade in sorted(cell_map.keys()):
-        current = cell_map[(season, grade)]
-        prev = cell_map.get((season - 1, grade - 1), set())
-        shared = len(current.intersection(prev))
-        comparable = len(prev) > 0
+    for season, division, gender in sorted(cell_map.keys()):
+        current = cell_map[(season, division, gender)]
+        prev_pool = season_gender_pool.get((season - 1, gender), set())
+        shared = len(current.intersection(prev_pool))
+        comparable = len(prev_pool) > 0
         if comparable:
             shared_values.append(float(shared))
         is_isolated = comparable and shared == 0
         if is_isolated:
-            isolated_cells.append({"season": season, "grade": grade, "athlete_count": len(current)})
+            isolated_cells.append({"season": season, "grade": division, "gender": gender, "athlete_count": len(current)})
             isolated_athletes.update(current)
         bridge_rows.append(
             {
                 "season": season,
-                "grade": grade,
+                "grade": division,
+                "gender": gender,
                 "athlete_count": len(current),
-                "prev_cell_athlete_count": len(prev),
+                "prev_season_same_gender_athlete_count": len(prev_pool),
                 "shared_athlete_count": shared,
                 "comparable_prev_cell": "Y" if comparable else "N",
                 "isolated": "Y" if is_isolated else "N",
@@ -608,17 +693,59 @@ def _build_vertical_metrics(meta: pd.DataFrame) -> dict[str, Any]:
         )
 
     long_bridge_athletes = 0
-    athlete_groups = unique_entries.groupby("athlete_id", sort=False)
-    for _, group in athlete_groups:
-        pairs = sorted({(int(s), int(g)) for s, g in zip(group["season_year"], group["grade_num"])})
-        has_bridge = any(next_s == prev_s + 1 and next_g == prev_g + 1 for (prev_s, prev_g), (next_s, next_g) in zip(pairs, pairs[1:]))
-        if has_bridge:
+    for _, group in unique_entries.groupby("athlete_id", sort=False):
+        seasons = sorted({int(value) for value in group["season_year"].tolist()})
+        if any(curr == prev + 1 for prev, curr in zip(seasons, seasons[1:])):
             long_bridge_athletes += 1
 
-    athlete_total = int(unique_entries["athlete_id"].nunique())
+    division_pair_weights: dict[tuple[str, str], int] = defaultdict(int)
+    for _, group in unique_entries.groupby("athlete_id", sort=False):
+        divisions = sorted({_norm(value) for value in group["division_label"].tolist() if _norm(value)})
+        if len(divisions) < 2:
+            continue
+        for left, right in combinations(divisions, 2):
+            division_pair_weights[(left, right)] += 1
+
+    division_edges = sorted(
+        [{"left": key[0], "right": key[1], "shared_athlete_count": int(value)} for key, value in division_pair_weights.items()],
+        key=lambda item: (-item["shared_athlete_count"], item["left"], item["right"]),
+    )
+    division_shared_values = [float(item["shared_athlete_count"]) for item in division_edges]
+
+    unique_entries["stage"] = unique_entries["division_label"].map(_division_stage)
+    core_stage_sets: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    for athlete, group in unique_entries.groupby("athlete_id", sort=False):
+        by_season_gender: dict[tuple[int, str], set[str]] = defaultdict(set)
+        for _, row in group.iterrows():
+            season = int(row["season_year"])
+            gender = _normalize_gender(row["gender"])
+            stage = _norm(row["stage"])
+            if gender and stage:
+                by_season_gender[(season, gender)].add(stage)
+        season_gender_keys = sorted(by_season_gender.keys())
+        for (season, gender), (next_season, next_gender) in zip(season_gender_keys, season_gender_keys[1:]):
+            if gender != next_gender or next_season != season + 1:
+                continue
+            prev_stages = by_season_gender[(season, gender)]
+            next_stages = by_season_gender[(next_season, gender)]
+            for left, right in CORE_STAGE_BRIDGE_PAIRS:
+                matched = (left in prev_stages and right in next_stages) or (right in prev_stages and left in next_stages)
+                if matched:
+                    core_stage_sets[(gender, left, right)].add(_norm(athlete))
+
+    core_stage_rows = []
+    core_stage_values = []
+    for gender in ["남", "여"]:
+        for left, right in CORE_STAGE_BRIDGE_PAIRS:
+            count = len(core_stage_sets.get((gender, left, right), set()))
+            core_stage_rows.append({"gender": gender, "from_stage": left, "to_stage": right, "shared_athlete_count": count})
+            core_stage_values.append(float(count))
+
     return {
         "longitudinal_athlete_count": int(long_bridge_athletes),
         "longitudinal_athlete_ratio": _safe_ratio(int(long_bridge_athletes), athlete_total),
+        "transition_candidate_athlete_count": int(transition_candidates),
+        "transition_candidate_athlete_ratio": _safe_ratio(int(transition_candidates), athlete_total),
         "comparable_cell_count": int(sum(1 for row in bridge_rows if row["comparable_prev_cell"] == "Y")),
         "isolated_cell_count": int(len(isolated_cells)),
         "shared_athlete_min": int(min(shared_values)) if shared_values else 0,
@@ -627,6 +754,53 @@ def _build_vertical_metrics(meta: pd.DataFrame) -> dict[str, Any]:
         "isolated_athlete_ratio": _safe_ratio(len(isolated_athletes), athlete_total),
         "cell_bridge_rows": bridge_rows,
         "isolated_cells": isolated_cells,
+        "division_bridge_edge_count": int(len(division_edges)),
+        "division_bridge_min_shared_athletes": int(min(division_shared_values)) if division_shared_values else 0,
+        "division_bridge_p10_shared_athletes": _percentile(division_shared_values, 0.10) or 0.0,
+        "division_bridge_p50_shared_athletes": _percentile(division_shared_values, 0.50) or 0.0,
+        "division_bridge_edges": division_edges,
+        "core_stage_bridge_min_shared_athletes": int(min(core_stage_values)) if core_stage_values else 0,
+        "core_stage_bridge_rows": core_stage_rows,
+    }
+
+
+def _build_gender_metrics(graph: nx.Graph, meta: pd.DataFrame) -> dict[str, Any]:
+    if graph.number_of_nodes() == 0 or meta.empty:
+        return {"rows": [], "min_largest_component_ratio": 0.0}
+
+    gender_map: dict[str, str] = {}
+    for _, row in meta[["athlete_id", "gender"]].drop_duplicates().iterrows():
+        athlete = _norm(row["athlete_id"])
+        gender = _normalize_gender(row["gender"])
+        if athlete and gender and athlete not in gender_map:
+            gender_map[athlete] = gender
+
+    rows = []
+    for gender in sorted(set(gender_map.values())):
+        nodes = [node for node in graph.nodes() if gender_map.get(_norm(node), "") == gender]
+        if not nodes:
+            continue
+        sub = graph.subgraph(nodes).copy()
+        metrics = _component_metrics(sub)
+        component_sizes = sorted((len(component) for component in nx.connected_components(sub)), reverse=True)
+        rows.append(
+            {
+                "gender": gender,
+                "node_count": metrics["node_count"],
+                "edge_count": metrics["edge_count"],
+                "component_count": metrics["component_count"],
+                "largest_component_size": metrics["largest_component_size"],
+                "largest_component_ratio": metrics["largest_component_ratio"],
+                "top_component_sizes": component_sizes[:5],
+            }
+        )
+
+    eval_rows = [row for row in rows if row["gender"] in {"남", "여"}]
+    min_ratio = min((float(row["largest_component_ratio"]) for row in eval_rows), default=0.0)
+    return {
+        "rows": rows,
+        "evaluated_gender_count": int(len(eval_rows)),
+        "min_largest_component_ratio": float(min_ratio),
     }
 
 
@@ -674,17 +848,25 @@ def _build_observation_metrics(meta: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def _decide(overall: dict[str, Any], vertical: dict[str, Any]) -> tuple[str, str]:
-    giant_ratio = float(overall.get("largest_component_ratio") or 0.0)
-    isolated_cell_count = int(vertical.get("isolated_cell_count") or 0)
+def _decide(by_gender: dict[str, Any], vertical: dict[str, Any]) -> tuple[str, str]:
     comparable_cell_count = int(vertical.get("comparable_cell_count") or 0)
-    if giant_ratio >= GO_GIANT_COMPONENT_MIN and isolated_cell_count == 0 and comparable_cell_count > 0:
-        return "GO", "거대 성분 비율이 90% 이상이고, 이전 시즌 대비 공유선수 0명인 (시즌,학년) 고립 셀이 없습니다."
-    if giant_ratio >= GO_GIANT_COMPONENT_MIN and comparable_cell_count == 0:
-        return "조건부 GO", "거대 성분 비율은 90% 이상이지만, 학년 연속성 비교 가능한 셀이 없어 종적 다리 강도를 추가 확인해야 합니다."
-    if giant_ratio >= CONDITIONAL_GO_GIANT_COMPONENT_MIN:
-        return "조건부 GO", "거대 성분 비율이 70~90% 구간이라 거대 성분 밖 선수/셀은 레이팅 미제공으로 분리 운영해야 합니다."
-    return "STOP", "거대 성분 비율이 70% 미만이라 레이팅 비교 그래프의 전역 연결성이 부족합니다."
+    if comparable_cell_count == 0:
+        raise DecisionUnavailableError("비교 가능한 (시즌,부문,성별) 셀이 0개여서 판정을 내릴 수 없습니다.")
+
+    gender_rows = [row for row in by_gender.get("rows", []) if row.get("gender") in {"남", "여"} and int(row.get("node_count") or 0) > 0]
+    if len(gender_rows) < 2:
+        raise DecisionUnavailableError("남/여 성별 내부 연결성 지표를 동시에 계산할 수 없어 판정을 보류합니다.")
+
+    min_ratio = min(float(row.get("largest_component_ratio") or 0.0) for row in gender_rows)
+    transition_count = int(vertical.get("core_stage_bridge_min_shared_athletes") or 0)
+
+    if min_ratio >= GO_GIANT_COMPONENT_MIN and transition_count >= DIVISION_BRIDGE_GO_MIN_SHARED:
+        return "GO", "남/여 각 성별 내부 거대 성분 비율이 90% 이상이고, 핵심 단계 전이(초등→중등→고등→대학·일반)의 공유 선수 최소값이 10명 이상입니다."
+    if min_ratio >= GO_GIANT_COMPONENT_MIN and transition_count < DIVISION_BRIDGE_GO_MIN_SHARED:
+        return "STOP", "성별 내부 거대 성분 비율은 높지만, 핵심 단계 전이의 공유 선수 최소값이 10명 미만이라 종적 연결이 취약합니다."
+    if min_ratio >= CONDITIONAL_GO_GIANT_COMPONENT_MIN:
+        return "조건부 GO", "성별 내부 거대 성분 비율이 70~90% 구간이라 거대 성분 밖은 레이팅 미제공으로 분리해야 합니다."
+    return "STOP", "성별 내부 거대 성분 비율이 70% 미만인 성별이 있어 전역 레이팅 연결성이 부족합니다."
 
 
 def analyze_connectivity(g: nx.Graph, meta: pd.DataFrame) -> ConnectivityReport:
@@ -697,14 +879,16 @@ def analyze_connectivity(g: nx.Graph, meta: pd.DataFrame) -> ConnectivityReport:
         preparation = dict(base.attrs.get("preparation_diagnostics") or {})
 
     overall = _component_metrics(g)
+    by_gender = _build_gender_metrics(g, base)
     season = _build_season_metrics(base)
     grade = _build_grade_metrics(base)
     vertical = _build_vertical_metrics(base)
     observation = _build_observation_metrics(base)
-    decision, reason = _decide(overall, vertical)
+    decision, reason = _decide(by_gender, vertical)
     return ConnectivityReport(
         generated_at=datetime.now().isoformat(timespec="seconds"),
         overall=overall,
+        by_gender=by_gender,
         season=season,
         grade=grade,
         vertical=vertical,
@@ -768,7 +952,7 @@ def _render_grade_meta_mermaid(nodes: list[str], edges: list[dict[str, Any]]) ->
             right = item["right"]
             if left not in node_ids or right not in node_ids:
                 continue
-            weight = item["shared_race_count"]
+            weight = int(item.get("shared_athlete_count") or item.get("shared_race_count") or 0)
             lines.append(f'  {node_ids[left]} -- "{weight}" --> {node_ids[right]}')
     lines.append("```")
     return "\n".join(lines)
@@ -805,6 +989,7 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
         ["중복 athlete-race 행", _fmt_int(prep.get("deduplicated_athlete_race_rows"))],
     ]
     lines.extend(_table(["제외 사유", "행수"], exclusion_rows))
+
     lines.extend(
         [
             "",
@@ -817,6 +1002,32 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
             f"- 차수 평균: **{_fmt_float(report.overall['degree_mean'])}**",
             f"- 차수 p50: **{_fmt_float(report.overall['degree_p50'])}**",
             f"- 차수 p10: **{_fmt_float(report.overall['degree_p10'])}**",
+            "",
+            "### 성별 내부 연결성",
+            "",
+        ]
+    )
+
+    gender_rows = []
+    for row in report.by_gender.get("rows", []):
+        top2 = row.get("top_component_sizes", [])[:2]
+        top2_text = ", ".join(str(value) for value in top2) if top2 else "-"
+        gender_rows.append(
+            [
+                _norm(row.get("gender")),
+                _fmt_int(row.get("node_count")),
+                _fmt_int(row.get("component_count")),
+                _fmt_pct_ratio(row.get("largest_component_ratio")),
+                top2_text,
+            ]
+        )
+    if gender_rows:
+        lines.extend(_table(["성별", "노드수", "성분수", "거대성분비율", "상위2개 성분 크기"], gender_rows))
+    else:
+        lines.append("_성별 내부 연결성 지표를 계산할 데이터가 없습니다._")
+
+    lines.extend(
+        [
             "",
             "## 2) 시즌 단절 검사",
             "",
@@ -847,15 +1058,17 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
             "",
             "## 3) 학령 단절 검사",
             "",
-            f"- (시즌,학년,성별) 셀 수: **{_fmt_int(report.grade.get('cell_count'))}**",
+            f"- (시즌,부문라벨,성별) 셀 수: **{_fmt_int(report.grade.get('cell_count'))}**",
             f"- 셀 선수수 p50: **{_fmt_float(report.grade.get('cell_athlete_p50'))}**",
             f"- 셀 선수수 p10: **{_fmt_float(report.grade.get('cell_athlete_p10'))}**",
-            f"- 혼합학년 race 수: **{_fmt_int(report.grade.get('mixed_grade_race_count'))}**",
-            f"- 학년 메타그래프 노드 수: **{_fmt_int(report.grade.get('grade_meta_node_count'))}**",
-            f"- 학년 메타그래프 엣지 수: **{_fmt_int(report.grade.get('grade_meta_edge_count'))}**",
-            f"- 학년 메타그래프 연결 성분 수: **{_fmt_int(report.grade.get('grade_meta_component_count'))}**",
+            f"- 동일 race 내 혼합 부문라벨 수(검증용): **{_fmt_int(report.grade.get('mixed_grade_race_count'))}**",
+            f"- 부문 메타그래프 노드 수: **{_fmt_int(report.grade.get('grade_meta_node_count'))}**",
+            f"- 부문 메타그래프 엣지 수(공유선수 기반): **{_fmt_int(report.grade.get('grade_meta_edge_count'))}**",
+            f"- 부문 메타그래프 연결 성분 수: **{_fmt_int(report.grade.get('grade_meta_component_count'))}**",
+            f"- 2개 이상 부문에 등장한 선수 수: **{_fmt_int(report.grade.get('division_transition_athlete_count'))}**",
+            f"- 2개 이상 부문에 등장한 선수 비율: **{_fmt_pct_ratio(report.grade.get('division_transition_athlete_ratio'))}**",
             "",
-            "### 학년 메타 그래프",
+            "### 부문 메타 그래프(공유선수 기반)",
             "",
             _render_grade_meta_mermaid(report.grade.get("grade_meta_nodes", []), report.grade.get("grade_meta_edges", [])),
             "",
@@ -875,22 +1088,27 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
             ]
         )
     if cell_rows:
-        lines.extend(_table(["시즌", "학년", "성별", "선수수"], cell_rows))
+        lines.extend(_table(["시즌", "부문라벨", "성별", "선수수"], cell_rows))
     else:
-        lines.append("_학년 셀 데이터가 없습니다._")
+        lines.append("_부문 셀 데이터가 없습니다._")
 
     lines.extend(
         [
             "",
             "## 4) 종적 다리 강도",
             "",
-            f"- 학년 상승(시즌+1, 학년+1) 지속 선수 수: **{_fmt_int(report.vertical.get('longitudinal_athlete_count'))}**",
-            f"- 학년 상승 지속 선수 비율: **{_fmt_pct_ratio(report.vertical.get('longitudinal_athlete_ratio'))}**",
-            f"- 비교 가능한 셀 수(이전 시즌·이전 학년 존재): **{_fmt_int(report.vertical.get('comparable_cell_count'))}**",
-            f"- 고립 셀 수(공유선수 0): **{_fmt_int(report.vertical.get('isolated_cell_count'))}**",
-            f"- 셀 간 공유선수 최소값: **{_fmt_int(report.vertical.get('shared_athlete_min'))}**",
-            f"- 셀 간 공유선수 p50: **{_fmt_float(report.vertical.get('shared_athlete_p50'))}**",
-            f"- 셀 간 공유선수 p10: **{_fmt_float(report.vertical.get('shared_athlete_p10'))}**",
+            f"- 연속 시즌 등장 선수 수: **{_fmt_int(report.vertical.get('longitudinal_athlete_count'))}**",
+            f"- 연속 시즌 등장 선수 비율: **{_fmt_pct_ratio(report.vertical.get('longitudinal_athlete_ratio'))}**",
+            f"- 종적 비교 후보 선수 수(2+시즌): **{_fmt_int(report.vertical.get('transition_candidate_athlete_count'))}**",
+            f"- 비교 가능한 셀 수(이전 시즌·동일 성별 풀 존재): **{_fmt_int(report.vertical.get('comparable_cell_count'))}**",
+            f"- 고립 셀 수(이전 시즌 동일 성별 풀과 공유선수 0): **{_fmt_int(report.vertical.get('isolated_cell_count'))}**",
+            f"- 셀-이전시즌 공유선수 최소값: **{_fmt_int(report.vertical.get('shared_athlete_min'))}**",
+            f"- 셀-이전시즌 공유선수 p50: **{_fmt_float(report.vertical.get('shared_athlete_p50'))}**",
+            f"- 셀-이전시즌 공유선수 p10: **{_fmt_float(report.vertical.get('shared_athlete_p10'))}**",
+            f"- 부문 간 공유선수 엣지 수: **{_fmt_int(report.vertical.get('division_bridge_edge_count'))}**",
+            f"- 부문 간 공유선수 최소값: **{_fmt_int(report.vertical.get('division_bridge_min_shared_athletes'))}**",
+            f"- 부문 간 공유선수 p50: **{_fmt_float(report.vertical.get('division_bridge_p50_shared_athletes'))}**",
+            f"- 핵심 단계 전이 공유선수 최소값(남/여×초등→중등→고등→대학·일반): **{_fmt_int(report.vertical.get('core_stage_bridge_min_shared_athletes'))}**",
             f"- 고립 셀 소속 선수 비율: **{_fmt_pct_ratio(report.vertical.get('isolated_athlete_ratio'))}**",
             "",
         ]
@@ -898,7 +1116,7 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
     if int(report.vertical.get("comparable_cell_count") or 0) == 0:
         lines.extend(
             [
-                "- 참고: 현재 입력에서 단일 학년값으로 이전 시즌-이전 학년 비교가 가능한 셀이 없어, 종적 다리 강도는 하한치로 해석해야 합니다.",
+                "- 경고: 비교 가능한 셀이 0개여서 판정 불가 상태입니다. 이 경우 의사결정을 내리지 않고 오류를 발생시켜야 합니다.",
                 "",
             ]
         )
@@ -908,14 +1126,31 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
         isolated_rows.append(
             [
                 _fmt_plain_int(item["season"]),
-                _fmt_plain_int(item["grade"]),
+                _norm(item["grade"]),
+                _norm(item.get("gender")),
                 _fmt_int(item["athlete_count"]),
             ]
         )
     if isolated_rows:
         lines.append("### 고립 셀(최대 30개)")
         lines.append("")
-        lines.extend(_table(["시즌", "학년", "선수수"], isolated_rows))
+        lines.extend(_table(["시즌", "부문라벨", "성별", "선수수"], isolated_rows))
+
+    core_stage_rows = []
+    for item in report.vertical.get("core_stage_bridge_rows", []):
+        core_stage_rows.append(
+            [
+                _norm(item.get("gender")),
+                _norm(item.get("from_stage")),
+                _norm(item.get("to_stage")),
+                _fmt_int(item.get("shared_athlete_count")),
+            ]
+        )
+    if core_stage_rows:
+        lines.append("")
+        lines.append("### 핵심 단계 전이 다리 두께")
+        lines.append("")
+        lines.extend(_table(["성별", "from", "to", "공유선수수"], core_stage_rows))
 
     lines.extend(
         [
@@ -937,9 +1172,9 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
         _table(
             ["조건", "판정"],
             [
-                ["거대 성분 ≥ 90% AND 고립 (시즌,학년) 셀 없음", "GO"],
-                ["거대 성분 70~90%", "조건부 GO"],
-                ["거대 성분 < 70%", "STOP"],
+                ["각 성별 내부 거대 성분 ≥ 90% AND 핵심 단계 전이 공유 선수 최소값 ≥ 10", "GO"],
+                ["성별 내부 거대 성분 70~90%", "조건부 GO"],
+                ["성별 내부 거대 성분 < 70%", "STOP"],
             ],
         )
     )
@@ -952,7 +1187,7 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
             "",
             f"- 최종 결론: **{report.decision}**",
             f"- 근거: {report.decision_reason}",
-            "- 운영 기준: 고립 셀 소속 선수 비율이 5% 미만이면 해당 셀만 레이팅 미제공으로 분리 운영하고, 5% 이상이면 설계를 재검토합니다.",
+            f"- 핵심 단계 전이 공유 선수 최소값 관측: **{_fmt_int(report.vertical.get('core_stage_bridge_min_shared_athletes'))}**",
             f"- 고립 셀 소속 선수 비율 관측값: **{_fmt_pct_ratio(isolated_ratio)}**",
             f"- 5% 기준 충족 여부: **{'Y' if isolated_ratio < ISOLATED_CELL_WARN_RATIO else 'N'}**",
             "",
@@ -962,13 +1197,14 @@ def render_connectivity_report(report: ConnectivityReport, input_path: Path) -> 
 
 
 def render_adr(report: ConnectivityReport, input_path: Path) -> str:
-    giant_ratio = float(report.overall.get("largest_component_ratio") or 0.0)
     isolated_cells = int(report.vertical.get("isolated_cell_count") or 0)
     isolated_athlete_ratio = float(report.vertical.get("isolated_athlete_ratio") or 0.0)
+    adr_status = "Rejected" if report.decision == "STOP" else "Accepted"
+    gender_rows = [row for row in report.by_gender.get("rows", []) if row.get("gender") in {"남", "여"}]
     lines = [
         "# ADR 0001 — 레이팅 성립 가능성 판정 (R-01)",
         "",
-        f"- 상태: Accepted",
+        f"- 상태: {adr_status}",
         f"- 작성시각: {report.generated_at}",
         f"- 입력: `{input_path}`",
         "",
@@ -981,26 +1217,36 @@ def render_adr(report: ConnectivityReport, input_path: Path) -> str:
         "",
         "| 조건 | 판정 |",
         "| --- | --- |",
-        "| 거대 성분 ≥ 90% AND 고립 (시즌,학년) 셀 없음 | GO |",
-        "| 거대 성분 70~90% | 조건부 GO |",
-        "| 거대 성분 < 70% | STOP |",
+        "| 각 성별 내부 거대 성분 ≥ 90% AND 핵심 단계 전이 공유 선수 최소값 ≥ 10 | GO |",
+        "| 성별 내부 거대 성분 70~90% | 조건부 GO |",
+        "| 성별 내부 거대 성분 < 70% | STOP |",
         "",
         "## 관측값",
         "",
-        f"- 거대 성분 비율: **{_fmt_pct_ratio(giant_ratio)}**",
-        f"- 비교 가능한 (시즌,학년) 셀 수: **{_fmt_int(report.vertical.get('comparable_cell_count'))}**",
-        f"- 고립 (시즌,학년) 셀 수: **{_fmt_int(isolated_cells)}**",
-        f"- 고립 셀 소속 선수 비율: **{_fmt_pct_ratio(isolated_athlete_ratio)}**",
-        "",
-        "## 결정",
-        "",
-        f"- 최종 결론: **{report.decision}**",
-        f"- 근거: {report.decision_reason}",
+        f"- 전체 그래프 거대 성분 비율: **{_fmt_pct_ratio(report.overall.get('largest_component_ratio'))}**",
     ]
+    for row in sorted(gender_rows, key=lambda item: _norm(item.get("gender"))):
+        lines.append(
+            f"- 성별={_norm(row.get('gender'))} 거대 성분 비율: **{_fmt_pct_ratio(row.get('largest_component_ratio'))}** "
+            f"(성분수={_fmt_int(row.get('component_count'))})"
+        )
+    lines.extend(
+        [
+            f"- 비교 가능한 (시즌,부문,성별) 셀 수: **{_fmt_int(report.vertical.get('comparable_cell_count'))}**",
+            f"- 고립 (시즌,부문,성별) 셀 수: **{_fmt_int(isolated_cells)}**",
+            f"- 핵심 단계 전이 공유 선수 최소값: **{_fmt_int(report.vertical.get('core_stage_bridge_min_shared_athletes'))}**",
+            f"- 고립 셀 소속 선수 비율: **{_fmt_pct_ratio(isolated_athlete_ratio)}**",
+            "",
+            "## 결정",
+            "",
+            f"- 최종 결론: **{report.decision}**",
+            f"- 근거: {report.decision_reason}",
+        ]
+    )
     if report.decision == "조건부 GO":
         lines.extend(
             [
-                "- 운영 지침: 거대 성분 밖 선수/셀은 레이팅 미제공으로 표기하고 분리 운영합니다.",
+                "- 운영 지침: 성별 내부 거대 성분 밖 선수/셀은 레이팅 미제공으로 표기하고 분리 운영합니다.",
                 "- 추가 기준: 고립 셀 소속 선수 비율이 5% 이상이면 설계 재검토 이슈를 즉시 생성합니다.",
             ]
         )
