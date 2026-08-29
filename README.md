@@ -6,6 +6,8 @@
 - 배포 URL: https://splits.kr/
 - 공개 대상 명단(수동 관리): `data/public_figures.csv`
 - Python 파이프라인은 데이터 생성, Astro(`web/`)는 사이트 렌더링 담당
+- 📖 **데이터 생태계 지도 & 사전**: [docs/data_catalog.md](docs/data_catalog.md)
+- 🚀 **파이프라인 운영 런북 & Makefile 가이드**: [docs/pipeline_runbook.md](docs/pipeline_runbook.md) (단축 실행: `make help`)
 
 ## 1) 위상정렬(선수 단계) 파이프라인
 
