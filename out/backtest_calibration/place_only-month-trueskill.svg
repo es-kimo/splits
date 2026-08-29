@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420">
+<rect width="100%" height="100%" fill="white"/>
+<text x="360.0" y="28" text-anchor="middle" font-size="16" font-family="sans-serif">place_only/month/trueskill calibration</text>
+<line x1="70" y1="360.00" x2="690" y2="360.00" stroke="#374151" stroke-width="1"/>
+<line x1="70" y1="50" x2="70" y2="360" stroke="#374151" stroke-width="1"/>
+<line x1="70.00" y1="360.00" x2="690.00" y2="50.00" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="360.0" y="400" text-anchor="middle" font-size="12" font-family="sans-serif">예측 확률</text>
+<text x="18" y="210.0" text-anchor="middle" font-size="12" font-family="sans-serif" transform="rotate(-90,18,210.0)">실제 승률</text>
+<line x1="70.00" y1="360.00" x2="70.00" y2="365.00" stroke="#374151" stroke-width="1"/>
+<text x="70.00" y="380.00" text-anchor="middle" font-size="10" font-family="sans-serif">0.0</text>
+<line x1="65" y1="360.00" x2="70.00" y2="360.00" stroke="#374151" stroke-width="1"/>
+<text x="60.00" y="363.00" text-anchor="end" font-size="10" font-family="sans-serif">0.0</text>
+<line x1="194.00" y1="360.00" x2="194.00" y2="365.00" stroke="#374151" stroke-width="1"/>
+<text x="194.00" y="380.00" text-anchor="middle" font-size="10" font-family="sans-serif">0.2</text>
+<line x1="65" y1="298.00" x2="70.00" y2="298.00" stroke="#374151" stroke-width="1"/>
+<text x="60.00" y="301.00" text-anchor="end" font-size="10" font-family="sans-serif">0.2</text>
+<line x1="318.00" y1="360.00" x2="318.00" y2="365.00" stroke="#374151" stroke-width="1"/>
+<text x="318.00" y="380.00" text-anchor="middle" font-size="10" font-family="sans-serif">0.4</text>
+<line x1="65" y1="236.00" x2="70.00" y2="236.00" stroke="#374151" stroke-width="1"/>
+<text x="60.00" y="239.00" text-anchor="end" font-size="10" font-family="sans-serif">0.4</text>
+<line x1="442.00" y1="360.00" x2="442.00" y2="365.00" stroke="#374151" stroke-width="1"/>
+<text x="442.00" y="380.00" text-anchor="middle" font-size="10" font-family="sans-serif">0.6</text>
+<line x1="65" y1="174.00" x2="70.00" y2="174.00" stroke="#374151" stroke-width="1"/>
+<text x="60.00" y="177.00" text-anchor="end" font-size="10" font-family="sans-serif">0.6</text>
+<line x1="566.00" y1="360.00" x2="566.00" y2="365.00" stroke="#374151" stroke-width="1"/>
+<text x="566.00" y="380.00" text-anchor="middle" font-size="10" font-family="sans-serif">0.8</text>
+<line x1="65" y1="112.00" x2="70.00" y2="112.00" stroke="#374151" stroke-width="1"/>
+<text x="60.00" y="115.00" text-anchor="end" font-size="10" font-family="sans-serif">0.8</text>
+<line x1="690.00" y1="360.00" x2="690.00" y2="365.00" stroke="#374151" stroke-width="1"/>
+<text x="690.00" y="380.00" text-anchor="middle" font-size="10" font-family="sans-serif">1.0</text>
+<line x1="65" y1="50.00" x2="70.00" y2="50.00" stroke="#374151" stroke-width="1"/>
+<text x="60.00" y="53.00" text-anchor="end" font-size="10" font-family="sans-serif">1.0</text>
+<line x1="107.91" y1="321.75" x2="107.91" y2="284.65" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="107.91" cy="305.65" r="4" fill="#0284C7"/>
+<line x1="166.53" y1="289.27" x2="166.53" y2="260.60" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="166.53" cy="275.69" r="4" fill="#0284C7"/>
+<line x1="225.93" y1="264.01" x2="225.93" y2="238.78" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="225.93" cy="251.74" r="4" fill="#0284C7"/>
+<line x1="287.15" y1="227.96" x2="287.15" y2="203.94" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="287.15" cy="216.02" r="4" fill="#0284C7"/>
+<line x1="348.78" y1="224.72" x2="348.78" y2="202.10" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="348.78" cy="213.45" r="4" fill="#0284C7"/>
+<line x1="407.45" y1="211.21" x2="407.45" y2="190.46" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="407.45" cy="200.82" r="4" fill="#0284C7"/>
+<line x1="472.86" y1="188.99" x2="472.86" y2="165.63" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="472.86" cy="177.14" r="4" fill="#0284C7"/>
+<line x1="532.64" y1="172.65" x2="532.64" y2="147.13" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="532.64" cy="159.55" r="4" fill="#0284C7"/>
+<line x1="592.37" y1="145.00" x2="592.37" y2="115.94" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="592.37" cy="129.61" r="4" fill="#0284C7"/>
+<line x1="651.60" y1="155.13" x2="651.60" y2="109.74" stroke="#0EA5E9" stroke-width="1.5"/>
+<circle cx="651.60" cy="130.37" r="4" fill="#0284C7"/>
+</svg>
