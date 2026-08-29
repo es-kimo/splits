@@ -1,1 +1,1 @@
-"""Connectivity utilities for rating feasibility."""
+"""Ledger utilities for rating feasibility and comparison extraction."""
