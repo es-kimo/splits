@@ -12,7 +12,7 @@ from typing import Any, Callable, Literal, Sequence
 import polars as pl
 
 from rating.calibration import Calibrator, fit as fit_calibrator
-from rating.engine.age import build_debut_prior_provider, fit_debut_priors
+from rating.engine.age import AGE_TAU_BANDS, build_age_tau_provider, build_debut_prior_provider, fit_debut_priors
 from rating.engine.glicko2 import Glicko2Engine, Glicko2Params
 from rating.engine.runner import run_replay
 from rating.engine.trueskill_wrapper import TrueSkillEngine, TrueSkillParams
@@ -99,6 +99,7 @@ class ConfigResult:
     common_subset_metrics: dict[str, Metrics]
     calibration_path: Path
     comparison_count: int
+    tau_by_age_band: dict[str, float] | None = None
 
 
 @dataclass
@@ -386,6 +387,16 @@ TAU_GRID: dict[str, tuple[float, ...]] = {
     "trueskill": (25.0 / 300.0, 0.25, 0.5, 1.0, 2.0),
 }
 
+AGE_TAU_PROFILES: dict[str, dict[str, float]] = {
+    "global": {band: 0.5 for band in AGE_TAU_BANDS},
+    "younger-low": {"<=12": 0.25, "13-15": 0.5, "16+": 0.5},
+    "younger-high": {"<=12": 1.0, "13-15": 0.5, "16+": 0.5},
+    "growth-low": {"<=12": 0.5, "13-15": 0.25, "16+": 0.5},
+    "growth-high": {"<=12": 0.5, "13-15": 1.0, "16+": 0.5},
+    "older-low": {"<=12": 0.5, "13-15": 0.5, "16+": 0.25},
+    "older-high": {"<=12": 0.5, "13-15": 0.5, "16+": 1.0},
+}
+
 _DEBUT_PROVIDER_CACHE: dict[tuple[str, RatingPeriod, int], Callable[[str], tuple[float, float] | None]] = {}
 
 
@@ -441,6 +452,7 @@ def _build_model(
     rating_period: RatingPeriod,
     tau: float | None = None,
     prior_provider: Callable[[str], tuple[float, float] | None] | None = None,
+    tau_provider: Callable[[str, date], float] | None = None,
 ) -> ModelAdapter:
     if engine == "glicko2":
         params = Glicko2Params(rating_period=rating_period) if tau is None else Glicko2Params(rating_period=rating_period, tau=tau)
@@ -453,7 +465,7 @@ def _build_model(
             initial_mu=params.initial_mu,
         )
     ts_params = TrueSkillParams(rating_period=rating_period) if tau is None else TrueSkillParams(rating_period=rating_period, tau=tau)
-    predictor: Predictor = TrueSkillEngine(params=ts_params, prior_provider=prior_provider)
+    predictor: Predictor = TrueSkillEngine(params=ts_params, prior_provider=prior_provider, tau_provider=tau_provider)
     return ModelAdapter(
         name="trueskill",
         predictor=predictor,
@@ -710,6 +722,7 @@ def _evaluate_config(
     holdout_season_count: int,
     head2head_prob: float,
     calibration_dir: Path,
+    tau_by_age_band: dict[str, float] | None = None,
 ) -> ConfigResult:
     """정책은 학습 데이터 구성에만 적용하고, 평가셋은 전 설정에서 고정합니다.
 
@@ -744,28 +757,44 @@ def _evaluate_config(
             rating_period=rating_period,
             previous_season=previous_season,
         )
+    tau_provider: Callable[[str, date], float] | None = None
+    if tau_by_age_band is not None:
+        if engine != "trueskill":
+            raise ValueError("[error] 연령별 tau는 TrueSkill에서만 지원합니다.")
+        athlete_meta_path = _athlete_meta_path(ledger_path)
+        if not athlete_meta_path.exists():
+            raise FileNotFoundError(f"[error] age tau에 필요한 athlete_meta가 없습니다: {athlete_meta_path}")
+        tau_provider = build_age_tau_provider(
+            pl.read_parquet(athlete_meta_path),
+            tau_by_age_band,
+            default_tau=0.5,
+        )
 
     scales = _fit_baseline_scales(
         steps, eval_races, holdout_set, previous_season, head2head_prob=head2head_prob
     )
-    tau, tau_scores = _fit_engine_tau(
-        engine,
-        rating_period,
-        steps,
-        holdout_set,
-        previous_season,
-        prior_provider=prior_provider,
-    )
+    if tau_provider is None:
+        tau, tau_scores = _fit_engine_tau(
+            engine,
+            rating_period,
+            steps,
+            holdout_set,
+            previous_season,
+            prior_provider=prior_provider,
+        )
+    else:
+        tau = 0.0
+        tau_scores = {}
 
     # 보정기는 홀드아웃 이전 구간에서 적합하고, 두 엔진에 동일하게 적용합니다.
     scaler = _fit_calibrator(
-        _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider),
+        _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider, tau_provider=tau_provider),
         steps,
         holdout_set,
         previous_season,
     )
 
-    model = _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider)
+    model = _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider, tau_provider=tau_provider)
     baselines = _make_baselines(
         head2head_prob=head2head_prob,
         previous_season=previous_season,
@@ -907,6 +936,7 @@ def _evaluate_config(
         common_subset_metrics=common_subset_metrics,
         calibration_path=calibration_path,
         comparison_count=len(common_ids),
+        tau_by_age_band=dict(tau_by_age_band) if tau_by_age_band is not None else None,
     )
     assert_harness_invariants(result)
     return result
@@ -1213,8 +1243,13 @@ def _render_report(results: Sequence[ConfigResult], report_path: Path) -> str:
         p50 = sigmas[len(sigmas) // 2] if sigmas else 0.0
         p10 = sigmas[int(len(sigmas) * 0.10)] if sigmas else 0.0
         spread = float(pl.Series(probabilities).std() or 0.0)
+        tau_text = (
+            ", ".join(f"{band}={value:.2f}" for band, value in sorted(result.tau_by_age_band.items()))
+            if result.tau_by_age_band is not None
+            else f"{result.engine_tau:.4f}"
+        )
         lines.append(
-            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {result.engine_tau:.4f} | "
+            f"| {result.config_name} | {result.policy} | {result.rating_period} | {result.engine} | {tau_text} | "
             f"{spread:.4f} | {extreme:.1%} | {p50:.3f} | {p10:.3f} |"
         )
 
@@ -1397,6 +1432,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="R-05 백테스트 하네스를 실행합니다.")
     parser.add_argument("--ledger", default="out/ledger", help="레이스 레저 루트 디렉터리")
     parser.add_argument("--config", default="baseline", choices=["baseline", "age_adjusted"], help="실험 설정")
+    parser.add_argument(
+        "--age-tau-profile",
+        default="disabled",
+        choices=["disabled", *sorted(AGE_TAU_PROFILES)],
+        help="연령 3구간 tau 실험 프로필 (TrueSkill 단일 실행 전용)",
+    )
     parser.add_argument("--holdout-seasons", type=int, default=2, help="홀드아웃 시즌 수")
     parser.add_argument("--all-configs", action="store_true", help="정책×period×엔진 전체 설정 실행")
     parser.add_argument("--policy", default="conservative", choices=sorted(POLICIES.keys()), help="단일 실행 정책")
@@ -1419,6 +1460,8 @@ def main() -> None:
         raise FileNotFoundError(f"[error] race_ledger를 찾을 수 없습니다: {ledger_root}")
 
     if args.all_configs:
+        if args.age_tau_profile != "disabled":
+            raise ValueError("[error] 연령별 tau 프로필은 --all-configs와 함께 사용할 수 없습니다.")
         missing = sorted(set(POLICIES.keys()).difference(discovered.keys()))
         if missing:
             joined = ", ".join(missing)
@@ -1430,6 +1473,8 @@ def main() -> None:
         policies = [args.policy]
         periods = [args.rating_period]
         engines = ["glicko2", "trueskill"] if args.engine == "both" else [args.engine]
+        if args.age_tau_profile != "disabled" and engines != ["trueskill"]:
+            raise ValueError("[error] 연령별 tau 프로필은 --engine trueskill과 함께 사용해야 합니다.")
         if args.policy not in discovered and "conservative" in discovered and len(discovered) == 1:
             discovered[args.policy] = discovered["conservative"]
         if args.policy not in discovered:
@@ -1463,6 +1508,9 @@ def main() -> None:
                     holdout_season_count=int(args.holdout_seasons),
                     head2head_prob=float(args.head2head_prob),
                     calibration_dir=calibration_dir,
+                    tau_by_age_band=(
+                        AGE_TAU_PROFILES[args.age_tau_profile] if args.age_tau_profile != "disabled" else None
+                    ),
                 )
                 results.append(result)
 

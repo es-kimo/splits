@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import math
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
 from statistics import pstdev
-from typing import Any
+from typing import Any, Callable
 
 import polars as pl
 
@@ -14,6 +15,7 @@ from rating.ledger.schema import load_race_ledger
 DEFAULT_PRIOR_MU = 25.0
 DEFAULT_PRIOR_SIGMA = 25.0 / 3.0
 _ACTIVE_DEBUT_PRIORS: pl.DataFrame | None = None
+AGE_TAU_BANDS = ("<=12", "13-15", "16+")
 
 
 def _norm(value: Any) -> str:
@@ -30,6 +32,52 @@ def _norm_sex(value: Any) -> str:
     if not text:
         return ""
     return text[0]
+
+
+def age_tau_band(age: int | None) -> str:
+    if age is None or int(age) <= 0:
+        return "unknown"
+    if int(age) <= 12:
+        return "<=12"
+    if int(age) <= 15:
+        return "13-15"
+    return "16+"
+
+
+def tau_for(age: int | None, division: str, tau_by_age_band: dict[str, float], *, default_tau: float) -> float:
+    del division
+    value = tau_by_age_band.get(age_tau_band(age), default_tau)
+    tau = float(value)
+    if not math.isfinite(tau) or tau < 0:
+        raise ValueError("[error] tau_by_age_band 값은 0 이상의 유한값이어야 합니다.")
+    return tau
+
+
+def build_age_tau_provider(
+    athlete_meta: pl.DataFrame,
+    tau_by_age_band: dict[str, float],
+    *,
+    default_tau: float,
+) -> Callable[[str, date], float]:
+    required_meta = {"athlete_id", "birth_year", "debut_division"}
+    missing_meta = sorted(required_meta.difference(set(athlete_meta.columns)))
+    if missing_meta:
+        raise ValueError(f"[error] age tau provider athlete_meta 컬럼 누락: {', '.join(missing_meta)}")
+    athlete_index = {
+        _norm(row["athlete_id"]): (
+            int(row["birth_year"]) if row["birth_year"] is not None else None,
+            _norm(row["debut_division"]),
+        )
+        for row in athlete_meta.select(["athlete_id", "birth_year", "debut_division"]).to_dicts()
+        if _norm(row["athlete_id"])
+    }
+
+    def _provider(athlete_id: str, as_of: date) -> float:
+        birth_year, division = athlete_index.get(_norm(athlete_id), (None, ""))
+        age = int(as_of.year) - birth_year if birth_year is not None else None
+        return tau_for(age, division, tau_by_age_band, default_tau=default_tau)
+
+    return _provider
 
 
 def _collect_age_deltas(history: pl.DataFrame) -> dict[int, list[float]]:

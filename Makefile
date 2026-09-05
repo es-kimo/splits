@@ -1,4 +1,4 @@
-.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-calibration rating-eval rating-sigma-diagnosis audit test clean
+.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -86,6 +86,14 @@ rating-age: ## 📈 [연령 모델] records_anon 기반 레저/메타 구축 -> 
 	@echo -e "$(YELLOW)[3/3] rating.engine.age: 연령 베이스라인/정규화 산출...$(RESET)"
 	$(PYTHON) -m rating.engine.age --ratings out/ratings_baseline.parquet --ledger out/ledger --out out/age_curves.md --adjusted-out out/ratings_age_adjusted.parquet
 	@echo -e "$(GREEN)✅ 연령 산출 완료! (out/age_curves.md, out/ratings_age_adjusted.parquet)$(RESET)"
+
+rating-age-tau: ## 📉 [연령 tau] 3구간 tau 식별성 실험 및 기각/채택 리포트 생성
+	@echo -e "$(YELLOW)[1/2] 정책별 레저 생성...$(RESET)"
+	$(PYTHON) -m rating.ledger.build --results data/records_anon.csv --policy conservative --out out/ledger_age_policies/conservative
+	$(PYTHON) -m rating.ledger.build --results data/records_anon.csv --policy aggressive --out out/ledger_age_policies/aggressive
+	@echo -e "$(YELLOW)[2/2] rating.eval.age_tau: 3구간 tau 식별성 평가...$(RESET)"
+	$(PYTHON) -m rating.eval.age_tau --ledger out/ledger_age_policies --out out/age_tau_report.md
+	@echo -e "$(GREEN)✅ 연령 tau 판정 완료! (out/age_tau_report.md)$(RESET)"
 
 rating-eval: rating ## 📊 [레이팅 백테스트] 정책별 비교 및 예측력 백테스트 리포트 생성
 	@echo -e "$(YELLOW)rating.eval.backtest: 백테스트 평가 실행...$(RESET)"

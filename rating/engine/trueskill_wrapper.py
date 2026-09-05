@@ -30,16 +30,18 @@ class TrueSkillEngine(Predictor):
         params: TrueSkillParams | None = None,
         *,
         prior_provider: Callable[[str], tuple[float, float] | None] | None = None,
+        tau_provider: Callable[[str, date], float] | None = None,
     ) -> None:
         if _trueskill is None:
             raise RuntimeError("[error] trueskill 패키지가 필요합니다. `pip install -r requirements.txt`를 먼저 실행하세요.")
         self.params = params or TrueSkillParams()
         self._prior_provider = prior_provider
+        self._tau_provider = tau_provider
         self._env = _trueskill.TrueSkill(
             mu=self.params.initial_mu,
             sigma=self.params.initial_sigma,
             beta=self.params.beta,
-            tau=self.params.tau,
+            tau=0.0 if tau_provider is not None else self.params.tau,
             draw_probability=self.params.draw_probability,
         )
         self._state: dict[str, Rating] = {}
@@ -54,7 +56,7 @@ class TrueSkillEngine(Predictor):
 
     def effective_rating(self, athlete_id: str, as_of: date) -> Rating:
         current = self._state.get(athlete_id, self._initial_rating(athlete_id))
-        return self._effective_with_inactivity(current, as_of)
+        return self._effective_with_inactivity(current, as_of, athlete_id)
 
     def update(self, state: dict[str, RatingLike], race_results: Sequence[RaceResult]) -> dict[str, Rating]:
         updated: dict[str, Rating] = {athlete_id: self._coerce_rating(rating) for athlete_id, rating in state.items()}
@@ -68,17 +70,14 @@ class TrueSkillEngine(Predictor):
                 continue
             rating_groups: list[tuple[object, ...]] = []
             for group in grouped_entries:
-                rating_groups.append(
-                    tuple(
-                        self._to_trueskill_rating(
-                            self._effective_with_inactivity(
-                                updated.get(entry.athlete_id, self._initial_rating(entry.athlete_id)),
-                                race.race_date,
-                            )
-                        )
-                        for entry in group
-                    )
-                )
+                ratings: list[object] = []
+                for entry in group:
+                    current = updated.get(entry.athlete_id, self._initial_rating(entry.athlete_id))
+                    effective = self._effective_with_inactivity(current, race.race_date, entry.athlete_id)
+                    if self._tau_provider is not None:
+                        effective = self._with_rate_dynamics(entry.athlete_id, effective, race.race_date)
+                    ratings.append(self._to_trueskill_rating(effective))
+                rating_groups.append(tuple(ratings))
             rated_groups = self._env.rate(rating_groups=rating_groups, ranks=ranks)
             for group_entries, group_ratings in zip(grouped_entries, rated_groups):
                 for entry, rated in zip(group_entries, group_ratings):
@@ -122,11 +121,11 @@ class TrueSkillEngine(Predictor):
         sigma = float(rating.phi if rating.phi > 0 else self.params.initial_sigma)
         return self._env.create_rating(mu=float(rating.mu), sigma=sigma)
 
-    def _effective_with_inactivity(self, rating: Rating, as_of: date) -> Rating:
+    def _effective_with_inactivity(self, rating: Rating, as_of: date, athlete_id: str | None = None) -> Rating:
         periods = elapsed_periods(rating.last_active, as_of, self.params.rating_period)
         if periods <= 0:
             return rating
-        inflated_sigma = self._inflate_sigma(rating.phi, periods)
+        inflated_sigma = self._inflate_sigma(rating.phi, periods, athlete_id, as_of)
         return Rating(
             mu=float(rating.mu),
             phi=float(inflated_sigma),
@@ -135,10 +134,31 @@ class TrueSkillEngine(Predictor):
             n_games=int(rating.n_games),
         )
 
-    def _inflate_sigma(self, sigma: float, periods: int) -> float:
+    def _with_rate_dynamics(self, athlete_id: str, rating: Rating, as_of: date) -> Rating:
+        tau = self._tau_for(athlete_id, as_of)
+        return Rating(
+            mu=float(rating.mu),
+            phi=float(math.hypot(rating.phi, tau)),
+            sigma=float(rating.sigma),
+            last_active=rating.last_active,
+            n_games=int(rating.n_games),
+        )
+
+    def _tau_for(self, athlete_id: str | None, as_of: date) -> float:
+        if athlete_id is None or self._tau_provider is None:
+            return float(self.params.tau)
+        tau = float(self._tau_provider(athlete_id, as_of))
+        if not math.isfinite(tau) or tau < 0:
+            raise ValueError(f"[error] tau_provider는 0 이상의 유한값을 반환해야 합니다: athlete_id={athlete_id}")
+        return tau
+
+    def _inflate_sigma(self, sigma: float, periods: int, athlete_id: str | None = None, as_of: date | None = None) -> float:
         if periods <= 0:
             return float(sigma)
-        inflated = math.sqrt((float(sigma) * float(sigma)) + (float(self.params.tau) * float(self.params.tau) * float(periods)))
+        if as_of is None:
+            raise ValueError("[error] 비활동 sigma 팽창에는 기준일이 필요합니다.")
+        tau = self._tau_for(athlete_id, as_of)
+        inflated = math.sqrt((float(sigma) * float(sigma)) + (tau * tau * float(periods)))
         return float(min(inflated, self.params.initial_sigma))
 
     def _initial_rating(self, athlete_id: str | None = None) -> Rating:
