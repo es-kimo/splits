@@ -1,6 +1,6 @@
 # ADR 0009 — 연령 성장 모델 1차 결정 (R-06)
 
-- 상태: Proposed
+- 상태: Accepted
 - 작성시각: 2026-08-30T00:10
 - 선행: `docs/adr/0006-backtest-verdict-rerun.md`, `docs/adr/0007-sigma-inversion.md`
 
@@ -59,9 +59,28 @@ best config 기준 비교:
 
 ## tau(age), 드리프트 항 결정
 
-- 전역 tau 격자의 검증 log loss 폭은 0.03447로 좁아 식별 여유가 크지 않습니다.
-- 이번 단계에서는 연령별 tau를 채택하지 않고, `tau_by_age_band`는 빈 값으로 유지합니다.
-- 연령별 tau를 채택하지 않았으므로 드리프트 항(`g(age)·Δ`)도 이번 PR 범위에서 적용하지 않습니다.
+- 사전 고정한 연령 구간은 `<=12`, `13-15`, `16+`입니다. 전역 기준값은 모든
+  구간 `tau=0.50`이며, 각 후보는 한 구간만 `0.25` 또는 `1.00`으로 변경했습니다.
+  평가셋은 conservative 정책의 마지막 2시즌이고, 신인 사전분포와 Platt 보정은
+  모든 후보에서 동일하게 적용했습니다.
+
+| profile | tau <=12 | tau 13-15 | tau 16+ | log loss | 95% CI | 전역 CI와 겹침 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| global | 0.50 | 0.50 | 0.50 | 0.55677 | 0.54768–0.56624 | 기준 |
+| growth-high | 0.50 | 1.00 | 0.50 | 0.55585 | 0.54666–0.56533 | 예 |
+| growth-low | 0.50 | 0.25 | 0.50 | 0.55986 | 0.55092–0.56869 | 예 |
+| older-high | 0.50 | 0.50 | 1.00 | 0.56116 | 0.55193–0.57047 | 예 |
+| older-low | 0.50 | 0.50 | 0.25 | 0.55685 | 0.54779–0.56609 | 예 |
+| younger-high | 1.00 | 0.50 | 0.50 | 0.55178 | 0.54196–0.56154 | 예 |
+| younger-low | 0.25 | 0.50 | 0.50 | 0.56293 | 0.55419–0.57192 | 예 |
+
+- `younger-high`가 log loss 0.55178로 가장 낮지만, 모든 후보의 95% 구간이 전역
+  기준과 겹칩니다. 점추정 차이를 재현 가능한 연령별 파라미터로 승격할 근거가
+  없으므로 **tau(age)는 기각(식별 불가)** 합니다.
+- 프로덕션은 전역 tau를 유지하고 `tau_by_age_band`는 빈 값으로 둡니다. 상세 결과는
+  `out/age_tau_report.md`에 기록합니다.
+- 드리프트 항(`g(age)·Δ`)은 tau(age) 채택을 사전 조건으로 했습니다. 조건이
+  충족되지 않았으므로 이번 범위에서는 적용하지 않습니다.
 
 ## 생존 편향 관측
 
@@ -73,6 +92,7 @@ best config 기준 비교:
 ```bash
 python3 scripts/audit_age_availability.py
 make rating-age
+make rating-age-tau
 python -m rating.eval.backtest --ledger out/ledger_age_policies --all-configs --config baseline
 python -m rating.eval.backtest --ledger out/ledger_age_policies --all-configs --config age_adjusted
 ```

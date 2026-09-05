@@ -8,6 +8,8 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rating.engine.age import (
+    age_tau_band,
+    build_age_tau_provider,
     build_debut_prior_provider,
     debut_prior,
     fit_age_baseline,
@@ -15,6 +17,7 @@ from rating.engine.age import (
     fit_debut_priors,
     normalize,
     set_debut_prior_table,
+    tau_for,
 )
 
 
@@ -107,3 +110,25 @@ def test_debut_prior_provider_and_lookup_use_fallback():
     set_debut_prior_table(priors)
     assert debut_prior("초등", "남", 2025) == (21.0, 4.0)
     assert debut_prior("고등", "여", 2025) == (23.0, 6.0)
+
+
+def test_age_tau_provider_uses_birth_year_and_band_fallback():
+    athlete_meta = pl.DataFrame(
+        [
+            {"athlete_id": "child", "birth_year": 2014, "debut_division": "초등"},
+            {"athlete_id": "growth", "birth_year": 2011, "debut_division": "중등"},
+            {"athlete_id": "older", "birth_year": 2000, "debut_division": "일반"},
+            {"athlete_id": "unknown", "birth_year": None, "debut_division": ""},
+        ]
+    )
+    tau_by_band = {"<=12": 0.25, "13-15": 0.5, "16+": 1.0}
+    provider = build_age_tau_provider(athlete_meta, tau_by_band, default_tau=0.5)
+
+    assert age_tau_band(12) == "<=12"
+    assert age_tau_band(13) == "13-15"
+    assert age_tau_band(16) == "16+"
+    assert tau_for(12, "초등", tau_by_band, default_tau=0.5) == 0.25
+    assert provider("child", date(2026, 1, 1)) == 0.25
+    assert provider("growth", date(2026, 1, 1)) == 0.5
+    assert provider("older", date(2026, 1, 1)) == 1.0
+    assert provider("unknown", date(2026, 1, 1)) == 0.5

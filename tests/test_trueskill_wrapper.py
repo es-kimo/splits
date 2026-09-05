@@ -90,3 +90,28 @@ def test_trueskill_initial_rating_uses_prior_provider():
     assert rookie.phi == pytest.approx(4.0)
     assert veteran.mu == pytest.approx(25.0)
     assert veteran.phi == pytest.approx(8.0)
+
+
+def test_trueskill_constant_tau_provider_matches_scalar_tau():
+    params = TrueSkillParams(tau=0.5, rating_period="meet")
+    scalar = TrueSkillEngine(params=params)
+    per_athlete = TrueSkillEngine(params=params, tau_provider=lambda _athlete_id, _as_of: 0.5)
+    races = [
+        RaceResult(
+            race_id="r1",
+            race_date=date(2024, 1, 1),
+            meet_id="m1",
+            entries=(RaceEntry("a1", 1, "FIN"), RaceEntry("a2", 2, "FIN"), RaceEntry("a3", 3, "FIN")),
+        ),
+        RaceResult(
+            race_id="r2",
+            race_date=date(2024, 2, 1),
+            meet_id="m2",
+            entries=(RaceEntry("a2", 1, "FIN"), RaceEntry("a1", 2, "FIN"), RaceEntry("a3", 3, "FIN")),
+        ),
+    ]
+    scalar_state = scalar.update({}, races)
+    provider_state = per_athlete.update({}, races)
+    for athlete_id in scalar_state:
+        assert provider_state[athlete_id].mu == pytest.approx(scalar_state[athlete_id].mu)
+        assert provider_state[athlete_id].phi == pytest.approx(scalar_state[athlete_id].phi)
