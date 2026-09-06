@@ -183,26 +183,31 @@ flowchart LR
     A["make rating"] --> B["rating.ledger.build (Parquet 생성)"]
     B --> C["rating.engine.runner (레이팅 + calibrator/run manifest)"]
     C --> D["out/ratings_baseline.parquet"]
-    D --> E["make rating-calibration (보정 프로토콜 리포트)"]
-    E --> F["make rating-eval (백테스트 리포트 생성)"]
-    F --> G["make rating-sigma-diagnosis (sigma 역전 진단)"]
+    D --> E["make rating-replay-bench (리플레이 측정)"]
+    E --> F["make rating-calibration (보정 프로토콜 리포트)"]
+    F --> G["make rating-eval (백테스트 리포트 생성)"]
+    G --> H["make rating-sigma-diagnosis (sigma 역전 진단)"]
 ```
 
 ```bash
 # 1. 레이팅 레저 빌드 및 TrueSkill 계산 (기본값)
 make rating
 
-# 2. 보정기 적합 폴드/주기/세그먼트 분리 판정 리포트 생성
+# 2. 시즌 체크포인트를 이용한 리플레이 성능 측정
+make rating-replay-bench
+
+# 3. 보정기 적합 폴드/주기/세그먼트 분리 판정 리포트 생성
 make rating-calibration
 
-# 3. 최근 2개 시즌 홀드아웃 백테스트 리포트 생성 (12개 설정 비교)
+# 4. 최근 2개 시즌 홀드아웃 백테스트 리포트 생성 (12개 설정 비교)
 make rating-eval
 
-# 4. (선택) sigma-오차 역전이 교락인지 버그인지 판정
+# 5. (선택) sigma-오차 역전이 교락인지 버그인지 판정
 make rating-sigma-diagnosis
 ```
 
 - 산출물: `out/ratings_baseline.parquet`, `out/calibrator.json`, `out/rating_run.json`, `out/calibration_report.md`, `out/backtest_report.md`, `out/backtest_calibration/*.svg`
+- 리플레이 측정: `out/replay_bench.md`; 원시 상태 체크포인트는 `out/replay_checkpoints/`에 생성되며 Git에 포함하지 않습니다.
 - 최적 설정(ADR 0006): `conservative / meet / trueskill` (정확도 71.33%, Log-Loss 0.55523)
 - 진단 산출물: `out/sigma_diagnosis_report.md`, `out/sigma_diagnosis/n_games_vs_sigma.svg`
 

@@ -60,8 +60,9 @@ def test_trueskill_update_uses_inactivity_adjusted_sigma(monkeypatch: pytest.Mon
     }
     captured_sigmas: list[float] = []
 
-    def fake_rate(*, rating_groups, ranks):
+    def fake_rate(*, rating_groups, ranks, min_delta):
         del ranks
+        assert min_delta == params.convergence_tolerance
         for group in rating_groups:
             for rating in group:
                 captured_sigmas.append(float(rating.sigma))
@@ -115,3 +116,49 @@ def test_trueskill_constant_tau_provider_matches_scalar_tau():
     for athlete_id in scalar_state:
         assert provider_state[athlete_id].mu == pytest.approx(scalar_state[athlete_id].mu)
         assert provider_state[athlete_id].phi == pytest.approx(scalar_state[athlete_id].phi)
+
+
+def test_trueskill_is_invariant_to_entry_order():
+    params = TrueSkillParams(convergence_tolerance=1e-4)
+    ordered = RaceResult(
+        race_id="r1",
+        race_date=date(2024, 1, 1),
+        meet_id="m1",
+        entries=(RaceEntry("a1", 1, "FIN"), RaceEntry("a2", 2, "FIN"), RaceEntry("a3", 3, "FIN")),
+    )
+    shuffled = RaceResult(
+        race_id="r1",
+        race_date=date(2024, 1, 1),
+        meet_id="m1",
+        entries=(RaceEntry("a3", 3, "FIN"), RaceEntry("a1", 1, "FIN"), RaceEntry("a2", 2, "FIN")),
+    )
+
+    assert TrueSkillEngine(params=params).update({}, [ordered]) == TrueSkillEngine(params=params).update({}, [shuffled])
+
+
+def test_trueskill_ep_configuration_changes_result():
+    race = RaceResult(
+        race_id="r1",
+        race_date=date(2024, 1, 1),
+        meet_id="m1",
+        entries=tuple(RaceEntry(f"a{index}", index, "FIN") for index in range(1, 7)),
+    )
+    precise = TrueSkillEngine(
+        params=TrueSkillParams(convergence_tolerance=1e-8, ep_max_iterations=10)
+    ).update({}, [race])
+    loose = TrueSkillEngine(
+        params=TrueSkillParams(convergence_tolerance=1e-8, ep_max_iterations=1)
+    ).update({}, [race])
+
+    assert any(precise[athlete_id].mu != loose[athlete_id].mu for athlete_id in precise)
+
+
+def test_trueskill_all_tied_race_does_not_update_or_fail():
+    race = RaceResult(
+        race_id="r1",
+        race_date=date(2024, 1, 1),
+        meet_id="m1",
+        entries=(RaceEntry("a1", 1, "FIN"), RaceEntry("a2", 1, "FIN")),
+    )
+
+    assert TrueSkillEngine().update({}, [race]) == {}

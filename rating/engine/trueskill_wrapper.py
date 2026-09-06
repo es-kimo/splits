@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date
+from itertools import chain
 from typing import Callable, Sequence
 
 from .glicko2 import Rating
@@ -14,6 +15,64 @@ except ImportError:
     _trueskill = None
 
 
+if _trueskill is not None:
+
+    class _ConfiguredTrueSkill(_trueskill.TrueSkill):
+        def __init__(self, *, ep_max_iterations: int, **kwargs) -> None:
+            super().__init__(**kwargs)
+            self.ep_max_iterations = ep_max_iterations
+
+        def run_schedule(
+            self,
+            build_rating_layer,
+            build_perf_layer,
+            build_team_perf_layer,
+            build_team_diff_layer,
+            build_trunc_layer,
+            min_delta=1e-4,
+        ):
+            if min_delta <= 0:
+                raise ValueError("min_delta must be greater than 0")
+            layers = []
+
+            def build(builders):
+                layers_built = [list(builder()) for builder in builders]
+                layers.extend(layers_built)
+                return layers_built
+
+            rating_layer, perf_layer, team_perf_layer = build(
+                [build_rating_layer, build_perf_layer, build_team_perf_layer]
+            )
+            for factor in chain(rating_layer, perf_layer, team_perf_layer):
+                factor.down()
+            team_diff_layer, trunc_layer = build([build_team_diff_layer, build_trunc_layer])
+            team_diff_len = len(team_diff_layer)
+            for _ in range(self.ep_max_iterations):
+                if team_diff_len == 1:
+                    team_diff_layer[0].down()
+                    delta = trunc_layer[0].up()
+                else:
+                    delta = 0
+                    for index in range(team_diff_len - 1):
+                        team_diff_layer[index].down()
+                        delta = max(delta, trunc_layer[index].up())
+                        team_diff_layer[index].up(1)
+                    for index in range(team_diff_len - 1, 0, -1):
+                        team_diff_layer[index].down()
+                        delta = max(delta, trunc_layer[index].up())
+                        team_diff_layer[index].up(0)
+                if delta <= min_delta:
+                    break
+            team_diff_layer[0].up(0)
+            team_diff_layer[team_diff_len - 1].up(1)
+            for factor in team_perf_layer:
+                for index in range(len(factor.vars) - 1):
+                    factor.up(index)
+            for factor in perf_layer:
+                factor.up()
+            return layers
+
+
 @dataclass(frozen=True)
 class TrueSkillParams:
     initial_mu: float = 25.0
@@ -22,6 +81,8 @@ class TrueSkillParams:
     tau: float = 25.0 / 300.0
     draw_probability: float = 0.0
     rating_period: RatingPeriod = "meet"
+    convergence_tolerance: float = 1e-4
+    ep_max_iterations: int = 10
 
 
 class TrueSkillEngine(Predictor):
@@ -37,7 +98,12 @@ class TrueSkillEngine(Predictor):
         self.params = params or TrueSkillParams()
         self._prior_provider = prior_provider
         self._tau_provider = tau_provider
-        self._env = _trueskill.TrueSkill(
+        if not math.isfinite(self.params.convergence_tolerance) or self.params.convergence_tolerance <= 0.0:
+            raise ValueError("[error] convergence_tolerance은 0 이상의 유한값이어야 합니다.")
+        if not isinstance(self.params.ep_max_iterations, int) or self.params.ep_max_iterations < 1:
+            raise ValueError("[error] ep_max_iterations는 1 이상의 정수여야 합니다.")
+        self._env = _ConfiguredTrueSkill(
+            ep_max_iterations=self.params.ep_max_iterations,
             mu=self.params.initial_mu,
             sigma=self.params.initial_sigma,
             beta=self.params.beta,
@@ -78,7 +144,11 @@ class TrueSkillEngine(Predictor):
                         effective = self._with_rate_dynamics(entry.athlete_id, effective, race.race_date)
                     ratings.append(self._to_trueskill_rating(effective))
                 rating_groups.append(tuple(ratings))
-            rated_groups = self._env.rate(rating_groups=rating_groups, ranks=ranks)
+            rated_groups = self._env.rate(
+                rating_groups=rating_groups,
+                ranks=ranks,
+                min_delta=self.params.convergence_tolerance,
+            )
             for group_entries, group_ratings in zip(grouped_entries, rated_groups):
                 for entry, rated in zip(group_entries, group_ratings):
                     current = updated.get(entry.athlete_id, self._initial_rating(entry.athlete_id))

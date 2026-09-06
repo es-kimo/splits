@@ -69,7 +69,7 @@ def _coerce_weight(value: Any) -> float:
     return parsed
 
 
-def _to_race_results(race_ledger: pl.DataFrame) -> list[RaceResult]:
+def to_race_results(race_ledger: pl.DataFrame) -> list[RaceResult]:
     rows = race_ledger.sort(["race_ordering_key", "rank", "athlete_id"], nulls_last=True).to_dicts()
     if not rows:
         return []
@@ -111,7 +111,7 @@ def _period_key(race: RaceResult, period: RatingPeriod) -> str:
     return f"{race.race_date.isoformat()}|{race.meet_id}"
 
 
-def _group_periods(races: list[RaceResult], period: RatingPeriod) -> list[tuple[date, list[RaceResult]]]:
+def group_periods(races: list[RaceResult], period: RatingPeriod) -> list[tuple[date, list[RaceResult]]]:
     if not races:
         return []
     grouped: dict[str, list[RaceResult]] = {}
@@ -179,7 +179,7 @@ def _float_digest(values: list[float]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _ledger_digest(ledger_path: Path) -> str:
+def ledger_digest(ledger_path: Path) -> str:
     files = sorted(path for path in ledger_path.rglob("*.parquet") if path.is_file())
     if not files:
         raise FileNotFoundError(f"[error] parquet 입력 파일이 없습니다: {ledger_path}")
@@ -351,10 +351,10 @@ def run_replay(
     started = time.perf_counter()
     race_ledger = load_race_ledger(ledger_path)
     validate_ledger(race_ledger)
-    races = _to_race_results(race_ledger)
+    races = to_race_results(race_ledger)
     if not races:
         raise ValueError(f"[error] 평가 가능한 race가 없습니다: {ledger_path}")
-    periods = _group_periods(races, rating_period)
+    periods = group_periods(races, rating_period)
     calibration_season = max(race.race_date.year for race in races)
     calibration_fold = f"season={calibration_season}"
 
@@ -456,7 +456,7 @@ def run_replay(
         "engine": engine_name,
         "engine_params": engine_params,
         "rating_period": rating_period,
-        "ledger_digest": _ledger_digest(ledger_path),
+        "ledger_digest": ledger_digest(ledger_path),
         "calibration_fit_fold": calibration_fold,
         "calibration_sample_size": len(calibration_labels),
         "calibrator_digest": calibrator.digest(),
