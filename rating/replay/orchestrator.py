@@ -7,6 +7,7 @@ import io
 import pstats
 import re
 import time
+import tomllib
 import tracemalloc
 from dataclasses import asdict, dataclass
 from datetime import date
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from rating.engine.glicko2 import Glicko2Engine, Glicko2Params, Rating
-from rating.engine.runner import group_periods, ledger_digest, to_race_results
+from rating.engine.runner import group_periods, ledger_digest, run_replay, to_race_results
 from rating.engine.trueskill_wrapper import TrueSkillEngine, TrueSkillParams
 from rating.engine.types import EngineName, Predictor, RatingPeriod
 from rating.ledger.schema import load_race_ledger, validate_ledger
@@ -30,8 +31,11 @@ from .checkpoint import (
     params_digest,
     save,
 )
+from .registry import DEFAULT_REGISTRY_ROOT, RatingRegistry
+from .snapshot import input_snapshot_id, run_id as content_run_id
+from .version import ALGORITHM_VERSION
 
-_DEFAULT_ALGORITHM_VERSION = "rating.replay.v1"
+_DEFAULT_ALGORITHM_VERSION = ALGORITHM_VERSION
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,7 @@ class ReplayParams:
 @dataclass(frozen=True)
 class ReplayResult:
     final_state: dict[str, Rating]
+    run_id: str
     input_hash: str
     params_hash: str
     resumed_from: Checkpoint | None
@@ -181,7 +186,16 @@ def replay(
         raise ValueError("[error] 요청한 종료일 이전에 평가 가능한 race가 없습니다.")
     target_date = max(race.race_date for race in races)
     input_hash = ledger_digest(ledger_path)
+    snapshot_id = input_snapshot_id(ledger_path)
     resolved_params_hash = params_digest(params.fingerprint())
+    engine_params = params.fingerprint()
+    engine_params.pop("algorithm_version")
+    resolved_run_id = content_run_id(
+        algo_version=params.algorithm_version,
+        engine_params=engine_params,
+        calibrator_spec={"method": "unfitted"},
+        input_id=snapshot_id,
+    )
     checkpoint = from_checkpoint or find_nearest(
         target_date,
         params.algorithm_version,
@@ -261,6 +275,7 @@ def replay(
 
     return ReplayResult(
         final_state=state,
+        run_id=resolved_run_id,
         input_hash=input_hash,
         params_hash=resolved_params_hash,
         resumed_from=checkpoint,
@@ -351,29 +366,113 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="결정적 레이팅 리플레이와 시즌 체크포인트 실행기")
     parser.add_argument("--ledger", default="out/ledger", help="race_ledger를 포함한 입력 경로")
     parser.add_argument("--checkpoint-root", default=str(DEFAULT_CHECKPOINT_ROOT), help="체크포인트 저장 경로")
+    parser.add_argument("--params", help="엔진 및 보정기 설정 TOML 파일")
     parser.add_argument("--until", help="재생 종료일 (YYYY-MM-DD)")
-    parser.add_argument("--engine", choices=["glicko2", "trueskill"], default="trueskill")
-    parser.add_argument("--rating-period", choices=["meet", "month"], default="meet")
-    parser.add_argument("--tau", type=float, default=25.0 / 300.0)
-    parser.add_argument("--convergence-tolerance", type=float, default=1e-4)
-    parser.add_argument("--ep-max-iterations", type=int, default=10)
+    parser.add_argument("--engine", choices=["glicko2", "trueskill"])
+    parser.add_argument("--rating-period", choices=["meet", "month"])
+    parser.add_argument("--tau", type=float)
+    parser.add_argument("--convergence-tolerance", type=float)
+    parser.add_argument("--ep-max-iterations", type=int)
     parser.add_argument("--bench", action="store_true", help="콜드 리플레이 성능을 측정합니다")
+    parser.add_argument("--register", action="store_true", help="콘텐츠 주소 실행으로 등록하고 완료 후 공개합니다")
+    parser.add_argument("--registry-root", default=str(DEFAULT_REGISTRY_ROOT), help="실행 레지스트리 루트")
     parser.add_argument("--out", default="out/replay_bench.md", help="--bench 측정 보고서 경로")
     return parser
 
 
+def _load_engine_config(path: str | None) -> dict[str, object]:
+    if path is None:
+        return {}
+    with Path(path).expanduser().open("rb") as handle:
+        payload = tomllib.load(handle)
+    engine = payload.get("engine")
+    if not isinstance(engine, dict):
+        raise ValueError("[error] params TOML에 [engine] 테이블이 필요합니다.")
+    return dict(engine)
+
+
 def main() -> None:
     args = build_parser().parse_args()
+    config = _load_engine_config(args.params)
+    engine_name = args.engine or str(config.get("name", "trueskill"))
+    rating_period = args.rating_period or str(config.get("rating_period", "meet"))
+    tau = float(args.tau if args.tau is not None else config.get("tau", 25.0 / 300.0))
+    convergence_tolerance = float(
+        args.convergence_tolerance if args.convergence_tolerance is not None else config.get("convergence_tolerance", 1e-4)
+    )
+    ep_max_iterations = int(
+        args.ep_max_iterations if args.ep_max_iterations is not None else config.get("ep_max_iterations", 10)
+    )
+    if engine_name not in {"glicko2", "trueskill"}:
+        raise ValueError(f"[error] 지원하지 않는 엔진입니다: {engine_name}")
+    if rating_period not in {"meet", "month"}:
+        raise ValueError(f"[error] 지원하지 않는 period입니다: {rating_period}")
+    if args.register and args.bench:
+        raise ValueError("[error] --register와 --bench는 함께 사용할 수 없습니다.")
     until = date.fromisoformat(args.until) if args.until else None
     params = ReplayParams(
-        engine_name=args.engine,
-        rating_period=args.rating_period,
-        tau=float(args.tau),
-        convergence_tolerance=float(args.convergence_tolerance),
-        ep_max_iterations=int(args.ep_max_iterations),
+        engine_name=engine_name,
+        rating_period=rating_period,
+        tau=tau,
+        convergence_tolerance=convergence_tolerance,
+        ep_max_iterations=ep_max_iterations,
     )
     ledger_path = Path(args.ledger).expanduser()
     checkpoint_root = Path(args.checkpoint_root).expanduser()
+    if args.register:
+        if engine_name == "trueskill":
+            engine_params = {
+                "engine": engine_name,
+                "tau": tau,
+                "initial_mu": float(config.get("initial_mu", 25.0)),
+                "initial_sigma": float(config.get("initial_sigma", 25.0 / 3.0)),
+                "beta": float(config.get("beta", 25.0 / 6.0)),
+                "draw_probability": float(config.get("draw_probability", 0.0)),
+                "rating_period": rating_period,
+                "convergence_tolerance": convergence_tolerance,
+                "ep_max_iterations": ep_max_iterations,
+                "pairwise_size_weight": True,
+            }
+        else:
+            engine_params = {
+                "engine": engine_name,
+                "tau": tau,
+                "initial_mu": 1500.0,
+                "initial_phi": 350.0,
+                "initial_sigma": 0.06,
+                "rating_period": rating_period,
+                "pairwise_size_weight": True,
+            }
+        registry = RatingRegistry(Path(args.registry_root).expanduser())
+        reusable = registry.find_reusable(
+            algo_version=params.algorithm_version,
+            engine_params=engine_params,
+            input_snapshot_id=input_snapshot_id(ledger_path),
+        )
+        if reusable is not None:
+            registry.publish(reusable.run_id)
+            print(f"[ok] run_id={reusable.run_id}")
+            print("[ok] reused=complete")
+            return
+        result = run_replay(
+            ledger_path=ledger_path,
+            output_path=Path(args.registry_root).expanduser() / "unused.parquet",
+            report_path=Path(args.registry_root).expanduser() / "unused.md",
+            engine_name=engine_name,
+            rating_period=rating_period,
+            tau=tau,
+            algorithm_version=params.algorithm_version,
+            registry_root=Path(args.registry_root).expanduser(),
+            trueskill_initial_mu=float(config.get("initial_mu", 25.0)),
+            trueskill_initial_sigma=float(config.get("initial_sigma", 25.0 / 3.0)),
+            beta=float(config.get("beta", 25.0 / 6.0)),
+            draw_probability=float(config.get("draw_probability", 0.0)),
+            convergence_tolerance=convergence_tolerance,
+            ep_max_iterations=ep_max_iterations,
+        )
+        print(f"[ok] run_id={result.run_id}")
+        print(f"[ok] registry={Path(args.registry_root).expanduser()}")
+        return
     if args.bench:
         result = benchmark(
             ledger_path,
@@ -388,6 +487,7 @@ def main() -> None:
     print(f"[ok] periods={result.period_count:,}")
     print(f"[ok] resumed_from={result.resumed_from.cid if result.resumed_from else '-'}")
     print(f"[ok] state_digest={result.state_digest()}")
+    print(f"[ok] run_id={result.run_id}")
 
 
 if __name__ == "__main__":

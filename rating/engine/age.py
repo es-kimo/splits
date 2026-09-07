@@ -11,6 +11,7 @@ from typing import Any, Callable
 import polars as pl
 
 from rating.ledger.schema import load_race_ledger
+from rating.replay.registry import DEFAULT_REGISTRY_ROOT, RatingRegistry
 
 DEFAULT_PRIOR_MU = 25.0
 DEFAULT_PRIOR_SIGMA = 25.0 / 3.0
@@ -771,7 +772,8 @@ def build_age_adjusted_outputs(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="R-06 연령 기반 정규화 리포트/산출물 생성기")
-    parser.add_argument("--ratings", default="out/ratings_baseline.parquet", help="레이팅 스냅샷 parquet")
+    parser.add_argument("--registry-root", default=str(DEFAULT_REGISTRY_ROOT), help="완료된 레이팅 실행 레지스트리 루트")
+    parser.add_argument("--run-id", help="조회할 완료 실행 ID (기본: 시작 시 current를 고정)")
     parser.add_argument("--ledger", default="out/ledger", help="race_ledger를 포함한 입력 경로")
     parser.add_argument("--athlete-meta", default="", help="athlete_meta.parquet 경로 (기본: <ledger>/athlete_meta.parquet)")
     parser.add_argument("--out", default="out/age_curves.md", help="리포트 출력 경로")
@@ -784,14 +786,10 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    ratings_path = Path(args.ratings).expanduser()
     ledger_path = Path(args.ledger).expanduser()
     report_path = Path(args.out).expanduser()
     adjusted_path = Path(args.adjusted_out).expanduser()
     debut_prior_path = Path(args.debut_prior_out).expanduser()
-
-    if not ratings_path.exists():
-        raise FileNotFoundError(f"[error] ratings 파일이 없습니다: {ratings_path}")
 
     if args.athlete_meta:
         athlete_meta_path = Path(args.athlete_meta).expanduser()
@@ -803,7 +801,8 @@ def main() -> None:
     if not athlete_meta_path.exists():
         raise FileNotFoundError(f"[error] athlete_meta 파일이 없습니다: {athlete_meta_path}")
 
-    ratings = pl.read_parquet(ratings_path)
+    registered = RatingRegistry(Path(args.registry_root).expanduser()).load_snapshots(args.run_id)
+    ratings = registered.snapshots.rename({"sigma": "phi"}).with_columns(pl.lit(0.0).alias("sigma"))
     race_ledger = load_race_ledger(ledger_path)
     athlete_meta = pl.read_parquet(athlete_meta_path)
 
@@ -840,6 +839,7 @@ def main() -> None:
     print(f"[ok] debut_priors={debut_prior_path}")
     print(f"[ok] report={report_path}")
     print(f"[ok] rows={adjusted.height:,}")
+    print(f"[ok] run_id={registered.run_id}")
 
 
 if __name__ == "__main__":

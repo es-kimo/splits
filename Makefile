@@ -1,4 +1,4 @@
-.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-replay-bench rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis audit test clean
+.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -75,8 +75,11 @@ rating: ## 🏆 [레이팅 계산] 경기 레저 Parquet 생성 -> TrueSkill 레
 	@echo -e "$(YELLOW)[1/2] rating.ledger.build: Parquet 레저 구축...$(RESET)"
 	$(PYTHON) -m rating.ledger.build --results $(shell if [ -f data/records_full.csv ]; then echo data/records_full.csv; else echo data/records_anon.csv; fi) --out out/ledger
 	@echo -e "$(YELLOW)[2/2] rating.engine.runner: TrueSkill 레이팅 산출...$(RESET)"
-	$(PYTHON) -m rating.engine.runner --ledger out/ledger --out out/ratings_baseline.parquet --report out/baseline_report.md --engine trueskill --rating-period meet
-	@echo -e "$(GREEN)✅ 레이팅 산출 완료! (out/ratings_baseline.parquet)$(RESET)"
+	$(PYTHON) -m rating.engine.runner --ledger out/ledger --engine trueskill --rating-period meet --register-root out/rating_runs
+	@echo -e "$(GREEN)✅ 레이팅 산출 완료! (out/rating_runs/runs/current)$(RESET)"
+
+rating-runs: ## 🧾 [레이팅 실행 목록] 완료된 콘텐츠 주소 실행을 조회
+	$(PYTHON) -m rating.replay.registry --root out/rating_runs --list
 
 rating-replay-bench: ## ⏱️ [리플레이 측정] 시즌 체크포인트와 콜드 리플레이 성능 보고서 생성
 	$(PYTHON) -m rating.replay.orchestrator --ledger out/ledger --bench --out out/replay_bench.md
@@ -86,9 +89,9 @@ rating-age: ## 📈 [연령 모델] records_anon 기반 레저/메타 구축 -> 
 	@echo -e "$(YELLOW)[1/3] rating.ledger.build: 연령 메타 포함 레저 구축...$(RESET)"
 	$(PYTHON) -m rating.ledger.build --results data/records_anon.csv --policy conservative --out out/ledger
 	@echo -e "$(YELLOW)[2/3] rating.engine.runner: TrueSkill 스냅샷 생성...$(RESET)"
-	$(PYTHON) -m rating.engine.runner --ledger out/ledger --out out/ratings_baseline.parquet --report out/baseline_report.md --engine trueskill --rating-period meet
+	$(PYTHON) -m rating.engine.runner --ledger out/ledger --engine trueskill --rating-period meet --register-root out/rating_runs
 	@echo -e "$(YELLOW)[3/3] rating.engine.age: 연령 베이스라인/정규화 산출...$(RESET)"
-	$(PYTHON) -m rating.engine.age --ratings out/ratings_baseline.parquet --ledger out/ledger --out out/age_curves.md --adjusted-out out/ratings_age_adjusted.parquet
+	$(PYTHON) -m rating.engine.age --registry-root out/rating_runs --ledger out/ledger --out out/age_curves.md --adjusted-out out/ratings_age_adjusted.parquet
 	@echo -e "$(GREEN)✅ 연령 산출 완료! (out/age_curves.md, out/ratings_age_adjusted.parquet)$(RESET)"
 
 rating-age-tau: ## 📉 [연령 tau] 3구간 tau 식별성 실험 및 기각/채택 리포트 생성
@@ -122,7 +125,7 @@ audit: ## 🔍 [품질 감사] 커밋 정책 준수 검사 & ID 병합 신뢰도
 	@echo -e "$(GREEN)✅ 품질 감사 완료!$(RESET)"
 
 test: ## 🧪 [단위 테스트] pytest 전체 실행
-	$(PYTEST) -v
+	PYTHONPATH=. $(PYTEST) -v
 
 clean: ## 🧹 빌드 산출물 및 임시 파일 정리
 	@echo -e "$(YELLOW)웹 빌드 결과물 및 캐시 삭제 중...$(RESET)"

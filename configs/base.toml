@@ -1,0 +1,13 @@
+[engine]
+name = "trueskill"
+rating_period = "meet"
+tau = 0.08333333333333333
+initial_mu = 25.0
+initial_sigma = 8.333333333333334
+beta = 4.166666666666667
+draw_probability = 0.0
+convergence_tolerance = 0.0001
+ep_max_iterations = 10
+
+[calibrator]
+method = "platt"

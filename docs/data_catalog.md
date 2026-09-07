@@ -57,7 +57,7 @@ flowchart TD
 
   subgraph L6["Layer 6: Rating Ledger (레이팅 레저)"]
     LEDGER["out/ledger/race_ledger/*.parquet<br/>out/ledger/pairwise_view/*.parquet"]
-    RATINGS["out/ratings_baseline.parquet<br/>out/backtest_report.md"]
+    RATINGS["out/rating_runs/runs/<run_id>/ratings.parquet<br/>out/backtest_report.md"]
   end
 
   subgraph L7["Layer 7: Delivery (웹 렌더링 계약)"]
@@ -238,11 +238,11 @@ flowchart TD
 | `out/ledger/race_ledger/season=YYYY/*.parquet`   | Parquet  | 경기 단위 정제 결과 및 선수별 레이스 메타데이터                                                   |
 | `out/ledger/pairwise_view/season=YYYY/*.parquet` | Parquet  | 동일 조/경기 내 선수 간 1:1 대결(Win/Loss/Draw) 확장 뷰                                           |
 | `out/ledger/ranking_view/season=YYYY/*.parquet`  | Parquet  | 대회-종목-라운드 단위 순위 집계 뷰                                                                |
-| `out/ratings_baseline.parquet`                   | Parquet  | TrueSkill/Glicko-2 엔진 실행 결과 산출된 선수별 최종 레이팅 스냅샷                                |
+| `out/rating_runs/runs/<run_id>/ratings.parquet`  | Parquet  | 콘텐츠 주소 실행에 묶인 선수별 레이팅 스냅샷; 완료 실행만 `runs/current`으로 공개                |
 | `out/replay_checkpoints/*.parquet`               | Parquet  | 입력·파라미터·알고리즘 버전에 묶인 시즌 경계 원시 레이팅 상태 (생성물, 커밋 제외)                 |
 | `out/replay_bench.md`                            | Markdown | 전체/마지막 시즌 재생 시간, 최대 메모리, 시즌별 시간, 프로파일 측정값                            |
-| `out/calibrator.json`                            | JSON     | Platt 보정기 계수와 적합 폴드/표본 수 메타데이터                                                  |
-| `out/rating_run.json`                            | JSON     | 결정적 `run_id`, `calibrator_json`, 입력 레저 digest, 보정 전/후 확률 digest를 담은 실행 manifest |
+| `out/rating_runs/runs/<run_id>/calibrator.json`  | JSON     | 해당 실행의 Platt 보정기 계수와 적합 폴드/표본 수 메타데이터                                      |
+| `out/rating_runs/runs/<run_id>/rating_run.json`  | JSON     | 결정적 `run_id`, 입력 스냅샷 ID, 보정기, 보정 전/후 확률 digest를 담은 실행 manifest             |
 | `out/calibration_report.md`                      | Markdown | 보정기 프로토콜(적합 폴드, 재적합 주기, 세그먼트 분리) 판정 리포트                                |
 | `out/connectivity_report.md`                     | Markdown | 선수 간 대결 그래프의 연결성(Connectivity) 및 거대 성분 검증 리포트                               |
 | `out/status_audit.md`                            | Markdown | 실격(DQ), 부전승(ADV), 미출전(DNS) 등 원천 상태 코드 감사표                                       |
@@ -317,10 +317,10 @@ flowchart LR
 | `data/placements.csv`                        | `records.csv`, `athlete_info.csv`                                                    | `python analyze.py`                                   | `build_data.py`                          |
 | `data/cohort.csv` 외 20종 통계               | `records_full.csv` (폴백: `records_anon.csv`)                                        | `python analyze.py`                                   | `build_data.py`, 연구 분석               |
 | `out/ledger/*.parquet`                       | `records_anon.csv` 또는 `records_full.csv`                                           | `python -m rating.ledger.build`                       | `rating.engine.runner`                   |
-| `out/ratings_baseline.parquet`               | `out/ledger/race_ledger`                                                             | `python -m rating.engine.runner`                      | `rating.eval.backtest`                   |
+| `out/rating_runs/runs/<run_id>/ratings.parquet` | `out/ledger/race_ledger`                                                           | `python -m rating.replay.orchestrator --register`      | `rating.engine.age`                      |
 | `out/replay_checkpoints/*.parquet`           | `out/ledger/race_ledger`                                                             | `python -m rating.replay.orchestrator`                | 부분 리플레이                             |
 | `out/replay_bench.md`                        | `out/ledger/race_ledger`                                                             | `python -m rating.replay.orchestrator --bench`        | `docs/adr/0010-replay-strategy.md`       |
-| `out/calibrator.json`, `out/rating_run.json` | `out/ledger/race_ledger`                                                             | `python -m rating.engine.runner`                      | R-09 실행 레지스트리, 백테스트/회귀 재현 |
+| `out/rating_runs/registry.sqlite`            | 실행 정의와 레이팅 스냅샷                                                           | `python -m rating.replay.registry`                    | 완료 실행 조회·혼합 방지                 |
 | `out/calibration_report.md`                  | `out/ledger/race_ledger`, `out/calibrator.json`                                      | `python -m rating.calibration.protocol`               | `docs/adr/0008-calibration.md`           |
 | `site/data/*.json`                           | `placements.csv`, `records_anon.csv`, `public_figures.csv`, `stats_distribution.csv` | `python build_data.py`                                | `build_site.py` (Astro)                  |
 | `index.html` 등 배포물                       | `site/data/*.json`, `web/` 템플릿                                                    | `python build_site.py`                                | `splits.kr` 웹 서빙                      |

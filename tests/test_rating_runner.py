@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rating.engine.runner import run_replay
 from rating.ledger.ordering import make_ordering_key, make_race_ordering_key
+from rating.replay.registry import RatingRegistry
 
 
 def _ledger_row(
@@ -139,6 +141,51 @@ def test_run_replay_is_byte_deterministic(tmp_path: Path):
     assert manifest_a["debut_prior_digest"] == manifest_b["debut_prior_digest"]
     assert manifest_a["tau_by_age_band"] == manifest_b["tau_by_age_band"]
     assert manifest_a["age_meta_digest"] == manifest_b["age_meta_digest"]
+
+
+def test_registered_run_is_published_only_after_complete(tmp_path: Path):
+    ledger_dir = _build_ledger_dir(tmp_path)
+    registry_root = tmp_path / "rating-runs"
+
+    result = run_replay(
+        ledger_path=ledger_dir,
+        output_path=tmp_path / "ignored.parquet",
+        report_path=tmp_path / "ignored.md",
+        engine_name="glicko2",
+        registry_root=registry_root,
+    )
+
+    registry = RatingRegistry(registry_root)
+    assert registry.current_run_id() == result.run_id
+    assert registry.load_snapshots().run_id == result.run_id
+    run_dir = registry.run_directory(result.run_id)
+    assert (run_dir / "ratings.parquet").exists()
+    assert (run_dir / "calibrator.json").exists()
+    assert (run_dir / "rating_run.json").exists()
+    assert (run_dir / "baseline_report.md").exists()
+
+
+def test_register_cli_reuses_matching_completed_run(tmp_path: Path):
+    ledger_dir = _build_ledger_dir(tmp_path)
+    registry_root = tmp_path / "rating-runs"
+    command = [
+        sys.executable,
+        "-m",
+        "rating.replay.orchestrator",
+        "--ledger",
+        str(ledger_dir),
+        "--params",
+        "configs/base.toml",
+        "--registry-root",
+        str(registry_root),
+        "--register",
+    ]
+
+    first = subprocess.run(command, check=True, capture_output=True, text=True)
+    second = subprocess.run(command, check=True, capture_output=True, text=True)
+
+    assert "[ok] run_id=" in first.stdout
+    assert "[ok] reused=complete" in second.stdout
 
 
 def test_month_period_collapses_same_month_meets(tmp_path: Path):
