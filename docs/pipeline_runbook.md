@@ -206,7 +206,7 @@ make rating-eval
 make rating-sigma-diagnosis
 ```
 
-- 레이팅 실행 산출물: `out/rating_runs/runs/<run_id>/ratings.parquet`, `calibrator.json`, `rating_run.json`, `baseline_report.md`입니다. 레지스트리에는 예측·백테스트용 필터 스냅샷과 회고 분석용 스무딩 스냅샷을 분리해 저장합니다. 완료된 실행만 `out/rating_runs/runs/current`로 공개되며, `make rating-runs`로 완료 실행을 조회합니다.
+- 레이팅 실행 산출물: `out/rating_runs/runs/<run_id>/ratings.parquet`, `calibrator.json`, `rating_run.json`, `baseline_report.md`입니다. 레지스트리에는 예측·백테스트용 필터 스냅샷과 회고 분석용 스무딩 스냅샷을 분리해 저장합니다. 완료된 실행만 `out/rating_runs/runs/current`로 공개되며, `make rating-runs`로 완료 실행을 조회합니다. `make rating`은 `data/records_anon.csv`를 우선 사용하고, 파일이 없을 때만 `data/records_full.csv`를 사용합니다.
 - 국가대표의 회고 차이는 `make rating-smoothing-report`로 생성합니다. 이 보고서의 스무딩 값은 미래 기록을 포함하므로 예측과 백테스트에 사용하지 않습니다.
 - 국가대표 유년기 궤적 검증은 `make rating-trajectory`로 생성합니다. 궤적은 스무딩 추정치로, 예측력(AUC)과 양방향 확률은 필터 추정치로 계산하며, 선수 식별에 `SPLITS_ANON_SALT`와 `data/public_figures.csv`가 필요합니다. 판정 기준은 [ADR 0017](adr/0017-trajectory-findings.md)에 있습니다.
 - 평가 산출물: `out/calibration_report.md`, `out/backtest_report.md`, `out/backtest_calibration/*.svg`입니다.

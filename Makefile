@@ -76,7 +76,7 @@ collect-retry: ## 🔁 [수집 실패 복구] 실패/부분완료 대회 재시�
 
 rating: ## 🏆 [레이팅 계산] 경기 레저 Parquet 생성 -> TrueSkill 레이팅 계산
 	@echo -e "$(YELLOW)[1/2] rating.ledger.build: Parquet 레저 구축...$(RESET)"
-	$(PYTHON) -m rating.ledger.build --results $(shell if [ -f data/records_full.csv ]; then echo data/records_full.csv; else echo data/records_anon.csv; fi) --out out/ledger
+	$(PYTHON) -m rating.ledger.build --results $(shell if [ -f data/records_anon.csv ]; then echo data/records_anon.csv; elif [ -f data/records_full.csv ]; then echo data/records_full.csv; else echo data/records_anon.csv; fi) --out out/ledger
 	@echo -e "$(YELLOW)[2/2] rating.replay.orchestrator: TrueSkill 레이팅 산출...$(RESET)"
 	$(PYTHON) -m rating.replay.orchestrator --ledger out/ledger --params configs/production.toml --register --registry-root out/rating_runs
 	$(PYTHON) site/build_static.py --registry-root out/rating_runs --ledger out/ledger
