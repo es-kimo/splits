@@ -247,6 +247,8 @@ flowchart TD
 | `out/connectivity_report.md`                     | Markdown | 선수 간 대결 그래프의 연결성(Connectivity) 및 거대 성분 검증 리포트                               |
 | `out/status_audit.md`                            | Markdown | 실격(DQ), 부전승(ADV), 미출전(DNS) 등 원천 상태 코드 감사표                                       |
 | `out/backtest_report.md`                         | Markdown | 12개 설정 전수 백테스트 결과 리포트 (TrueSkill 71.3% 승자 적중률 검증)                            |
+| `out/national_team_report.md`                    | Markdown | 국가대표 유년기 궤적 검증 리포트 (양방향 확률·연령별 AUC·이탈 분포)                              |
+| `out/national_team_trajectory/trajectory.svg`    | SVG      | 국가대표 연령별 상대 위치 궤적과 연령별 평균 누적 경기 수 그래프                                  |
 
 ---
 
@@ -322,5 +324,6 @@ flowchart LR
 | `out/replay_bench.md`                        | `out/ledger/race_ledger`                                                             | `python -m rating.replay.orchestrator --bench`        | `docs/adr/0010-replay-strategy.md`       |
 | `out/rating_runs/registry.sqlite`            | 실행 정의, 필터 스냅샷, 회고 스무딩 스냅샷                                            | `python -m rating.replay.registry`                    | 완료 실행 조회·혼합 방지                 |
 | `out/calibration_report.md`                  | `out/ledger/race_ledger`, `out/calibrator.json`                                      | `python -m rating.calibration.protocol`               | `docs/adr/0008-calibration.md`           |
+| `out/national_team_report.md`                | 필터·회고 스무딩 스냅샷, `out/ledger`, `public_figures.csv` + `SPLITS_ANON_SALT`      | `python -m rating.eval.trajectory`                    | `docs/adr/0017-trajectory-findings.md`   |
 | `site/data/*.json`                           | `placements.csv`, `records_anon.csv`, `public_figures.csv`, `stats_distribution.csv` | `python build_data.py`                                | `build_site.py` (Astro)                  |
 | `index.html` 등 배포물                       | `site/data/*.json`, `web/` 템플릿                                                    | `python build_site.py`                                | `splits.kr` 웹 서빙                      |

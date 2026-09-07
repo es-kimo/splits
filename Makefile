@@ -1,4 +1,4 @@
-.PHONY: help setup dev api build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-merge-blast-radius rating-smoothing-report rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis rating-sweep simulation-calibration audit test clean
+.PHONY: help setup dev api build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-merge-blast-radius rating-smoothing-report rating-trajectory rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis rating-sweep simulation-calibration audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -96,6 +96,10 @@ rating-merge-blast-radius: ## 💥 [병합 반경] 동일인 병합 영향 범�
 rating-smoothing-report: ## 🕰️ [회고 스무딩] 국가대표 필터·스무딩 차이 보고서 생성
 	$(PYTHON) -m rating.query.temporal --compare-filter-smoother --athletes national_team --out out/smoothing_report.md
 	@echo -e "$(GREEN)✅ 회고 스무딩 보고서 완료! (out/smoothing_report.md)$(RESET)"
+
+rating-trajectory: ## 🧭 [궤적 검증] 국가대표 유년기 궤적과 양방향 예측력 리포트 생성
+	$(PYTHON) -m rating.eval.trajectory --out out/national_team_report.md --svg-out out/national_team_trajectory/trajectory.svg
+	@echo -e "$(GREEN)✅ 궤적 검증 리포트 완료! (out/national_team_report.md)$(RESET)"
 
 rating-age: ## 📈 [연령 모델] records_anon 기반 레저/메타 구축 -> 연령 정규화 리포트 생성
 	@echo -e "$(YELLOW)[1/3] rating.ledger.build: 연령 메타 포함 레저 구축...$(RESET)"
