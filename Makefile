@@ -1,4 +1,4 @@
-.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-merge-blast-radius rating-smoothing-report rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis rating-sweep audit test clean
+.PHONY: help setup dev api build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-merge-blast-radius rating-smoothing-report rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis rating-sweep audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -27,6 +27,9 @@ setup: ## 🛠️ 파이썬 패키지 및 Astro 웹 의존성 설치
 dev: ## 🌐 Astro 로컬 개발 서버 실행 (웹 UI 실시간 확인)
 	@echo -e "$(GREEN)로컬 개발 서버를 시작합니다 (http://localhost:4321)...$(RESET)"
 	npm run dev --prefix web
+
+api: ## 🔎 읽기 전용 레이팅 질의 API 실행
+	$(PYTHON) -m uvicorn server.main:app --reload
 
 build: ## 🚀 [기본 빌드] 통계 분석 -> site JSON 생성 -> 정적 사이트 빌드
 	@echo -e "$(YELLOW)[1/3] analyze.py: 통계 및 코호트 분석 실행...$(RESET)"
@@ -76,6 +79,7 @@ rating: ## 🏆 [레이팅 계산] 경기 레저 Parquet 생성 -> TrueSkill 레
 	$(PYTHON) -m rating.ledger.build --results $(shell if [ -f data/records_full.csv ]; then echo data/records_full.csv; else echo data/records_anon.csv; fi) --out out/ledger
 	@echo -e "$(YELLOW)[2/2] rating.replay.orchestrator: TrueSkill 레이팅 산출...$(RESET)"
 	$(PYTHON) -m rating.replay.orchestrator --ledger out/ledger --params configs/production.toml --register --registry-root out/rating_runs
+	$(PYTHON) site/build_static.py --registry-root out/rating_runs --ledger out/ledger
 	@echo -e "$(GREEN)✅ 레이팅 산출 완료! (out/rating_runs/runs/current)$(RESET)"
 
 rating-runs: ## 🧾 [레이팅 실행 목록] 완료된 콘텐츠 주소 실행을 조회

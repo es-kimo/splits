@@ -5,5 +5,8 @@ lxml
 networkx
 polars
 trueskill
+fastapi
+uvicorn
+httpx
 pytest
 mypy

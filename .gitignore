@@ -34,6 +34,7 @@ __pycache__/
 .env.*
 .venv/
 /out/rating_runs/
+/out/private/
 .DS_Store
 web/node_modules/
 web/dist/

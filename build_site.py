@@ -21,6 +21,7 @@ SYNC_TARGETS = [
     Path("sitemap.xml"),
     Path("robots.txt"),
     Path("support.js"),
+    Path("static"),
 ]
 
 
