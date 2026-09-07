@@ -1,10 +1,11 @@
 import os
 from pathlib import Path
+from typing import Iterable
 
 DEFAULT_LOCAL_ENV_FILES = (".env.local", ".env")
 
 
-def _parse_env_line(line):
+def _parse_env_line(line: str) -> tuple[str | None, str | None]:
     text = line.strip()
     if not text or text.startswith("#"):
         return None, None
@@ -25,15 +26,15 @@ def _parse_env_line(line):
     return key, value
 
 
-def load_local_env(files=DEFAULT_LOCAL_ENV_FILES, override=False):
-    loaded = []
+def load_local_env(files: Iterable[str] = DEFAULT_LOCAL_ENV_FILES, override: bool = False) -> list[str]:
+    loaded: list[str] = []
     for file_name in files:
         path = Path(file_name)
         if not path.exists():
             continue
         for raw_line in path.read_text(encoding="utf-8").splitlines():
             key, value = _parse_env_line(raw_line)
-            if not key:
+            if key is None or value is None:
                 continue
             if not override and key in os.environ:
                 continue

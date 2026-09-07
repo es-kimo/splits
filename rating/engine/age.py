@@ -829,7 +829,7 @@ def main() -> None:
     )
 
     adjusted_path.parent.mkdir(parents=True, exist_ok=True)
-    adjusted.write_parquet(adjusted_path)
+    adjusted.with_columns(pl.lit(registered.run_id).alias("run_id")).write_parquet(adjusted_path)
     debut_prior_path.parent.mkdir(parents=True, exist_ok=True)
     debut_priors.write_parquet(debut_prior_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
