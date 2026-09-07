@@ -1,4 +1,4 @@
-.PHONY: help setup dev api build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-merge-blast-radius rating-smoothing-report rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis rating-sweep audit test clean
+.PHONY: help setup dev api build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-merge-blast-radius rating-smoothing-report rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis rating-sweep simulation-calibration audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -136,6 +136,10 @@ rating-sweep: ## 🎛️ [파라미터 스윕] 정책별 레저에서 독립 축
 	@echo -e "$(YELLOW)[2/2] rating.eval.sweep: 병렬 파라미터 스윕...$(RESET)"
 	$(PYTHON) -m rating.eval.sweep --space configs/sweep_space.toml
 	@echo -e "$(GREEN)✅ 스윕 완료! (out/sweep_results.md, configs/production.toml)$(RESET)"
+
+simulation-calibration: rating ## 🎲 [히트 시뮬레이션] 홀드아웃 진출 확률 보정 리포트 생성
+	$(PYTHON) -m server.simulate --calibrate --holdout --ledger out/ledger --registry-root out/rating_runs --out out/sim_calibration.md
+	@echo -e "$(GREEN)✅ 히트 시뮬레이션 보정 리포트 완료! (out/sim_calibration.md)$(RESET)"
 
 audit: ## 🔍 [품질 감사] 커밋 정책 준수 검사 & ID 병합 신뢰도 감사
 	@echo -e "$(YELLOW)[1/2] 커밋 정책 감사 (개인정보 누출 방지)...$(RESET)"

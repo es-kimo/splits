@@ -531,6 +531,16 @@ def _prepare_rows_for_policy(results: pl.DataFrame, policy: ExtractionPolicy) ->
     return work, policy_rows, diagnostics
 
 
+def estimate_penalty_rate(results_path: Path, *, policy_name: str = "conservative") -> float:
+    """Measure PEN prevalence before a policy excludes those rows from the race ledger."""
+
+    policy = get_policy(policy_name)
+    prepared, _policy_rows, _diagnostics = _prepare_rows_for_policy(load_results_csv(results_path), policy)
+    if prepared.is_empty():
+        raise ValueError("[error] 실격률을 계산할 유효 쇼트트랙 결과가 없습니다.")
+    return prepared.filter(pl.col("status_norm") == STATUS_PEN).height / prepared.height
+
+
 def _add_comparison_row(out_rows: list[dict[str, Any]], winner: dict[str, Any], loser: dict[str, Any], loser_place: int | None) -> None:
     winner_place = winner.get("effective_place")
     out_rows.append(

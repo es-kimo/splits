@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from threading import Lock
 from typing import Any, cast
 
 import polars as pl
+
+from rating.ledger.extract import estimate_penalty_rate
+from rating.ledger.schema import load_race_ledger
 
 from .opaque_ids import load_active_opaque_ids, open_readonly_connection
 
@@ -26,14 +31,20 @@ class ApiConfig:
     registry_root: Path
     opaque_id_db: Path
     age_adjusted_path: Path | None = None
+    penalty_ledger_path: Path | None = None
+    penalty_results_path: Path | None = None
 
     @classmethod
     def from_env(cls) -> "ApiConfig":
         age_adjusted = os.environ.get("SPLITS_AGE_ADJUSTED_PATH", "").strip()
+        penalty_ledger = os.environ.get("SPLITS_SIM_PENALTY_LEDGER", "out/ledger").strip()
+        penalty_results = os.environ.get("SPLITS_SIM_PENALTY_RESULTS", "data/records_full.csv").strip()
         return cls(
             registry_root=Path(os.environ.get("SPLITS_RATING_REGISTRY_ROOT", "out/rating_runs")).expanduser(),
             opaque_id_db=Path(os.environ.get("SPLITS_OPAQUE_ID_DB", "out/private/opaque_ids.sqlite")).expanduser(),
             age_adjusted_path=Path(age_adjusted).expanduser() if age_adjusted else None,
+            penalty_ledger_path=Path(penalty_ledger).expanduser() if penalty_ledger else None,
+            penalty_results_path=Path(penalty_results).expanduser() if penalty_results else None,
         )
 
 
@@ -44,6 +55,8 @@ class PinnedRun:
     created_at: str
     calibrator: str
     data_as_of: date
+    engine_params: dict[str, Any]
+    calibrator_spec: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -64,6 +77,8 @@ class ReadOnlyRatingRepository:
         self._opaque_to_athlete = load_active_opaque_ids(config.opaque_id_db)
         self._z_by_snapshot = load_age_adjusted_z(config.age_adjusted_path, self.pinned_run.run_id)
         self._today = today or date.today()
+        self._default_penalty_rate: float | None = None
+        self._penalty_lock = Lock()
 
     def athlete_id_for(self, opaque_id: str) -> str | None:
         return self._opaque_to_athlete.get(opaque_id)
@@ -89,6 +104,37 @@ class ReadOnlyRatingRepository:
 
     def stale_days(self) -> int:
         return max(0, (self._today - self.pinned_run.data_as_of).days)
+
+    def simulation_beta(self) -> float:
+        raw_beta: object = self.pinned_run.engine_params.get("beta")
+        if isinstance(raw_beta, bool) or not isinstance(raw_beta, (int, float)):
+            raise ApiDataError("[error] 공개된 레이팅 실행에 TrueSkill beta가 없습니다.")
+        beta = float(raw_beta)
+        if not math.isfinite(beta) or beta <= 0.0:
+            raise ApiDataError("[error] 공개된 레이팅 실행의 TrueSkill beta가 올바르지 않습니다.")
+        return beta
+
+    def default_penalty_rate(self) -> float:
+        with self._penalty_lock:
+            if self._default_penalty_rate is not None:
+                return self._default_penalty_rate
+            results_path = self.config.penalty_results_path
+            if results_path is not None and results_path.is_file():
+                try:
+                    self._default_penalty_rate = estimate_penalty_rate(results_path)
+                except ValueError as error:
+                    raise ApiDataError(str(error)) from error
+                return self._default_penalty_rate
+            path = self.config.penalty_ledger_path
+            if path is None or not path.exists():
+                raise ApiDataError("[error] 시뮬레이션 기본 실격률 레저가 없습니다.")
+            ledger = load_race_ledger(path)
+            if ledger.is_empty() or "status" not in ledger.columns:
+                raise ApiDataError("[error] 시뮬레이션 기본 실격률을 계산할 상태 데이터가 없습니다.")
+            total = ledger.height
+            penalty_count = ledger.filter(pl.col("status") == "PEN").height
+            self._default_penalty_rate = penalty_count / total
+            return self._default_penalty_rate
 
     def _snapshot_row(self, table: str, athlete_id: str, as_of: date) -> sqlite3.Row | None:
         with open_registry_readonly(self.config.registry_root) as connection:
@@ -129,7 +175,7 @@ def load_pinned_run(registry_root: Path) -> PinnedRun:
     with open_registry_readonly(registry_root) as connection:
         row = connection.execute(
             """
-            SELECT run_id, algo_version, created_at, calibrator_json
+            SELECT run_id, algo_version, created_at, calibrator_json, params_json
             FROM rating_run
             WHERE run_id = ? AND status = 'complete'
             """,
@@ -149,6 +195,8 @@ def load_pinned_run(registry_root: Path) -> PinnedRun:
         created_at=str(row["created_at"]),
         calibrator=_calibrator_name(str(row["calibrator_json"])),
         data_as_of=date.fromisoformat(str(data_row["data_as_of"])),
+        engine_params=_engine_params(str(row["params_json"])),
+        calibrator_spec=_calibrator_spec(str(row["calibrator_json"])),
     )
 
 
@@ -183,10 +231,25 @@ def load_age_adjusted_z(path: Path | None, run_id: str) -> dict[tuple[str, date]
 
 
 def _calibrator_name(raw: str) -> str:
+    payload = _calibrator_spec(raw)
+    return f"{payload['method'].strip()}-v1"
+
+
+def _calibrator_spec(raw: str) -> dict[str, Any]:
     try:
         payload: Any = json.loads(raw)
     except json.JSONDecodeError as error:
         raise ApiDataError("[error] 레이팅 실행의 보정기 메타데이터가 올바른 JSON이 아닙니다.") from error
     if not isinstance(payload, dict) or not isinstance(payload.get("method"), str) or not payload["method"].strip():
         raise ApiDataError("[error] 레이팅 실행의 보정기 메타데이터에 method가 없습니다.")
-    return f"{payload['method'].strip()}-v1"
+    return payload
+
+
+def _engine_params(raw: str) -> dict[str, Any]:
+    try:
+        payload: Any = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ApiDataError("[error] 레이팅 실행의 엔진 파라미터가 올바른 JSON이 아닙니다.") from error
+    if not isinstance(payload, dict):
+        raise ApiDataError("[error] 레이팅 실행의 엔진 파라미터는 객체여야 합니다.")
+    return payload
