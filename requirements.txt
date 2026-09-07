@@ -6,3 +6,4 @@ networkx
 polars
 trueskill
 pytest
+mypy

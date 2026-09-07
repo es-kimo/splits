@@ -25,6 +25,14 @@ _SNAPSHOT_SCHEMA = {
     "n_games": pl.Int64,
 }
 
+_SMOOTHED_SNAPSHOT_SCHEMA = {
+    "athlete_id": pl.Utf8,
+    "valid_date": pl.Date,
+    "mu": pl.Float64,
+    "sigma": pl.Float64,
+    "n_games": pl.Int64,
+}
+
 
 class RegistryError(ValueError):
     """A rating execution cannot safely be registered or consumed."""
@@ -90,6 +98,17 @@ class RatingRegistry:
                 );
                 CREATE INDEX IF NOT EXISTS rating_snapshot_run_date
                     ON rating_snapshot(run_id, valid_date);
+                CREATE TABLE IF NOT EXISTS rating_smoothed_snapshot (
+                    run_id TEXT NOT NULL REFERENCES rating_run(run_id),
+                    athlete_id TEXT NOT NULL,
+                    valid_date TEXT NOT NULL,
+                    mu REAL NOT NULL,
+                    sigma REAL NOT NULL,
+                    n_games INTEGER NOT NULL,
+                    PRIMARY KEY (run_id, athlete_id, valid_date)
+                );
+                CREATE INDEX IF NOT EXISTS rating_smoothed_snapshot_run_date
+                    ON rating_smoothed_snapshot(run_id, valid_date);
                 """
             )
 
@@ -197,10 +216,14 @@ class RatingRegistry:
         run_id: str,
         snapshots: pl.DataFrame,
         *,
+        smoothed_snapshots: pl.DataFrame | None = None,
         metrics: Mapping[str, object] | None = None,
     ) -> RatingRun:
         self.initialize()
         prepared = _prepare_snapshots(snapshots)
+        prepared_smoothed = (
+            _prepare_smoothed_snapshots(smoothed_snapshots) if smoothed_snapshots is not None else None
+        )
         with self._connect() as connection:
             run = self._require_running(connection, run_id)
             connection.execute("DELETE FROM rating_snapshot WHERE run_id = ?", (run_id,))
@@ -221,6 +244,25 @@ class RatingRegistry:
                     for row in prepared.to_dicts()
                 ],
             )
+            if prepared_smoothed is not None:
+                connection.execute("DELETE FROM rating_smoothed_snapshot WHERE run_id = ?", (run_id,))
+                connection.executemany(
+                    """
+                    INSERT INTO rating_smoothed_snapshot (run_id, athlete_id, valid_date, mu, sigma, n_games)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            run_id,
+                            row["athlete_id"],
+                            row["valid_date"].isoformat(),
+                            row["mu"],
+                            row["sigma"],
+                            row["n_games"],
+                        )
+                        for row in prepared_smoothed.to_dicts()
+                    ],
+                )
             connection.execute(
                 "UPDATE rating_run SET status = 'complete', metrics_json = ? WHERE run_id = ?",
                 (canonical_json(dict(metrics or {})), run_id),
@@ -305,6 +347,85 @@ class RatingRegistry:
             ),
         )
 
+    def load_smoothed_snapshots(self, run_id: str | None = None) -> RegisteredSnapshots:
+        selected = run_id or self.current_run_id()
+        if self.get_run(selected) is None:
+            raise RegistryError("[error] 완료된 레이팅 실행만 조회할 수 있습니다.")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT athlete_id, valid_date, mu, sigma, n_games
+                FROM rating_smoothed_snapshot WHERE run_id = ?
+                ORDER BY valid_date, athlete_id
+                """,
+                (selected,),
+            ).fetchall()
+        records = [dict(row) for row in rows]
+        frame = (
+            pl.DataFrame(records)
+            if records
+            else pl.DataFrame(
+                schema={
+                    "athlete_id": pl.Utf8,
+                    "valid_date": pl.Utf8,
+                    "mu": pl.Float64,
+                    "sigma": pl.Float64,
+                    "n_games": pl.Int64,
+                }
+            )
+        )
+        return RegisteredSnapshots(
+            run_id=selected,
+            snapshots=frame.select(list(_SMOOTHED_SNAPSHOT_SCHEMA)).with_columns(
+                [
+                    pl.col("athlete_id").cast(pl.Utf8, strict=True),
+                    pl.col("valid_date").cast(pl.Utf8, strict=True).str.to_date(strict=True),
+                    pl.col("mu").cast(pl.Float64, strict=True),
+                    pl.col("sigma").cast(pl.Float64, strict=True),
+                    pl.col("n_games").cast(pl.Int64, strict=True),
+                ]
+            ),
+        )
+
+    def filtered_snapshot_as_of(
+        self,
+        athlete_id: str,
+        as_of: date,
+        run_id: str | None = None,
+    ) -> dict[str, object] | None:
+        return self._snapshot_as_of("rating_snapshot", athlete_id, as_of, run_id)
+
+    def smoothed_snapshot_as_of(
+        self,
+        athlete_id: str,
+        valid_date: date,
+        run_id: str | None = None,
+    ) -> dict[str, object] | None:
+        return self._snapshot_as_of("rating_smoothed_snapshot", athlete_id, valid_date, run_id)
+
+    def _snapshot_as_of(
+        self,
+        table: Literal["rating_snapshot", "rating_smoothed_snapshot"],
+        athlete_id: str,
+        valid_date: date,
+        run_id: str | None,
+    ) -> dict[str, object] | None:
+        selected = run_id or self.current_run_id()
+        if self.get_run(selected) is None:
+            raise RegistryError("[error] 완료된 레이팅 실행만 조회할 수 있습니다.")
+        with self._connect() as connection:
+            row = connection.execute(
+                f"""
+                SELECT athlete_id, valid_date, mu, sigma, n_games
+                FROM {table}
+                WHERE run_id = ? AND athlete_id = ? AND valid_date <= ?
+                ORDER BY valid_date DESC
+                LIMIT 1
+                """,
+                (selected, athlete_id, valid_date.isoformat()),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def list_runs(self, *, include_incomplete: bool = False) -> list[RatingRun]:
         self.initialize()
         query = "SELECT * FROM rating_run"
@@ -348,6 +469,27 @@ def _prepare_snapshots(snapshots: pl.DataFrame) -> pl.DataFrame:
     )
     if selected.null_count().sum_horizontal().item() != 0:
         raise RegistryError("[error] 레이팅 스냅샷에는 NULL 값이 있을 수 없습니다.")
+    if selected.unique(subset=["athlete_id", "valid_date"]).height != selected.height:
+        raise RegistryError("[error] 실행 안에서 선수와 기준일 조합이 중복됩니다.")
+    return selected.sort(["valid_date", "athlete_id"])
+
+
+def _prepare_smoothed_snapshots(snapshots: pl.DataFrame) -> pl.DataFrame:
+    required = set(_SMOOTHED_SNAPSHOT_SCHEMA)
+    missing = sorted(required.difference(snapshots.columns))
+    if missing:
+        raise RegistryError(f"[error] 스무딩 레이팅 스냅샷 컬럼이 없습니다: {', '.join(missing)}")
+    selected = snapshots.select(list(_SMOOTHED_SNAPSHOT_SCHEMA)).with_columns(
+        [
+            pl.col("athlete_id").cast(pl.Utf8, strict=True),
+            pl.col("valid_date").cast(pl.Date, strict=True),
+            pl.col("mu").cast(pl.Float64, strict=True),
+            pl.col("sigma").cast(pl.Float64, strict=True),
+            pl.col("n_games").cast(pl.Int64, strict=True),
+        ]
+    )
+    if selected.null_count().sum_horizontal().item() != 0:
+        raise RegistryError("[error] 스무딩 레이팅 스냅샷에는 NULL 값이 있을 수 없습니다.")
     if selected.unique(subset=["athlete_id", "valid_date"]).height != selected.height:
         raise RegistryError("[error] 실행 안에서 선수와 기준일 조합이 중복됩니다.")
     return selected.sort(["valid_date", "athlete_id"])

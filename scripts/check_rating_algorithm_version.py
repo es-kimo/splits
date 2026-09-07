@@ -10,6 +10,7 @@ IDENTITY_AFFECTING_PREFIXES = (
     "rating/replay/checkpoint.py",
     "rating/replay/orchestrator.py",
     "rating/replay/snapshot.py",
+    "rating/query/",
     "rating/calibration/",
 )
 

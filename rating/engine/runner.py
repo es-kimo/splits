@@ -16,6 +16,7 @@ import polars as pl
 from rating.calibration import Calibrator, fit as fit_calibrator
 from rating.ledger.schema import load_race_ledger, validate_ledger
 from rating.ledger.season import parse_kst_date
+from rating.query.smoother import build_smoothed_snapshots
 from rating.replay.registry import RatingRegistry
 from rating.replay.snapshot import input_snapshot_id, run_id as content_run_id
 from rating.replay.version import ALGORITHM_VERSION
@@ -28,6 +29,7 @@ from .types import EngineName, RaceEntry, RaceResult, RatingPeriod
 @dataclass(frozen=True)
 class ReplayResult:
     snapshots: pl.DataFrame
+    smoothed_snapshots: pl.DataFrame
     final_state: dict[str, Rating]
     race_count: int
     period_count: int
@@ -421,6 +423,20 @@ def run_replay(
     else:
         raise ValueError(f"[error] 지원하지 않는 엔진입니다: {engine_name}")
 
+    def smoothing_predictor() -> Glicko2Engine | TrueSkillEngine:
+        if engine_name == "glicko2":
+            return Glicko2Engine(
+                params=glicko_params,
+                epsilon=float(epsilon),
+                max_iterations=int(max_iterations),
+                pairwise_size_weight=pairwise_size_weight,
+                prior_provider=prior_provider,
+            )
+        return TrueSkillEngine(
+            params=trueskill_params,
+            prior_provider=prior_provider,
+        )
+
     state: dict[str, Rating] = {}
     snapshot_rows: list[dict[str, Any]] = []
     calibration_probabilities: list[float] = []
@@ -456,6 +472,12 @@ def run_replay(
     }
     snapshots = pl.DataFrame(snapshot_rows, schema=snapshot_schema) if snapshot_rows else pl.DataFrame(schema=snapshot_schema)
     snapshots = snapshots.sort(["valid_date", "athlete_id"], nulls_last=True)
+    smoothed_snapshots = build_smoothed_snapshots(
+        races,
+        snapshots,
+        rating_period=rating_period,
+        predictor_factory=smoothing_predictor,
+    )
 
     calibrator_json = calibrator.to_json()
 
@@ -508,6 +530,7 @@ def run_replay(
             reuse_completed = True
             registered = registry.load_snapshots(run_id)
             snapshots = registered.snapshots.rename({"sigma": "phi"}).with_columns(pl.lit(0.0).alias("sigma"))
+            smoothed_snapshots = registry.load_smoothed_snapshots(run_id).snapshots
         run_directory = registry.run_directory(run_id)
         output_path = run_directory / "ratings.parquet"
         calibrator_path = run_directory / "calibrator.json"
@@ -527,6 +550,7 @@ def run_replay(
 
     result = ReplayResult(
         snapshots=snapshots,
+        smoothed_snapshots=smoothed_snapshots,
         final_state=state,
         race_count=len(races),
         period_count=len(periods),
@@ -567,11 +591,13 @@ def run_replay(
                         "n_games",
                     ]
                 ),
+                smoothed_snapshots=smoothed_snapshots,
                 metrics={
                     "calibrated_prob_digest": calibrated_prob_digest,
                     "raw_prob_digest": raw_prob_digest,
                     "race_count": len(races),
                     "snapshot_rows": snapshots.height,
+                    "smoothed_snapshot_rows": smoothed_snapshots.height,
                 },
             )
     except Exception as error:

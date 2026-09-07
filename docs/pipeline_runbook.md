@@ -206,7 +206,8 @@ make rating-eval
 make rating-sigma-diagnosis
 ```
 
-- 레이팅 실행 산출물: `out/rating_runs/runs/<run_id>/ratings.parquet`, `calibrator.json`, `rating_run.json`, `baseline_report.md`입니다. 완료된 실행만 `out/rating_runs/runs/current`로 공개되며, `make rating-runs`로 완료 실행을 조회합니다.
+- 레이팅 실행 산출물: `out/rating_runs/runs/<run_id>/ratings.parquet`, `calibrator.json`, `rating_run.json`, `baseline_report.md`입니다. 레지스트리에는 예측·백테스트용 필터 스냅샷과 회고 분석용 스무딩 스냅샷을 분리해 저장합니다. 완료된 실행만 `out/rating_runs/runs/current`로 공개되며, `make rating-runs`로 완료 실행을 조회합니다.
+- 국가대표의 회고 차이는 `make rating-smoothing-report`로 생성합니다. 이 보고서의 스무딩 값은 미래 기록을 포함하므로 예측과 백테스트에 사용하지 않습니다.
 - 평가 산출물: `out/calibration_report.md`, `out/backtest_report.md`, `out/backtest_calibration/*.svg`입니다.
 - 리플레이 측정: `out/replay_bench.md`; 원시 상태 체크포인트는 `out/replay_checkpoints/`에 생성되며 Git에 포함하지 않습니다.
 - 최적 설정(ADR 0006): `conservative / meet / trueskill` (정확도 71.33%, Log-Loss 0.55523)

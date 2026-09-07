@@ -12,7 +12,8 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: PYTHONPATH=. pytest tests/test_registry.py tests/test_replay_determinism.py tests/test_rating_runner.py -v
+      - run: PYTHONPATH=. pytest tests/test_registry.py tests/test_replay_determinism.py tests/test_rating_runner.py tests/test_temporal.py -v
+      - run: PYTHONPATH=. mypy rating/query rating/eval/temporal.py tests/typecheck/temporal_types.py
       - run: python3 scripts/check_rating_algorithm_version.py --base "origin/${{ github.base_ref }}"
