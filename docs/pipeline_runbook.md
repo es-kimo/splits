@@ -182,7 +182,7 @@ make build
 flowchart LR
     A["make rating"] --> B["rating.ledger.build (Parquet 생성)"]
     B --> C["rating.engine.runner (레이팅 + calibrator/run manifest)"]
-    C --> D["out/ratings_baseline.parquet"]
+    C --> D["out/rating_runs/runs/<run_id>/"]
     D --> E["make rating-replay-bench (리플레이 측정)"]
     E --> F["make rating-calibration (보정 프로토콜 리포트)"]
     F --> G["make rating-eval (백테스트 리포트 생성)"]
@@ -206,7 +206,8 @@ make rating-eval
 make rating-sigma-diagnosis
 ```
 
-- 산출물: `out/ratings_baseline.parquet`, `out/calibrator.json`, `out/rating_run.json`, `out/calibration_report.md`, `out/backtest_report.md`, `out/backtest_calibration/*.svg`
+- 레이팅 실행 산출물: `out/rating_runs/runs/<run_id>/ratings.parquet`, `calibrator.json`, `rating_run.json`, `baseline_report.md`입니다. 완료된 실행만 `out/rating_runs/runs/current`로 공개되며, `make rating-runs`로 완료 실행을 조회합니다.
+- 평가 산출물: `out/calibration_report.md`, `out/backtest_report.md`, `out/backtest_calibration/*.svg`입니다.
 - 리플레이 측정: `out/replay_bench.md`; 원시 상태 체크포인트는 `out/replay_checkpoints/`에 생성되며 Git에 포함하지 않습니다.
 - 최적 설정(ADR 0006): `conservative / meet / trueskill` (정확도 71.33%, Log-Loss 0.55523)
 - 진단 산출물: `out/sigma_diagnosis_report.md`, `out/sigma_diagnosis/n_games_vs_sigma.svg`

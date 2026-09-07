@@ -98,6 +98,7 @@ def test_replay_resume_matches_full_state_byte_for_byte(tmp_path: Path):
     resumed = replay(ledger_path, params, from_checkpoint=checkpoint, checkpoint_root=checkpoint_root)
 
     assert resumed.resumed_from == checkpoint
+    assert resumed.run_id == full.run_id
     assert resumed.state_digest() == full.state_digest()
     assert resumed.final_state == full.final_state
 

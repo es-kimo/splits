@@ -16,8 +16,12 @@ import polars as pl
 from rating.calibration import Calibrator, fit as fit_calibrator
 from rating.ledger.schema import load_race_ledger, validate_ledger
 from rating.ledger.season import parse_kst_date
+from rating.replay.registry import RatingRegistry
+from rating.replay.snapshot import input_snapshot_id, run_id as content_run_id
+from rating.replay.version import ALGORITHM_VERSION
 
 from .glicko2 import Glicko2Engine, Glicko2Params, Rating
+from .trueskill_wrapper import TrueSkillEngine, TrueSkillParams
 from .types import EngineName, RaceEntry, RaceResult, RatingPeriod
 
 
@@ -347,6 +351,14 @@ def run_replay(
     debut_prior_digest: str | None = None,
     tau_by_age_band: dict[str, float] | None = None,
     age_meta_digest: str | None = None,
+    algorithm_version: str = ALGORITHM_VERSION,
+    registry_root: Path | None = None,
+    trueskill_initial_mu: float = 25.0,
+    trueskill_initial_sigma: float = 25.0 / 3.0,
+    beta: float = 25.0 / 6.0,
+    draw_probability: float = 0.0,
+    convergence_tolerance: float = 1e-4,
+    ep_max_iterations: int = 10,
 ) -> ReplayResult:
     started = time.perf_counter()
     race_ledger = load_race_ledger(ledger_path)
@@ -374,6 +386,7 @@ def run_replay(
             prior_provider=prior_provider,
         )
         engine_params: dict[str, Any] = {
+            "engine": engine_name,
             "tau": float(glicko_params.tau),
             "initial_mu": float(glicko_params.initial_mu),
             "initial_phi": float(glicko_params.initial_phi),
@@ -382,16 +395,27 @@ def run_replay(
             "pairwise_size_weight": bool(pairwise_size_weight),
         }
     elif engine_name == "trueskill":
-        from .trueskill_wrapper import TrueSkillEngine
-
-        predictor = TrueSkillEngine(prior_provider=prior_provider)
+        trueskill_params = TrueSkillParams(
+            initial_mu=float(trueskill_initial_mu),
+            initial_sigma=float(trueskill_initial_sigma),
+            beta=float(beta),
+            tau=float(tau),
+            draw_probability=float(draw_probability),
+            rating_period=rating_period,
+            convergence_tolerance=float(convergence_tolerance),
+            ep_max_iterations=int(ep_max_iterations),
+        )
+        predictor = TrueSkillEngine(params=trueskill_params, prior_provider=prior_provider)
         engine_params = {
+            "engine": engine_name,
             "tau": float(predictor.params.tau),
             "initial_mu": float(predictor.params.initial_mu),
             "initial_sigma": float(predictor.params.initial_sigma),
             "beta": float(predictor.params.beta),
             "draw_probability": float(predictor.params.draw_probability),
             "rating_period": predictor.params.rating_period,
+            "convergence_tolerance": float(predictor.params.convergence_tolerance),
+            "ep_max_iterations": int(predictor.params.ep_max_iterations),
             "pairwise_size_weight": bool(pairwise_size_weight),
         }
     else:
@@ -433,13 +457,7 @@ def run_replay(
     snapshots = pl.DataFrame(snapshot_rows, schema=snapshot_schema) if snapshot_rows else pl.DataFrame(schema=snapshot_schema)
     snapshots = snapshots.sort(["valid_date", "athlete_id"], nulls_last=True)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    snapshots.write_parquet(output_path)
-
-    calibrator_path = calibrator_out or (output_path.parent / "calibrator.json")
-    calibrator_path.parent.mkdir(parents=True, exist_ok=True)
     calibrator_json = calibrator.to_json()
-    calibrator_path.write_text(calibrator_json, encoding="utf-8")
 
     raw_prob_digest = _float_digest(calibration_probabilities)
     calibrated_prob_digest = _float_digest(calibrated_probabilities)
@@ -453,10 +471,12 @@ def run_replay(
         age_meta_path = _resolve_age_meta_path(ledger_path)
         resolved_age_meta_digest = _file_digest(age_meta_path) if age_meta_path is not None else ""
     manifest_body = {
+        "algorithm_version": algorithm_version,
         "engine": engine_name,
         "engine_params": engine_params,
         "rating_period": rating_period,
         "ledger_digest": ledger_digest(ledger_path),
+        "input_snapshot_id": input_snapshot_id(ledger_path),
         "calibration_fit_fold": calibration_fold,
         "calibration_sample_size": len(calibration_labels),
         "calibrator_digest": calibrator.digest(),
@@ -467,17 +487,44 @@ def run_replay(
         "tau_by_age_band": tau_manifest,
         "age_meta_digest": _norm(resolved_age_meta_digest),
     }
-    run_id = hashlib.sha256(json.dumps(manifest_body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    run_id = content_run_id(
+        algo_version=algorithm_version,
+        engine_params=engine_params,
+        calibrator_spec=calibrator.to_dict(),
+        input_id=str(manifest_body["input_snapshot_id"]),
+    )
     manifest = {
         **manifest_body,
         "run_id": run_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
-    run_manifest_path = run_manifest_out or (output_path.parent / "rating_run.json")
-    run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    run_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-
     elapsed = time.perf_counter() - started
+
+    registry = RatingRegistry(registry_root) if registry_root is not None else None
+    reuse_completed = False
+    if registry is not None:
+        existing = registry.get_run(run_id)
+        if existing is not None:
+            reuse_completed = True
+            registered = registry.load_snapshots(run_id)
+            snapshots = registered.snapshots.rename({"sigma": "phi"}).with_columns(pl.lit(0.0).alias("sigma"))
+        run_directory = registry.run_directory(run_id)
+        output_path = run_directory / "ratings.parquet"
+        calibrator_path = run_directory / "calibrator.json"
+        run_manifest_path = run_directory / "rating_run.json"
+        report_path = run_directory / "baseline_report.md"
+        if existing is None:
+            registry.begin(
+                run_id=run_id,
+                algo_version=algorithm_version,
+                engine_params=engine_params,
+                calibrator_spec=calibrator.to_dict(),
+                input_snapshot_id=str(manifest_body["input_snapshot_id"]),
+            )
+    else:
+        calibrator_path = calibrator_out or (output_path.parent / "calibrator.json")
+        run_manifest_path = run_manifest_out or (output_path.parent / "rating_run.json")
+
     result = ReplayResult(
         snapshots=snapshots,
         final_state=state,
@@ -490,14 +537,49 @@ def run_replay(
         run_manifest_path=run_manifest_path,
     )
 
-    report_text = _build_report(
-        engine_name=engine_name,
-        rating_period=rating_period,
-        result=result,
-        top_k=int(integrity_top_k),
-    )
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(report_text, encoding="utf-8")
+    if reuse_completed:
+        return result
+
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        snapshots.write_parquet(output_path)
+        calibrator_path.parent.mkdir(parents=True, exist_ok=True)
+        calibrator_path.write_text(calibrator_json, encoding="utf-8")
+        run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        run_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        report_text = _build_report(
+            engine_name=engine_name,
+            rating_period=rating_period,
+            result=result,
+            top_k=int(integrity_top_k),
+        )
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(report_text, encoding="utf-8")
+        if registry is not None and registry.get_run(run_id) is None:
+            registry.complete(
+                run_id,
+                snapshots.select(
+                    [
+                        "athlete_id",
+                        "valid_date",
+                        "mu",
+                        pl.col("phi").alias("sigma"),
+                        "n_games",
+                    ]
+                ),
+                metrics={
+                    "calibrated_prob_digest": calibrated_prob_digest,
+                    "raw_prob_digest": raw_prob_digest,
+                    "race_count": len(races),
+                    "snapshot_rows": snapshots.height,
+                },
+            )
+    except Exception as error:
+        if registry is not None:
+            run = registry.get_run(run_id, include_incomplete=True)
+            if run is not None and run.status == "running":
+                registry.fail(run_id, error)
+        raise
     return result
 
 
@@ -518,6 +600,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--integrity-top-k", type=int, default=200, help="국가대표 온전성 검사 상위권 기준")
     parser.add_argument("--calibrator-out", default="out/calibrator.json", help="보정기 JSON 출력 경로")
     parser.add_argument("--run-manifest-out", default="out/rating_run.json", help="실행 manifest JSON 출력 경로")
+    parser.add_argument("--algorithm-version", default=ALGORITHM_VERSION, help="수동 관리 레이팅 알고리즘 버전")
+    parser.add_argument("--register-root", help="실행 레지스트리 루트; 지정하면 원자적으로 실행을 공개합니다")
+    parser.add_argument("--trueskill-initial-mu", type=float, default=25.0, help="TrueSkill 초기 mu")
+    parser.add_argument("--trueskill-initial-sigma", type=float, default=25.0 / 3.0, help="TrueSkill 초기 sigma")
+    parser.add_argument("--beta", type=float, default=25.0 / 6.0, help="TrueSkill beta")
+    parser.add_argument("--draw-probability", type=float, default=0.0, help="TrueSkill 무승부 확률")
+    parser.add_argument("--convergence-tolerance", type=float, default=1e-4, help="TrueSkill EP 수렴 허용오차")
+    parser.add_argument("--ep-max-iterations", type=int, default=10, help="TrueSkill EP 최대 반복 횟수")
     return parser
 
 
@@ -540,6 +630,14 @@ def main() -> None:
         integrity_top_k=int(args.integrity_top_k),
         calibrator_out=Path(args.calibrator_out).expanduser(),
         run_manifest_out=Path(args.run_manifest_out).expanduser(),
+        algorithm_version=str(args.algorithm_version),
+        registry_root=Path(args.register_root).expanduser() if args.register_root else None,
+        trueskill_initial_mu=float(args.trueskill_initial_mu),
+        trueskill_initial_sigma=float(args.trueskill_initial_sigma),
+        beta=float(args.beta),
+        draw_probability=float(args.draw_probability),
+        convergence_tolerance=float(args.convergence_tolerance),
+        ep_max_iterations=int(args.ep_max_iterations),
     )
     print(f"[ok] engine={args.engine}")
     print(f"[ok] rating_period={args.rating_period}")

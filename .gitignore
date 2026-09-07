@@ -33,6 +33,7 @@ __pycache__/
 .env
 .env.*
 .venv/
+/out/rating_runs/
 .DS_Store
 web/node_modules/
 web/dist/
