@@ -1,4 +1,4 @@
-.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-merge-blast-radius rating-smoothing-report rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis audit test clean
+.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-merge-blast-radius rating-smoothing-report rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis rating-sweep audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -74,8 +74,8 @@ collect-retry: ## 🔁 [수집 실패 복구] 실패/부분완료 대회 재시�
 rating: ## 🏆 [레이팅 계산] 경기 레저 Parquet 생성 -> TrueSkill 레이팅 계산
 	@echo -e "$(YELLOW)[1/2] rating.ledger.build: Parquet 레저 구축...$(RESET)"
 	$(PYTHON) -m rating.ledger.build --results $(shell if [ -f data/records_full.csv ]; then echo data/records_full.csv; else echo data/records_anon.csv; fi) --out out/ledger
-	@echo -e "$(YELLOW)[2/2] rating.engine.runner: TrueSkill 레이팅 산출...$(RESET)"
-	$(PYTHON) -m rating.engine.runner --ledger out/ledger --engine trueskill --rating-period meet --register-root out/rating_runs
+	@echo -e "$(YELLOW)[2/2] rating.replay.orchestrator: TrueSkill 레이팅 산출...$(RESET)"
+	$(PYTHON) -m rating.replay.orchestrator --ledger out/ledger --params configs/production.toml --register --registry-root out/rating_runs
 	@echo -e "$(GREEN)✅ 레이팅 산출 완료! (out/rating_runs/runs/current)$(RESET)"
 
 rating-runs: ## 🧾 [레이팅 실행 목록] 완료된 콘텐츠 주소 실행을 조회
@@ -124,6 +124,14 @@ rating-sigma-diagnosis: ## 🔬 [sigma 진단] 실력 차이를 통제해 sigma-
 	@echo -e "$(YELLOW)rating.eval.sigma_diagnosis: |mu 차이| 통제 후 sigma-오차 관계 측정...$(RESET)"
 	$(PYTHON) -m rating.eval.sigma_diagnosis --ledger out/ledger --out out/sigma_diagnosis_report.md
 	@echo -e "$(GREEN)✅ 진단 완료! (out/sigma_diagnosis_report.md, out/sigma_diagnosis/n_games_vs_sigma.svg)$(RESET)"
+
+rating-sweep: ## 🎛️ [파라미터 스윕] 정책별 레저에서 독립 축 민감도와 선택 설정 생성
+	@echo -e "$(YELLOW)[1/2] 정책별 레저 생성...$(RESET)"
+	$(PYTHON) -m rating.ledger.build --results data/records_anon.csv --policy conservative --out out/ledger_sweep_policies/conservative
+	$(PYTHON) -m rating.ledger.build --results data/records_anon.csv --policy aggressive --out out/ledger_sweep_policies/aggressive
+	@echo -e "$(YELLOW)[2/2] rating.eval.sweep: 병렬 파라미터 스윕...$(RESET)"
+	$(PYTHON) -m rating.eval.sweep --space configs/sweep_space.toml
+	@echo -e "$(GREEN)✅ 스윕 완료! (out/sweep_results.md, configs/production.toml)$(RESET)"
 
 audit: ## 🔍 [품질 감사] 커밋 정책 준수 검사 & ID 병합 신뢰도 감사
 	@echo -e "$(YELLOW)[1/2] 커밋 정책 감사 (개인정보 누출 방지)...$(RESET)"

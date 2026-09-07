@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Iterable, Literal, Mapping
+from typing import Iterable, Literal, Mapping, cast
 
 import polars as pl
 
@@ -44,6 +44,17 @@ class RatingRun:
     algo_version: str
     params_json: str
     calibrator_json: str
+    input_snapshot_id: str
+    created_at: str
+    status: RunStatus
+    metrics_json: str | None
+    git_sha: str
+
+
+@dataclass(frozen=True)
+class SweepRun:
+    sweep_id: str
+    params_json: str
     input_snapshot_id: str
     created_at: str
     status: RunStatus
@@ -109,6 +120,17 @@ class RatingRegistry:
                 );
                 CREATE INDEX IF NOT EXISTS rating_smoothed_snapshot_run_date
                     ON rating_smoothed_snapshot(run_id, valid_date);
+                CREATE TABLE IF NOT EXISTS sweep_run (
+                    sweep_id TEXT PRIMARY KEY,
+                    params_json TEXT NOT NULL,
+                    input_snapshot_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('running', 'complete', 'failed')),
+                    metrics_json TEXT,
+                    git_sha TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS sweep_run_status_created
+                    ON sweep_run(status, created_at, sweep_id);
                 """
             )
 
@@ -206,10 +228,10 @@ class RatingRegistry:
                 (run_id, algo_version, params_json, input_snapshot_id, created_at, git_sha or _git_sha(), calibrator_json),
             )
         self.run_directory(run_id).mkdir(parents=True, exist_ok=True)
-        run = self.get_run(run_id, include_incomplete=True)
-        if run is None:
+        registered = self.get_run(run_id, include_incomplete=True)
+        if registered is None:
             raise RegistryError("[error] 등록한 실행을 다시 읽을 수 없습니다.")
-        return run
+        return registered
 
     def complete(
         self,
@@ -436,6 +458,120 @@ class RatingRegistry:
             rows = connection.execute(query).fetchall()
         return [_run_from_row(row) for row in rows]
 
+    def begin_sweep(
+        self,
+        *,
+        sweep_id: str,
+        params: Mapping[str, object],
+        input_snapshot_id: str,
+        git_sha: str | None = None,
+    ) -> SweepRun:
+        self.initialize()
+        _validate_run_id(sweep_id)
+        params_json = canonical_json(dict(params))
+        with self._connect() as connection:
+            existing = connection.execute("SELECT * FROM sweep_run WHERE sweep_id = ?", (sweep_id,)).fetchone()
+            if existing is not None:
+                run = _sweep_from_row(existing)
+                if (run.params_json, run.input_snapshot_id) != (params_json, input_snapshot_id):
+                    raise RegistryError("[error] 같은 sweep_id에 서로 다른 실행 정의를 등록할 수 없습니다.")
+                if run.status == "failed":
+                    connection.execute(
+                        "UPDATE sweep_run SET status = 'running', metrics_json = NULL WHERE sweep_id = ?",
+                        (sweep_id,),
+                    )
+                    return SweepRun(
+                        sweep_id=run.sweep_id,
+                        params_json=run.params_json,
+                        input_snapshot_id=run.input_snapshot_id,
+                        created_at=run.created_at,
+                        status="running",
+                        metrics_json=None,
+                        git_sha=run.git_sha,
+                    )
+                return run
+            created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            connection.execute(
+                """
+                INSERT INTO sweep_run (
+                    sweep_id, params_json, input_snapshot_id, created_at, status, metrics_json, git_sha
+                ) VALUES (?, ?, ?, ?, 'running', NULL, ?)
+                """,
+                (sweep_id, params_json, input_snapshot_id, created_at, git_sha or _git_sha()),
+            )
+        registered = self.get_sweep_run(sweep_id, include_incomplete=True)
+        if registered is None:
+            raise RegistryError("[error] 등록한 스윕 실행을 다시 읽을 수 없습니다.")
+        return registered
+
+    def get_sweep_run(self, sweep_id: str, *, include_incomplete: bool = False) -> SweepRun | None:
+        self.initialize()
+        query = "SELECT * FROM sweep_run WHERE sweep_id = ?"
+        if not include_incomplete:
+            query += " AND status = 'complete'"
+        with self._connect() as connection:
+            row = connection.execute(query, (sweep_id,)).fetchone()
+        return _sweep_from_row(row) if row is not None else None
+
+    def complete_sweep(self, sweep_id: str, *, metrics: Mapping[str, object]) -> SweepRun:
+        self.initialize()
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM sweep_run WHERE sweep_id = ?", (sweep_id,)).fetchone()
+            if row is None:
+                raise RegistryError("[error] 등록되지 않은 스윕 실행입니다.")
+            run = _sweep_from_row(row)
+            if run.status != "running":
+                raise RegistryError(f"[error] 스윕 실행 상태 전환이 허용되지 않습니다: {run.status}")
+            connection.execute(
+                "UPDATE sweep_run SET status = 'complete', metrics_json = ? WHERE sweep_id = ?",
+                (canonical_json(dict(metrics)), sweep_id),
+            )
+        completed = self.get_sweep_run(sweep_id)
+        if completed is None:
+            raise RegistryError("[error] 완료한 스윕 실행을 다시 읽을 수 없습니다.")
+        return completed
+
+    def fail_sweep(self, sweep_id: str, error: Exception | str) -> SweepRun:
+        self.initialize()
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM sweep_run WHERE sweep_id = ?", (sweep_id,)).fetchone()
+            if row is None:
+                raise RegistryError("[error] 등록되지 않은 스윕 실행입니다.")
+            run = _sweep_from_row(row)
+            if run.status != "running":
+                raise RegistryError(f"[error] 스윕 실행 상태 전환이 허용되지 않습니다: {run.status}")
+            connection.execute(
+                "UPDATE sweep_run SET status = 'failed', metrics_json = ? WHERE sweep_id = ?",
+                (canonical_json({"error": str(error)}), sweep_id),
+            )
+        failed = self.get_sweep_run(sweep_id, include_incomplete=True)
+        if failed is None:
+            raise RegistryError("[error] 실패한 스윕 실행을 다시 읽을 수 없습니다.")
+        return failed
+
+    def list_sweep_runs(
+        self,
+        *,
+        include_incomplete: bool = False,
+        sort_by: Literal["created_at", "log_loss"] = "created_at",
+    ) -> list[SweepRun]:
+        self.initialize()
+        query = "SELECT * FROM sweep_run"
+        if not include_incomplete:
+            query += " WHERE status = 'complete'"
+        query += " ORDER BY created_at DESC, sweep_id DESC"
+        with self._connect() as connection:
+            rows = [_sweep_from_row(row) for row in connection.execute(query).fetchall()]
+        if sort_by == "log_loss":
+            return sorted(
+                rows,
+                key=lambda sweep_run: (
+                    _sweep_metric_float(sweep_run, "log_loss"),
+                    sweep_run.sweep_id,
+                ),
+            )
+        return rows
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -508,10 +644,40 @@ def _run_from_row(row: sqlite3.Row) -> RatingRun:
         calibrator_json=str(row["calibrator_json"]),
         input_snapshot_id=str(row["input_snapshot_id"]),
         created_at=str(row["created_at"]),
-        status=str(row["status"]),
+        status=cast(RunStatus, str(row["status"])),
         metrics_json=str(row["metrics_json"]) if row["metrics_json"] is not None else None,
         git_sha=str(row["git_sha"]),
     )
+
+
+def _sweep_from_row(row: sqlite3.Row) -> SweepRun:
+    return SweepRun(
+        sweep_id=str(row["sweep_id"]),
+        params_json=str(row["params_json"]),
+        input_snapshot_id=str(row["input_snapshot_id"]),
+        created_at=str(row["created_at"]),
+        status=cast(RunStatus, str(row["status"])),
+        metrics_json=str(row["metrics_json"]) if row["metrics_json"] is not None else None,
+        git_sha=str(row["git_sha"]),
+    )
+
+
+def _sweep_metric(run: SweepRun, name: str, default: object) -> object:
+    if run.metrics_json is None:
+        return default
+    try:
+        payload = json.loads(run.metrics_json)
+    except json.JSONDecodeError:
+        return default
+    value = payload.get(name, default) if isinstance(payload, dict) else default
+    return value
+
+
+def _sweep_metric_float(run: SweepRun, name: str) -> float:
+    value = _sweep_metric(run, name, float("inf"))
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RegistryError(f"[error] 스윕 지표 {name}이(가) 숫자가 아닙니다: {run.sweep_id}")
+    return float(value)
 
 
 def _git_sha() -> str:
@@ -531,6 +697,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", default=str(DEFAULT_REGISTRY_ROOT), help="레지스트리 루트 디렉터리")
     parser.add_argument("--list", action="store_true", help="완료된 실행 목록을 표시합니다")
     parser.add_argument("--include-incomplete", action="store_true", help="running/failed 실행도 표시합니다")
+    parser.add_argument("--sort-by", choices=["created_at", "log_loss"], default="created_at", help="스윕 결과 정렬 기준")
     return parser
 
 
@@ -540,8 +707,21 @@ def main() -> None:
     registry.initialize()
     if not args.list:
         return
-    for run in registry.list_runs(include_incomplete=bool(args.include_incomplete)):
-        print(f"{run.run_id}\t{run.status}\t{run.algo_version}\t{run.input_snapshot_id}\t{run.created_at}")
+    if args.sort_by == "log_loss":
+        for sweep_run in registry.list_sweep_runs(
+            include_incomplete=bool(args.include_incomplete),
+            sort_by="log_loss",
+        ):
+            print(
+                f"{sweep_run.sweep_id}\t{sweep_run.status}\t{_sweep_metric(sweep_run, 'log_loss', '-')}\t"
+                f"{sweep_run.input_snapshot_id}\t{sweep_run.created_at}"
+            )
+        return
+    for rating_run in registry.list_runs(include_incomplete=bool(args.include_incomplete)):
+        print(
+            f"{rating_run.run_id}\t{rating_run.status}\t{rating_run.algo_version}\t"
+            f"{rating_run.input_snapshot_id}\t{rating_run.created_at}"
+        )
 
 
 if __name__ == "__main__":

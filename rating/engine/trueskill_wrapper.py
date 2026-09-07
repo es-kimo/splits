@@ -144,11 +144,17 @@ class TrueSkillEngine(Predictor):
                         effective = self._with_rate_dynamics(entry.athlete_id, effective, race.race_date)
                     ratings.append(self._to_trueskill_rating(effective))
                 rating_groups.append(tuple(ratings))
-            rated_groups = self._env.rate(
-                rating_groups=rating_groups,
-                ranks=ranks,
-                min_delta=self.params.convergence_tolerance,
-            )
+            rate_kwargs = {
+                "rating_groups": rating_groups,
+                "ranks": ranks,
+                "min_delta": self.params.convergence_tolerance,
+            }
+            if any(float(entry.weight) != 1.0 for group in grouped_entries for entry in group):
+                rate_kwargs["weights"] = [
+                    tuple(float(entry.weight) for entry in group)
+                    for group in grouped_entries
+                ]
+            rated_groups = self._env.rate(**rate_kwargs)
             for group_entries, group_ratings in zip(grouped_entries, rated_groups):
                 for entry, rated in zip(group_entries, group_ratings):
                     current = updated.get(entry.athlete_id, self._initial_rating(entry.athlete_id))

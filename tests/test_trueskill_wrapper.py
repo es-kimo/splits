@@ -82,6 +82,31 @@ def test_trueskill_update_uses_inactivity_adjusted_sigma(monkeypatch: pytest.Mon
     assert updated["b"].phi == pytest.approx(expected)
 
 
+def test_trueskill_update_passes_nondefault_entry_weights(monkeypatch: pytest.MonkeyPatch):
+    engine = TrueSkillEngine()
+    captured_weights: list[tuple[float, ...]] = []
+
+    def fake_rate(*, rating_groups, ranks, weights, min_delta):
+        del ranks, min_delta
+        captured_weights.extend(weights)
+        return rating_groups
+
+    monkeypatch.setattr(engine._env, "rate", fake_rate)
+    engine.update(
+        {},
+        [
+            RaceResult(
+                race_id="weighted",
+                race_date=date(2024, 1, 1),
+                meet_id="m1",
+                entries=(RaceEntry("a", 1, "FIN", weight=1.5), RaceEntry("b", 2, "FIN", weight=1.5)),
+            )
+        ],
+    )
+
+    assert captured_weights == [(1.5,), (1.5,)]
+
+
 def test_trueskill_initial_rating_uses_prior_provider():
     params = TrueSkillParams(initial_mu=25.0, initial_sigma=8.0)
     engine = TrueSkillEngine(params=params, prior_provider=lambda athlete_id: (30.0, 4.0) if athlete_id == "rookie" else None)
