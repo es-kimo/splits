@@ -21,26 +21,37 @@ const sections = [
     body: ["주민등록번호, 연락처, 주소, 사진은 수집하거나 저장하지 않습니다."],
   },
   {
-    title: "5. 보유 및 이용 기간",
+    title: "4. 수집 출처 및 처리 목적",
+    body: [
+      "정보주체로부터 직접 수집하지 않고, 이미 공개된 경기 결과만 정리합니다.",
+      "데이터 출처는 대한체육회 경기결과 정보제공 시스템(result.sports.or.kr)입니다.",
+      "공개된 아마추어 경기 기록을 정리하고 통계를 제공하는 목적으로 처리합니다.",
+    ],
+  },
+  {
+    title: "5. 개인 기록 찾기 기능",
+    body: [
+      "개인 기록을 입력해 익명화된 기록이나 개인별 결과를 찾는 기능은 제공하지 않습니다.",
+      "공개 경기 결과 몇 건만으로도 특정 선수를 다시 알아볼 수 있는 위험이 확인됐기 때문입니다.",
+    ],
+  },
+  {
+    title: "6. 보유 및 이용 기간",
     body: ["관련 정보는 삭제 요청이 접수될 때까지 보유·이용하며, 요청이 확인되면 지체 없이 처리합니다."],
   },
   {
-    title: "6. 제3자 제공 및 처리 위탁",
+    title: "7. 제3자 제공 및 처리 위탁",
     body: [
       "개인정보를 제3자에게 제공하지 않습니다.",
       "별도 처리 위탁은 하지 않습니다. 다만 사이트는 GitHub Pages 인프라를 통해 호스팅됩니다.",
     ],
   },
   {
-    title: "7. 정보주체의 권리 및 행사 방법",
+    title: "8. 정보주체의 권리 및 행사 방법",
     body: [
       "정보주체는 열람·정정·삭제·처리정지를 요청할 수 있습니다.",
       "요청은 아래 이메일로 접수하며, 본인 또는 법정대리인 확인 절차 후 처리 결과를 회신합니다.",
     ],
-  },
-  {
-    title: "9. 개인정보 보호책임자",
-    body: ["이름/닉네임(예시): 운영자 예시 (es-kimo)", "이메일(예시): privacy@example.com"],
   },
 ];
 ---
@@ -55,20 +66,22 @@ const sections = [
     <p class="lead">공개된 아마추어 경기 기록을 어떻게 다루는지, 그리고 어떻게 요청하실 수 있는지 안내합니다.</p>
   </header>
 
-  <section class="card">
-    <div class="card-head">
-      <h2>4. 수집 출처 및 처리 목적</h2>
-      <p>정보주체로부터 직접 수집하지 않고, 이미 공개된 경기 결과만 정리합니다.</p>
-    </div>
-    <p class="para">
-      데이터 출처는 대한체육회 경기결과 정보제공 시스템(<a href="https://result.sports.or.kr/" target="_blank" rel="noopener">result.sports.or.kr</a>)입니다.
-    </p>
-    <p class="para">공개된 아마추어 경기 기록을 정리하고 통계를 제공하는 목적으로 처리합니다.</p>
-  </section>
+  {
+    sections.map((section) => (
+      <section class="card">
+        <div class="card-head">
+          <h2>{section.title}</h2>
+        </div>
+        {section.body.map((line) => (
+          <p class="para">{line}</p>
+        ))}
+      </section>
+    ))
+  }
 
   <section class="card" id="request">
     <div class="card-head">
-      <h2>8. 삭제·처리정지 요청 창구</h2>
+      <h2>9. 삭제·처리정지 요청 창구</h2>
       <p>요청하시면 확인 절차를 거쳐 지체 없이 처리합니다.</p>
     </div>
     <div class="tile request-tile">
@@ -85,18 +98,13 @@ const sections = [
     </ol>
   </section>
 
-  {
-    sections.map((section) => (
-      <section class="card">
-        <div class="card-head">
-          <h2>{section.title}</h2>
-        </div>
-        {section.body.map((line) => (
-          <p class="para">{line}</p>
-        ))}
-      </section>
-    ))
-  }
+  <section class="card">
+    <div class="card-head">
+      <h2>10. 개인정보 보호책임자</h2>
+    </div>
+    <p class="para">이름/닉네임(예시): 운영자 예시 (es-kimo)</p>
+    <p class="para">이메일(예시): privacy@example.com</p>
+  </section>
 
   <p class="hint disclaimer">법률 전문가의 최종 검토를 거친 문서는 아니며, 서비스 확장 시 내용을 다시 검토합니다.</p>
 

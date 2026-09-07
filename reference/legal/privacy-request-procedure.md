@@ -37,7 +37,10 @@
    - `athlete/{slug}/index.html` 또는 요청 대상 페이지 콘텐츠 제거
 2. 데이터셋 제거
    - `data/public_figures.csv`에서 해당 선수 `상태=removed` 처리 후 `python build_data.py && python build_site.py` 재생성
-3. 색인 삭제 요청
+3. 개인 기록 매칭 확인
+   - 현재는 개인 기록 매칭, 매칭 세션, 매칭 토큰을 제공하지 않으므로 별도 철회 대상이 없음
+   - 향후 기능을 도입하는 경우 승인 즉시 운영 차단 목록을 먼저 갱신하고, 후보 계산 전에 그 목록이 적용되는 것을 확인한 뒤에만 서비스를 재개
+4. 색인 삭제 요청
    - Google Search Console 및 네이버 서치어드바이저에서 대상 URL 삭제 요청
 
 ## 5. 검색엔진 색인 삭제 절차
