@@ -11,7 +11,9 @@ def clamp_probability(value: float, *, eps: float = 1e-6) -> float:
     return min(max(float(value), eps), 1.0 - eps)
 
 
-def _wilson_interval(successes: int, total: int, *, z: float = 1.96) -> tuple[float, float]:
+def wilson_interval(successes: int, total: int, *, z: float = 1.96) -> tuple[float, float]:
+    """비율의 Wilson 점수 구간을 냅니다. 표본이 작을 때도 구간이 [0, 1]을 벗어나지 않습니다."""
+
     if total <= 0:
         return (0.0, 1.0)
     p_hat = float(successes) / float(total)
@@ -20,6 +22,9 @@ def _wilson_interval(successes: int, total: int, *, z: float = 1.96) -> tuple[fl
     center = (p_hat + (z2 / (2.0 * float(total)))) / denom
     margin = (z / denom) * math.sqrt((p_hat * (1.0 - p_hat) / float(total)) + (z2 / (4.0 * float(total) * float(total))))
     return (max(0.0, center - margin), min(1.0, center + margin))
+
+
+_wilson_interval = wilson_interval
 
 
 @dataclass(frozen=True)
@@ -276,6 +281,77 @@ def bootstrap_log_loss_ci(
 
     if not estimates:
         return BootstrapInterval(point=point, low=point, high=point, resamples=0)
+    estimates.sort()
+    low_index = max(0, min(len(estimates) - 1, int((alpha / 2.0) * len(estimates))))
+    high_index = max(0, min(len(estimates) - 1, int((1.0 - alpha / 2.0) * len(estimates))))
+    return BootstrapInterval(
+        point=point,
+        low=estimates[low_index],
+        high=estimates[high_index],
+        resamples=len(estimates),
+    )
+
+
+def auc_score(labels: Sequence[int], scores: Sequence[float]) -> float:
+    """Mann-Whitney U 방식으로 ROC AUC를 냅니다. 동점은 0.5로 셉니다.
+
+    양성 또는 음성이 하나도 없으면 순서를 구분할 대상이 없으므로 0.5를 돌려줍니다.
+    """
+
+    if len(labels) != len(scores):
+        raise ValueError("[error] labels/scores 길이가 일치하지 않습니다.")
+    positives = [float(score) for label, score in zip(labels, scores) if int(label) == 1]
+    negatives = [float(score) for label, score in zip(labels, scores) if int(label) != 1]
+    if not positives or not negatives:
+        return 0.5
+
+    ordered = sorted(positives + negatives)
+    ranks: dict[float, float] = {}
+    index = 0
+    while index < len(ordered):
+        end = index
+        while end + 1 < len(ordered) and ordered[end + 1] == ordered[index]:
+            end += 1
+        ranks[ordered[index]] = ((index + 1) + (end + 1)) / 2.0
+        index = end + 1
+
+    rank_sum = sum(ranks[value] for value in positives)
+    n_pos = float(len(positives))
+    n_neg = float(len(negatives))
+    return (rank_sum - (n_pos * (n_pos + 1.0) / 2.0)) / (n_pos * n_neg)
+
+
+def bootstrap_auc_ci(
+    labels: Sequence[int],
+    scores: Sequence[float],
+    *,
+    resamples: int = 1000,
+    seed: int = 20260907,
+    alpha: float = 0.05,
+) -> BootstrapInterval:
+    """양성·음성을 각각 리샘플링하는 층화 부트스트랩으로 AUC 신뢰구간을 냅니다.
+
+    국가대표처럼 양성이 아주 적은 문제에서 단순 리샘플링을 하면 양성이 0명인 표본이
+    자주 나와 구간이 무너집니다. 층별로 크기를 유지해 뽑으면 그런 표본이 생기지 않습니다.
+    seed를 고정해 같은 입력이면 같은 구간이 나옵니다.
+    """
+
+    if len(labels) != len(scores):
+        raise ValueError("[error] labels/scores 길이가 일치하지 않습니다.")
+    positives = [float(score) for label, score in zip(labels, scores) if int(label) == 1]
+    negatives = [float(score) for label, score in zip(labels, scores) if int(label) != 1]
+    point = auc_score(labels, scores)
+    if not positives or not negatives or resamples <= 0:
+        return BootstrapInterval(point=point, low=point, high=point, resamples=0)
+
+    rng = random.Random(seed)
+    estimates: list[float] = []
+    for _ in range(resamples):
+        sampled_pos = [positives[rng.randrange(len(positives))] for _ in range(len(positives))]
+        sampled_neg = [negatives[rng.randrange(len(negatives))] for _ in range(len(negatives))]
+        sampled_labels = [1] * len(sampled_pos) + [0] * len(sampled_neg)
+        estimates.append(auc_score(sampled_labels, sampled_pos + sampled_neg))
+
     estimates.sort()
     low_index = max(0, min(len(estimates) - 1, int((alpha / 2.0) * len(estimates))))
     high_index = max(0, min(len(estimates) - 1, int((1.0 - alpha / 2.0) * len(estimates))))

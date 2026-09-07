@@ -212,6 +212,18 @@ def normalize(mu: float, age: int, sex: str, baseline: pl.DataFrame) -> float:
     return (float(mu) - center) / spread
 
 
+def build_baseline_wide(baseline: pl.DataFrame) -> pl.DataFrame:
+    """fit_age_baseline 결과를 연령·성별 한 줄짜리 기준표로 폅니다."""
+
+    return _build_baseline_wide(baseline)
+
+
+def attach_age(ratings: pl.DataFrame, athlete_meta: pl.DataFrame) -> pl.DataFrame:
+    """레이팅 스냅샷에 출생연도 기반 연령·성별·부별을 붙입니다."""
+
+    return _attach_age(ratings, athlete_meta)
+
+
 def _build_baseline_wide(baseline: pl.DataFrame) -> pl.DataFrame:
     if baseline.is_empty():
         return pl.DataFrame(
