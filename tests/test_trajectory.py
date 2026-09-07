@@ -23,6 +23,7 @@ from rating.eval.trajectory import (
     attrition_summary,
     bidirectional_rows,
     build_age_estimates,
+    cohort_birth_year_range,
     first_signal_age,
     late_bloomer_summary,
     national_team_athlete_ids,
@@ -306,6 +307,21 @@ def test_national_team_ids_require_salt_and_active_designation(tmp_path: Path) -
     assert all(len(value) == 12 for value in ids)
     with pytest.raises(ValueError, match="SPLITS_ANON_SALT"):
         national_team_athlete_ids(path, "")
+
+
+def test_cohort_birth_year_range_reports_id_mismatch() -> None:
+    frame = _estimates(_linear_cohort(age=11, size=20, birth_year=2004))
+    with pytest.raises(LookupError, match="0건 매칭"):
+        cohort_birth_year_range(frame, ["not-matched-athlete"])
+
+
+def test_cohort_birth_year_range_requires_birth_year_values() -> None:
+    rows = _linear_cohort(age=11, size=20, birth_year=2004)
+    for entry in rows:
+        entry["birth_year"] = None
+    frame = _estimates(rows)
+    with pytest.raises(LookupError, match="출생연도 정보가 없습니다"):
+        cohort_birth_year_range(frame, ["a000", "a001"])
 
 
 def _report_fixture(*, attrition: AttritionSummary) -> str:

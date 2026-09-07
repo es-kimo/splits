@@ -281,9 +281,21 @@ def restrict_to_cohort(frame: pl.DataFrame, birth_years: tuple[int, int]) -> pl.
 
 def cohort_birth_year_range(frame: pl.DataFrame, national_ids: Sequence[str]) -> tuple[int, int]:
     selected = frame.filter(pl.col("athlete_id").is_in(list(national_ids)))
+    matched = selected.select(pl.col("athlete_id").n_unique()).item()
+    if not isinstance(matched, int):
+        raise TypeError("[error] 국가대표 매칭 수 계산에 실패했습니다.")
+    if matched == 0:
+        raise LookupError(
+            "[error] 공개 국가대표가 현재 레이팅 선수와 0건 매칭되었습니다. "
+            "익명 선수 식별키 형식이 맞는 입력으로 레저/레이팅을 다시 생성하세요 "
+            "(예: data/records_anon.csv 기준 실행)."
+        )
     years = [int(value) for value in selected["birth_year"].drop_nulls().to_list()]
     if not years:
-        raise LookupError("[error] 국가대표의 출생연도를 찾을 수 없습니다.")
+        raise LookupError(
+            "[error] 국가대표는 매칭됐지만 출생연도 정보가 없습니다. "
+            "출생연도가 포함된 athlete_meta로 다시 생성하세요."
+        )
     return (min(years), max(years))
 
 
