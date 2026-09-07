@@ -173,21 +173,24 @@ def replay(
     until: date | None = None,
     *,
     checkpoint_root: Path = DEFAULT_CHECKPOINT_ROOT,
+    checkpoint_input_hash: str | None = None,
+    included_race_ids: frozenset[str] | None = None,
 ) -> ReplayResult:
     started = time.perf_counter()
     race_ledger = load_race_ledger(ledger_path)
     validate_ledger(race_ledger)
-    races = to_race_results(race_ledger)
-    if not races:
+    all_target_races = to_race_results(race_ledger)
+    if not all_target_races:
         raise ValueError(f"[error] 평가 가능한 race가 없습니다: {ledger_path}")
     if until is not None:
-        races = [race for race in races if race.race_date <= until]
-    if not races:
+        all_target_races = [race for race in all_target_races if race.race_date <= until]
+    if not all_target_races:
         raise ValueError("[error] 요청한 종료일 이전에 평가 가능한 race가 없습니다.")
-    target_date = max(race.race_date for race in races)
+    target_date = max(race.race_date for race in all_target_races)
     input_hash = ledger_digest(ledger_path)
     snapshot_id = input_snapshot_id(ledger_path)
     resolved_params_hash = params_digest(params.fingerprint())
+    resolved_checkpoint_input_hash = checkpoint_input_hash or input_hash
     engine_params = params.fingerprint()
     engine_params.pop("algorithm_version")
     resolved_run_id = content_run_id(
@@ -200,7 +203,7 @@ def replay(
         target_date,
         params.algorithm_version,
         resolved_params_hash,
-        input_hash,
+        resolved_checkpoint_input_hash,
         root=checkpoint_root,
     )
     state: dict[str, Rating] = {}
@@ -210,13 +213,18 @@ def replay(
             target_date=target_date,
             params=params,
             params_hash=resolved_params_hash,
-            input_hash=input_hash,
+            input_hash=resolved_checkpoint_input_hash,
         )
         restored = load(checkpoint.cid, root=checkpoint_root, expected=checkpoint)
         if restored is None:
             raise CheckpointError(f"[error] 선택한 checkpoint 상태를 찾을 수 없습니다: {checkpoint.cid}")
         state = restored
-        races = [race for race in races if race.race_date > checkpoint.cutoff_date]
+        all_target_races = [race for race in all_target_races if race.race_date > checkpoint.cutoff_date]
+    races = (
+        [race for race in all_target_races if race.race_id in included_race_ids]
+        if included_race_ids is not None
+        else all_target_races
+    )
     periods = group_periods(races, params.rating_period)
     predictor = _build_predictor(params)
     season_elapsed_seconds: dict[int, float] = {}
@@ -254,7 +262,7 @@ def replay(
         )
         is_season_end = next_season != season
         season_is_complete = final_date_by_season[season] == period_date
-        if is_season_end and season_is_complete:
+        if included_race_ids is None and is_season_end and season_is_complete:
             candidate = _checkpoint_for(
                 root=checkpoint_root,
                 algorithm_version=params.algorithm_version,
