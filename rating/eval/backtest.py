@@ -464,6 +464,8 @@ def _build_model(
     tau: float | None = None,
     prior_provider: Callable[[str], tuple[float, float] | None] | None = None,
     tau_provider: Callable[[str, date], float] | None = None,
+    trueskill_initial_sigma: float | None = None,
+    beta: float | None = None,
 ) -> ModelAdapter:
     if engine == "glicko2":
         params = Glicko2Params(rating_period=rating_period) if tau is None else Glicko2Params(rating_period=rating_period, tau=tau)
@@ -475,7 +477,14 @@ def _build_model(
             rating_period=rating_period,
             initial_mu=params.initial_mu,
         )
-    ts_params = TrueSkillParams(rating_period=rating_period) if tau is None else TrueSkillParams(rating_period=rating_period, tau=tau)
+    ts_params = TrueSkillParams(
+        rating_period=rating_period,
+        tau=TrueSkillParams.tau if tau is None else float(tau),
+        initial_sigma=TrueSkillParams.initial_sigma
+        if trueskill_initial_sigma is None
+        else float(trueskill_initial_sigma),
+        beta=TrueSkillParams.beta if beta is None else float(beta),
+    )
     predictor: Predictor = TrueSkillEngine(params=ts_params, prior_provider=prior_provider, tau_provider=tau_provider)
     return ModelAdapter(
         name="trueskill",
@@ -734,6 +743,9 @@ def _evaluate_config(
     head2head_prob: float,
     calibration_dir: Path,
     tau_by_age_band: dict[str, float] | None = None,
+    tau: float | None = None,
+    trueskill_initial_sigma: float | None = None,
+    beta: float | None = None,
 ) -> ConfigResult:
     """정책은 학습 데이터 구성에만 적용하고, 평가셋은 전 설정에서 고정합니다.
 
@@ -784,8 +796,9 @@ def _evaluate_config(
     scales = _fit_baseline_scales(
         steps, eval_races, holdout_set, previous_season, head2head_prob=head2head_prob
     )
-    if tau_provider is None:
-        tau, tau_scores = _fit_engine_tau(
+    resolved_tau: float
+    if tau_provider is None and tau is None:
+        resolved_tau, tau_scores = _fit_engine_tau(
             engine,
             rating_period,
             steps,
@@ -793,19 +806,38 @@ def _evaluate_config(
             previous_season,
             prior_provider=prior_provider,
         )
-    else:
-        tau = 0.0
+    elif tau_provider is not None:
+        resolved_tau = 0.0
         tau_scores = {}
+    else:
+        resolved_tau = float(tau)
+        tau_scores = {resolved_tau: 0.0}
 
     # 보정기는 홀드아웃 이전 구간에서 적합하고, 두 엔진에 동일하게 적용합니다.
     scaler = _fit_calibrator(
-        _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider, tau_provider=tau_provider),
+        _build_model(
+            engine,
+            rating_period,
+            tau=resolved_tau,
+            prior_provider=prior_provider,
+            tau_provider=tau_provider,
+            trueskill_initial_sigma=trueskill_initial_sigma,
+            beta=beta,
+        ),
         steps,
         holdout_set,
         previous_season,
     )
 
-    model = _build_model(engine, rating_period, tau=tau, prior_provider=prior_provider, tau_provider=tau_provider)
+    model = _build_model(
+        engine,
+        rating_period,
+        tau=resolved_tau,
+        prior_provider=prior_provider,
+        tau_provider=tau_provider,
+        trueskill_initial_sigma=trueskill_initial_sigma,
+        beta=beta,
+    )
     baselines = _make_baselines(
         head2head_prob=head2head_prob,
         previous_season=previous_season,
@@ -938,7 +970,7 @@ def _evaluate_config(
         baseline_scales=scales,
         holdout_comparison_count=holdout_comparisons,
         total_comparison_count=total_comparisons,
-        engine_tau=tau,
+        engine_tau=resolved_tau,
         engine_tau_scores=tau_scores,
         scaler=scaler,
         raw_metrics=raw_metrics,
