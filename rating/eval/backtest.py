@@ -17,9 +17,11 @@ from rating.engine.glicko2 import Glicko2Engine, Glicko2Params
 from rating.engine.runner import run_replay
 from rating.engine.trueskill_wrapper import TrueSkillEngine, TrueSkillParams
 from rating.engine.types import Predictor, RaceEntry, RaceResult, RatingLike, RatingPeriod, elapsed_periods
+from rating.eval.temporal import backtest_rating_diagnostics
 from rating.ledger.policies import POLICIES
 from rating.ledger.schema import load_race_ledger, validate_ledger
 from rating.ledger.season import parse_kst_date
+from rating.query.temporal import FilteredRating
 
 from .baselines import (
     BaselinePredictor,
@@ -148,6 +150,15 @@ class ModelAdapter:
         except (KeyError, AttributeError):
             return self.state.get(athlete_id)
 
+    def filtered_rating_as_of(self, athlete_id: str, as_of: date) -> FilteredRating:
+        rating = self._effective(athlete_id, as_of)
+        return FilteredRating(
+            mu=float(getattr(rating, "mu", self.initial_mu)),
+            sigma=float(getattr(rating, "phi", self.initial_phi)),
+            run_id="backtest-in-memory",
+            as_of=as_of,
+        )
+
     def pair_uncertainty(self, example: PairwiseExample) -> tuple[float, int]:
         diagnostics = self.pair_diagnostics(example)
         return float(diagnostics["pair_sigma_max"]), int(diagnostics["pair_n_games_min"])
@@ -159,17 +170,17 @@ class ModelAdapter:
         TrueSkill이 자기 sigma를 그 슬롯에 저장하기 때문입니다.
         """
         as_of = example.race_date
-        left = self._effective(example.winner_id, as_of)
-        right = self._effective(example.loser_id, as_of)
+        left = self.filtered_rating_as_of(example.winner_id, as_of)
+        right = self.filtered_rating_as_of(example.loser_id, as_of)
+        left_mu, left_sigma = backtest_rating_diagnostics(left)
+        right_mu, right_sigma = backtest_rating_diagnostics(right)
 
-        left_sigma = float(getattr(left, "phi", self.initial_phi))
-        right_sigma = float(getattr(right, "phi", self.initial_phi))
-        left_mu = float(getattr(left, "mu", self.initial_mu))
-        right_mu = float(getattr(right, "mu", self.initial_mu))
-        left_games = int(getattr(left, "n_games", 0))
-        right_games = int(getattr(right, "n_games", 0))
-        left_idle = elapsed_periods(getattr(left, "last_active", None), as_of, self.rating_period)
-        right_idle = elapsed_periods(getattr(right, "last_active", None), as_of, self.rating_period)
+        raw_left = self._effective(example.winner_id, as_of)
+        raw_right = self._effective(example.loser_id, as_of)
+        left_games = int(getattr(raw_left, "n_games", 0))
+        right_games = int(getattr(raw_right, "n_games", 0))
+        left_idle = elapsed_periods(getattr(raw_left, "last_active", None), as_of, self.rating_period)
+        right_idle = elapsed_periods(getattr(raw_right, "last_active", None), as_of, self.rating_period)
 
         return {
             "pair_sigma_max": max(left_sigma, right_sigma),

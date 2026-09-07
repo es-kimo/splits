@@ -1,4 +1,4 @@
-.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis audit test clean
+.PHONY: help setup dev build build-quick update-weekly collect-full collect-retry export-full rating rating-runs rating-replay-bench rating-smoothing-report rating-age rating-age-tau rating-calibration rating-eval rating-sigma-diagnosis audit test clean
 
 SHELL := /bin/bash
 VENV ?= .venv
@@ -84,6 +84,10 @@ rating-runs: ## 🧾 [레이팅 실행 목록] 완료된 콘텐츠 주소 실행
 rating-replay-bench: ## ⏱️ [리플레이 측정] 시즌 체크포인트와 콜드 리플레이 성능 보고서 생성
 	$(PYTHON) -m rating.replay.orchestrator --ledger out/ledger --bench --out out/replay_bench.md
 	@echo -e "$(GREEN)✅ 리플레이 측정 완료! (out/replay_bench.md)$(RESET)"
+
+rating-smoothing-report: ## 🕰️ [회고 스무딩] 국가대표 필터·스무딩 차이 보고서 생성
+	$(PYTHON) -m rating.query.temporal --compare-filter-smoother --athletes national_team --out out/smoothing_report.md
+	@echo -e "$(GREEN)✅ 회고 스무딩 보고서 완료! (out/smoothing_report.md)$(RESET)"
 
 rating-age: ## 📈 [연령 모델] records_anon 기반 레저/메타 구축 -> 연령 정규화 리포트 생성
 	@echo -e "$(YELLOW)[1/3] rating.ledger.build: 연령 메타 포함 레저 구축...$(RESET)"
