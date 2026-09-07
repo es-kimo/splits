@@ -53,6 +53,11 @@ make rating
 make api
 ```
 
+히트 시뮬레이션의 기본 페널티율은 비공개 원천 결과에서 계산합니다. 기본 경로와
+다를 때는 `SPLITS_SIM_PENALTY_RESULTS`를 설정합니다. 원천 결과를 둘 수 없는
+운영 환경에서는 상태가 보존된 레저의 `SPLITS_SIM_PENALTY_LEDGER`를 설정해야
+하며, 둘 다 없으면 해당 시뮬레이션 요청은 사용할 수 없습니다.
+
 연령 상대값을 함께 제공하려면 동일한 공개 실행에서 생성한 산출물 경로를
 `SPLITS_AGE_ADJUSTED_PATH`로 설정합니다. 기본 경로와 다를 때만
 `SPLITS_RATING_REGISTRY_ROOT`, `SPLITS_OPAQUE_ID_DB`를 설정합니다.
