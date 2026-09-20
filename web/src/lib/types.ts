@@ -185,3 +185,38 @@ export interface MetaDoc {
   publicFigureCount: number;
   activeFigureCount: number;
 }
+
+export interface CandidatesLabelCount {
+  label: string;
+  count: number;
+}
+
+export interface CandidatesTeam {
+  team: string;
+  count: number;
+}
+
+export interface CandidatesDoc {
+  generatedAt: string;
+  asOfYear: number;
+  activeSince: number;
+  totals: {
+    allAthletes: number;
+    currentProRegistered: number;
+    everPro: number;
+    nationalTeam: number;
+    candidatePool: number;
+    activePool: number;
+  };
+  gender: CandidatesLabelCount[];
+  birthYear: { min: number; max: number };
+  raceCount: {
+    median: number;
+    min: number;
+    max: number;
+    bins: CandidatesLabelCount[];
+  };
+  teams: CandidatesTeam[];
+  sensitivity: { since: number; count: number }[];
+  dataRange: { yearStart: number; yearEnd: number; recordCount: number };
+}
