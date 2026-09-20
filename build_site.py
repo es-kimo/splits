@@ -14,7 +14,7 @@ REQUIRED_JSON = [
 SYNC_TARGETS = [
     Path("index.html"),
     Path("analysis"),
-    Path("competitors"),
+    Path("ranking"),
     Path("athlete"),
     Path("meet"),
     Path("distribution"),

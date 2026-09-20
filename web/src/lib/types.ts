@@ -186,37 +186,31 @@ export interface MetaDoc {
   activeFigureCount: number;
 }
 
-export interface CandidatesLabelCount {
-  label: string;
-  count: number;
-}
-
-export interface CandidatesTeam {
+export interface RankingAthlete {
+  rank: number;
+  name: string;
+  slug: string;
+  url: string;
+  birth: number | null;
   team: string;
-  count: number;
+  mu: number;
+  sigma: number;
+  games: number;
+  topPercent: number;
+  asOf: string;
 }
 
-export interface CandidatesDoc {
+export interface RankingGroup {
+  sex: string;
+  label: string;
+  populationSize: number;
+  athletes: RankingAthlete[];
+}
+
+export interface RankingDoc {
   generatedAt: string;
-  asOfYear: number;
-  activeSince: number;
-  totals: {
-    allAthletes: number;
-    currentProRegistered: number;
-    everPro: number;
-    nationalTeam: number;
-    candidatePool: number;
-    activePool: number;
-  };
-  gender: CandidatesLabelCount[];
-  birthYear: { min: number; max: number };
-  raceCount: {
-    median: number;
-    min: number;
-    max: number;
-    bins: CandidatesLabelCount[];
-  };
-  teams: CandidatesTeam[];
-  sensitivity: { since: number; count: number }[];
-  dataRange: { yearStart: number; yearEnd: number; recordCount: number };
+  runId: string;
+  algoVersion: string;
+  asOf: string;
+  groups: RankingGroup[];
 }

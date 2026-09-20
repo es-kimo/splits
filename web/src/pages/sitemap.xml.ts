@@ -21,7 +21,7 @@ export const GET: APIRoute = () => {
   const urls = [
     "",
     "analysis/",
-    "competitors/",
+    "ranking/",
     "athlete/",
     "privacy/",
     "meet/",

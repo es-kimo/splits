@@ -43,3 +43,6 @@ web/.astro/
 /out/ledger/
 /out/ledger_sweep_policies/
 /out/replay_checkpoints/
+# 레이팅 정적 산출물 (make rating으로 재생성; 코호트 분포는 R-27 결정 전까지 비공개)
+/static/
+web/public/static/

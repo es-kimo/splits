@@ -1,0 +1,204 @@
+{
+  "generatedAt": "2026-09-20T15:41:44+09:00",
+  "runId": "c0a96cdec86ec2e0",
+  "algoVersion": "rating.replay.v7",
+  "asOf": "2026-04-11",
+  "groups": [
+    {
+      "sex": "여",
+      "label": "여자",
+      "populationSize": 745,
+      "athletes": [
+        {
+          "name": "최민정",
+          "slug": "choi-minjeong",
+          "url": "athlete/choi-minjeong/",
+          "birth": 1998,
+          "team": "성남시청",
+          "mu": 73.2,
+          "sigma": 4.3,
+          "games": 164,
+          "topPercent": 0.13,
+          "asOf": "2026-04-11",
+          "rank": 1
+        },
+        {
+          "name": "김길리",
+          "slug": "kim-gilli",
+          "url": "athlete/kim-gilli/",
+          "birth": 2004,
+          "team": "성남시청",
+          "mu": 71.8,
+          "sigma": 4.7,
+          "games": 344,
+          "topPercent": 0.27,
+          "asOf": "2026-01-15",
+          "rank": 2
+        },
+        {
+          "name": "심석희",
+          "slug": "sim-seokhee",
+          "url": "athlete/sim-seokhee/",
+          "birth": 1997,
+          "team": "서울시청",
+          "mu": 59.7,
+          "sigma": 3.6,
+          "games": 251,
+          "topPercent": 0.4,
+          "asOf": "2026-04-11",
+          "rank": 3
+        },
+        {
+          "name": "최지현",
+          "slug": "choi-jihyeon",
+          "url": "athlete/choi-jihyeon/",
+          "birth": 1994,
+          "team": "전북특별자치도청",
+          "mu": 55.3,
+          "sigma": 3.4,
+          "games": 382,
+          "topPercent": 0.67,
+          "asOf": "2026-04-11",
+          "rank": 4
+        },
+        {
+          "name": "김건희",
+          "slug": "kim-geonhui",
+          "url": "athlete/kim-geonhui/",
+          "birth": 2000,
+          "team": "성남시청",
+          "mu": 51.6,
+          "sigma": 3.3,
+          "games": 424,
+          "topPercent": 1.21,
+          "asOf": "2026-04-11",
+          "rank": 5
+        },
+        {
+          "name": "노아름",
+          "slug": "no-areum",
+          "url": "athlete/no-areum/",
+          "birth": 1991,
+          "team": "전북특별자치도청",
+          "mu": 49.1,
+          "sigma": 3.3,
+          "games": 350,
+          "topPercent": 2.01,
+          "asOf": "2026-04-11",
+          "rank": 6
+        }
+      ]
+    },
+    {
+      "sex": "남",
+      "label": "남자",
+      "populationSize": 1008,
+      "athletes": [
+        {
+          "name": "임종언",
+          "slug": "im-jongeon",
+          "url": "athlete/im-jongeon/",
+          "birth": 2007,
+          "team": "고양시청",
+          "mu": 56.9,
+          "sigma": 3.5,
+          "games": 236,
+          "topPercent": 0.2,
+          "asOf": "2025-04-12",
+          "rank": 1
+        },
+        {
+          "name": "배서찬",
+          "slug": "bae-seochan",
+          "url": "athlete/bae-seochan/",
+          "birth": 2002,
+          "team": "고양시청",
+          "mu": 53.2,
+          "sigma": 3.4,
+          "games": 288,
+          "topPercent": 0.4,
+          "asOf": "2026-04-11",
+          "rank": 2
+        },
+        {
+          "name": "이정민",
+          "slug": "lee-jeongmin",
+          "url": "athlete/lee-jeongmin/",
+          "birth": 2002,
+          "team": "성남시청",
+          "mu": 52.8,
+          "sigma": 3.4,
+          "games": 462,
+          "topPercent": 0.5,
+          "asOf": "2026-04-11",
+          "rank": 3
+        },
+        {
+          "name": "김태성",
+          "slug": "kim-taeseong",
+          "url": "athlete/kim-taeseong/",
+          "birth": 2001,
+          "team": "화성시청",
+          "mu": 52.8,
+          "sigma": 3.5,
+          "games": 405,
+          "topPercent": 0.6,
+          "asOf": "2026-04-11",
+          "rank": 4
+        },
+        {
+          "name": "신동민",
+          "slug": "shin-dongmin",
+          "url": "athlete/shin-dongmin/",
+          "birth": 2005,
+          "team": "화성시청",
+          "mu": 48.8,
+          "sigma": 3.3,
+          "games": 326,
+          "topPercent": 0.89,
+          "asOf": "2026-04-11",
+          "rank": 5
+        },
+        {
+          "name": "이규호",
+          "slug": "lee-gyuho",
+          "url": "athlete/lee-gyuho/",
+          "birth": 2006,
+          "team": "한국체육대학교",
+          "mu": 48.6,
+          "sigma": 3.4,
+          "games": 327,
+          "topPercent": 0.99,
+          "asOf": "2026-04-11",
+          "rank": 6
+        },
+        {
+          "name": "남윤창",
+          "slug": "nam-yunchang",
+          "url": "athlete/nam-yunchang/",
+          "birth": 2004,
+          "team": "한국체육대학교",
+          "mu": 44.9,
+          "sigma": 3.3,
+          "games": 346,
+          "topPercent": 1.59,
+          "asOf": "2026-04-11",
+          "rank": 7
+        },
+        {
+          "name": "이동현",
+          "slug": "lee-donghyeon",
+          "url": "athlete/lee-donghyeon/",
+          "birth": 2004,
+          "team": "단국대학교",
+          "mu": 38.1,
+          "sigma": 3.5,
+          "games": 396,
+          "topPercent": 5.26,
+          "asOf": "2026-04-11",
+          "rank": 8
+        }
+      ]
+    }
+  ]
+}

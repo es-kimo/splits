@@ -1,0 +1,219 @@
+---
+import Base from "../layouts/Base.astro";
+import { withBase } from "../lib/base";
+import { loadRankingDoc } from "../lib/data";
+
+const doc = loadRankingDoc();
+const total = doc.groups.reduce((acc, group) => acc + group.athletes.length, 0);
+
+const dateText = (value: string) => {
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${year}.${month}.${day}` : value;
+};
+const percentText = (value: number) => `상위 ${value < 1 ? value.toFixed(2) : value.toFixed(1)}%`;
+---
+
+<Base
+  title="공인 선수 레이팅 — 스플릿"
+  description={`국내 공개 경기 기록으로 계산한 공인 선수 ${total}명의 TrueSkill 레이팅입니다. 남녀를 나눠 순위를 매겼습니다.`}
+  ogTitle="공인 선수 레이팅"
+  ogImage="og-player.png"
+  generatedAt={doc.generatedAt}
+>
+  <header class="page-head">
+    <span class="eyebrow">TrueSkill 레이팅</span>
+    <h1>공인 선수 레이팅</h1>
+    <p class="lead">국내 공개 경기에서 누가 누구를 이겼는지만 보고 계산한 기량 지표예요.</p>
+  </header>
+
+  {
+    doc.groups.map((group) => (
+      <section class="card">
+        <div class="card-head">
+          <h2>{group.label}</h2>
+          <p>
+            국내 대회에 나온 {group.label} 선수 {group.populationSize.toLocaleString("ko-KR")}명 가운데 위치예요.
+          </p>
+        </div>
+        <ol class="rank-list">
+          {group.athletes.map((athlete) => (
+            <li class="rank-row">
+              <span class="rank-no">{athlete.rank}</span>
+              <div class="rank-main">
+                <a class="rank-name" href={withBase(athlete.url)}>
+                  {athlete.name}
+                </a>
+                <span class="rank-sub">
+                  {athlete.team}
+                  {athlete.birth ? ` · ${athlete.birth}년생` : ""}
+                </span>
+              </div>
+              <div class="rank-figure">
+                <b>{athlete.mu.toFixed(1)}</b>
+                <span>±{athlete.sigma.toFixed(1)}</span>
+              </div>
+              <div class="rank-meta">
+                <span class="rank-pct">{percentText(athlete.topPercent)}</span>
+                <span class="rank-games">
+                  {athlete.games.toLocaleString("ko-KR")}경기 · {dateText(athlete.asOf)} 기준
+                </span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+    ))
+  }
+
+  <section class="card">
+    <div class="card-head">
+      <h2>이 숫자를 읽는 법</h2>
+    </div>
+    <dl class="term-list">
+      <div>
+        <dt>큰 숫자</dt>
+        <dd>
+          레이팅이에요. 이긴 상대가 강할수록 많이 오르고, 진 상대가 약할수록 많이 떨어져요. 절대적인 기록이 아니라 서로를 비교하는 눈금이라, 값 자체보다 선수 사이의 간격을 보시면 돼요.
+        </dd>
+      </div>
+      <div>
+        <dt>± 뒤의 숫자</dt>
+        <dd>불확실한 폭이에요. 경기를 많이 치를수록 줄어들어요. 두 선수의 차이가 이 폭보다 작으면 순위를 갈랐다고 보기 어려워요.</dd>
+      </div>
+      <div>
+        <dt>상위 n%</dt>
+        <dd>같은 성별에서 국내 대회에 나온 선수 전체 가운데 위치예요. 유소년부터 성인까지 모두 들어간 모집단이에요.</dd>
+      </div>
+      <div>
+        <dt>기준일</dt>
+        <dd>레이팅에 반영된 마지막 국내 경기 날짜예요. 국제대회만 뛴 기간은 들어가지 않아 날짜가 사람마다 달라요.</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>이 순위의 한계</h2>
+    </div>
+    <ul class="note-list">
+      <li>
+        남녀를 한 표로 합치지 않았어요. 두 집단은 맞대결이 없어서 레이팅을 서로 비교할 수 없어요.
+      </li>
+      <li>국내 공개 경기만 셌어요. 월드컵·올림픽 성적은 들어 있지 않아요.</li>
+      <li>거리별로 나누지 않았어요. 500m와 1500m를 한 지표로 합친 값이에요.</li>
+      <li>
+        부상이나 국제대회 파견으로 국내 경기가 비면 그 기간의 변화는 잡히지 않아요. 기준일이 오래된 선수일수록 현재 기량과 차이가 클 수 있어요.
+      </li>
+    </ul>
+    <p class="hint">
+      계산 기준: {doc.algoVersion} · 실행 {doc.runId} · 대상 공인 선수 {total}명
+    </p>
+  </section>
+
+  <style>
+    .rank-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 2px;
+    }
+    .rank-row {
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 2px 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .rank-row:last-child {
+      border-bottom: 0;
+    }
+    .rank-no {
+      grid-row: span 2;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--faint-2);
+      text-align: center;
+    }
+    .rank-main {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .rank-name {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+    .rank-name:hover {
+      color: var(--point);
+    }
+    .rank-sub {
+      font-size: 12.5px;
+      color: var(--faint);
+    }
+    .rank-figure {
+      display: flex;
+      align-items: baseline;
+      gap: 3px;
+      justify-self: end;
+    }
+    .rank-figure b {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .rank-figure span {
+      font-size: 12px;
+      color: var(--faint-2);
+    }
+    .rank-meta {
+      grid-column: 2 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    .rank-pct {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--point);
+      background: var(--point-bg);
+      border-radius: var(--r-badge);
+      padding: 2px 6px;
+    }
+    .rank-games {
+      font-size: 12px;
+      color: var(--faint-2);
+    }
+    .term-list {
+      margin: 0;
+      display: grid;
+      gap: 12px;
+    }
+    .term-list dt {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: 3px;
+    }
+    .term-list dd {
+      margin: 0;
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--sub);
+    }
+    .note-list {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 8px;
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--sub);
+    }
+  </style>
+</Base>
