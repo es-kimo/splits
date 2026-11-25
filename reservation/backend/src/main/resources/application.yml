@@ -44,6 +44,14 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+# Cloudflare와 이 서버 사이를 암호화한다. 인증서는 Cloudflare Origin CA에서 받아 /certs 에 둔다.
+# 인증서 파일이 없으면 기동이 실패한다.
+server:
+  port: ${SERVER_PORT:8443}
+  ssl:
+    certificate: ${TLS_CERTIFICATE:file:/certs/origin.pem}
+    certificate-private-key: ${TLS_PRIVATE_KEY:file:/certs/origin.key}
+
 reservation:
   # 기본값을 두지 않는다. 빠지면 기동이 실패해야 한다.
   admin-token-secret: ${ADMIN_TOKEN_SECRET}

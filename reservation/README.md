@@ -85,28 +85,40 @@ cd reservation/frontend && npm test && npm run build
 | 주소 | 역할 | 어디서 |
 |---|---|---|
 | `court.splits.kr` | 화면 + `/api` 프록시 | Cloudflare Worker (`frontend/wrangler.jsonc`) |
-| `court-api.splits.kr` | 백엔드 | 오라클 인스턴스, Cloudflare Tunnel 경유 |
+| `court-api.splits.kr` | 백엔드 | 오라클 인스턴스의 8443 포트, Cloudflare 프록시 경유 |
 
 `court-api`를 `api.court`로 하지 않은 이유는 Cloudflare 무료 인증서가 한 단계 서브도메인까지만 덮기 때문이에요.
+
+브라우저는 `court.splits.kr`만 불러요. Worker가 `/api` 요청을 `https://court-api.splits.kr:8443`으로 넘기고, Cloudflare가 그 요청을 오라클 인스턴스의 8443 포트로 보내요. Cloudflare와 인스턴스 사이는 Cloudflare Origin CA 인증서로 암호화해요. Cloudflare Tunnel은 쓰지 않아요(Zero Trust 가입에 결제 정보가 필요해요).
 
 ### 처음 한 번 (사람이 직접)
 
 1. `splits.kr` 네임서버를 Cloudflare로 옮겨요. 기존 레코드(A 4개, `www` CNAME)는 **DNS 전용**으로 두면 쇼트트랙 사이트는 그대로예요.
-2. Cloudflare Zero Trust에서 터널을 만들고, 공개 호스트 이름 `court-api.splits.kr`을 `http://backend:8080`으로 연결해요. 터널 토큰을 받아 둬요.
-3. 오라클 인스턴스에서 저장소를 받고 환경 파일을 채워요.
+2. Cloudflare에서 세 가지를 해요.
+   - DNS에 A 레코드 `court-api` → 인스턴스 공인 IP를 **프록시됨**으로 추가해요.
+   - SSL/TLS > Origin Server에서 인증서를 만들고, 인증서와 개인 키를 복사해 둬요. 개인 키는 그 화면에서만 보여요.
+   - SSL/TLS > Overview에서 암호화 모드를 **Full (strict)** 로 맞춰요.
+3. 오라클 콘솔의 보안 목록에 수신 규칙(TCP 8443)을 추가해요.
+4. 오라클 인스턴스에서 저장소를 받고 환경 파일을 채워요.
 
    ```bash
    git clone https://github.com/es-kimo/splits.git ~/splits && cd ~/splits/reservation && cp env.example .env
    ```
 
-4. 백엔드를 띄워요. 호스트 포트를 열지 않아서 같은 인스턴스의 다른 서비스와 겹치지 않아요.
+5. 2번에서 복사한 인증서를 `certs/origin.pem`, 개인 키를 `certs/origin.key`로 저장하고, 컨테이너 사용자(UID 1001)만 읽게 해요.
+
+   ```bash
+   sudo chown -R 1001:1001 certs && sudo chmod 600 certs/origin.key
+   ```
+
+6. 백엔드를 띄워요. 호스트에는 8443 포트만 열려서 같은 인스턴스의 다른 서비스와 겹치지 않아요.
 
    ```bash
    docker compose -f docker-compose.prod.yml up -d --build
    ```
 
-5. 모임을 만들고, `.env`의 `BOOTSTRAP_SECRET`을 비운 뒤 백엔드를 다시 띄워 엔드포인트를 닫아요.
-6. GitHub 저장소 비밀값을 넣어요: `ORACLE_HOST`, `ORACLE_USERNAME`, `ORACLE_SSH_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+7. 모임을 만들고, `.env`의 `BOOTSTRAP_SECRET`을 비운 뒤 백엔드를 다시 띄워 엔드포인트를 닫아요.
+8. GitHub 저장소 비밀값을 넣어요: `ORACLE_HOST`, `ORACLE_USERNAME`, `ORACLE_SSH_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
 
 ### 이후
 

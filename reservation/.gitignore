@@ -11,6 +11,7 @@ frontend/.wrangler/
 
 # Secrets
 .env
+certs/
 .env.local
 .env.*.local
 *.log

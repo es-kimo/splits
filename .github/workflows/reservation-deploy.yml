@@ -33,7 +33,8 @@ jobs:
             docker image prune -f
             echo "==> 백엔드 기동 대기"
             for i in $(seq 1 30); do
-              if docker exec court-prod-backend sh -c 'wget -qO- http://localhost:8080/api/v1/health || curl -fsS http://localhost:8080/api/v1/health' >/dev/null 2>&1; then
+              # 컨테이너 안에서는 인증서 이름(court-api.splits.kr)이 localhost와 달라 검증을 끈다.
+              if docker exec court-prod-backend curl -fsSk https://localhost:8443/api/v1/health >/dev/null 2>&1; then
                 echo "==> 정상 응답"
                 exit 0
               fi

@@ -20,7 +20,8 @@ RUN addgroup --system --gid 1001 court && adduser --system --uid 1001 --ingroup 
 COPY --from=builder /app/build/libs/*.jar app.jar
 USER court
 
-EXPOSE 8080
+# 운영(prod)은 HTTPS 8443, 그 밖의 프로필은 HTTP 8080으로 뜬다.
+EXPOSE 8080 8443
 ENV SPRING_PROFILES_ACTIVE=prod
 ENV TZ=Asia/Seoul
 # 같은 인스턴스에서 다른 서비스가 돌고 있다. 힙 상한을 정해 메모리를 다 가져가지 않게 한다.

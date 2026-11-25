@@ -1,5 +1,6 @@
 # 오라클 인스턴스용. 같은 인스턴스에 dayuse가 호스트 80/3306 포트를 쓰고 있으므로
-# 여기서는 호스트 포트를 하나도 열지 않는다. 바깥과의 연결은 cloudflared 터널 하나뿐이다.
+# 여기서는 8443 하나만 연다. Cloudflare가 court-api.splits.kr 로 들어온 요청을 이 포트로 넘긴다.
+# 8443은 Cloudflare가 프록시하는 HTTPS 포트 중 하나다. DB 포트는 열지 않는다.
 name: court
 
 services:
@@ -41,22 +42,14 @@ services:
       DB_USERNAME: ${MYSQL_USER}
       DB_PASSWORD: ${MYSQL_PASSWORD}
       TZ: Asia/Seoul
+    ports:
+      - "8443:8443"
+    volumes:
+      # Cloudflare Origin CA 인증서(origin.pem)와 개인 키(origin.key). 저장소에는 넣지 않는다.
+      - ./certs:/certs:ro
     depends_on:
       mysql:
         condition: service_healthy
-    networks:
-      - court
-
-  # Cloudflare 대시보드에서 만든 터널. 공개 호스트 이름 court-api.splits.kr 을 http://backend:8080 으로 잇는다.
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: court-prod-cloudflared
-    restart: always
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      - backend
     networks:
       - court
 

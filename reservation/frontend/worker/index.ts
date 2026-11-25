@@ -7,7 +7,7 @@
 
 interface Env {
   ASSETS: Fetcher
-  /** 예: https://court-api.splits.kr */
+  /** 예: https://court-api.splits.kr:8443 */
   API_ORIGIN: string
 }
 
