@@ -1,0 +1,18 @@
+# Backend
+backend/.gradle/
+backend/build/
+backend/out/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/.wrangler/
+
+# Secrets
+.env
+.env.local
+.env.*.local
+*.log
+# 저장소 루트의 `.env.*` 규칙에 예시 파일까지 걸리지 않게 한다.
+!.env.example

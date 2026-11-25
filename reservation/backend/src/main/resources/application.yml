@@ -1,0 +1,51 @@
+spring:
+  profiles:
+    default: local
+  application:
+    name: reservation-backend
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 스키마는 Flyway만 바꾼다.
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+---
+# 로컬: 도커 없이 바로 뜨도록 H2 파일 DB를 쓴다. MySQL로 돌리려면 DB_URL을 넘긴다.
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./build/localdb/reservation;MODE=MySQL;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+
+server:
+  # dayuse 로컬 백엔드(8080)와 겹치지 않게 한다.
+  port: ${SERVER_PORT:8090}
+
+reservation:
+  admin-token-secret: ${ADMIN_TOKEN_SECRET:local-only-admin-token-secret}
+  bootstrap-secret: ${BOOTSTRAP_SECRET:local-bootstrap}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+reservation:
+  # 기본값을 두지 않는다. 빠지면 기동이 실패해야 한다.
+  admin-token-secret: ${ADMIN_TOKEN_SECRET}
+  # 비워 두면 모임 생성 엔드포인트가 닫힌다.
+  bootstrap-secret: ${BOOTSTRAP_SECRET:}
