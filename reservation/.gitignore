@@ -14,5 +14,4 @@ frontend/.wrangler/
 .env.local
 .env.*.local
 *.log
-# 저장소 루트의 `.env.*` 규칙에 예시 파일까지 걸리지 않게 한다.
-!.env.example
+# 예시는 env.example로 둔다. 저장소 정책(scripts/check_data_commit_policy.py)이 `.env.*` 이름을 모두 막는다.

@@ -96,7 +96,7 @@ cd reservation/frontend && npm test && npm run build
 3. 오라클 인스턴스에서 저장소를 받고 환경 파일을 채워요.
 
    ```bash
-   git clone https://github.com/es-kimo/splits.git ~/splits && cd ~/splits/reservation && cp .env.example .env
+   git clone https://github.com/es-kimo/splits.git ~/splits && cd ~/splits/reservation && cp env.example .env
    ```
 
 4. 백엔드를 띄워요. 호스트 포트를 열지 않아서 같은 인스턴스의 다른 서비스와 겹치지 않아요.
