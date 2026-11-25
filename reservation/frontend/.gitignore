@@ -1,0 +1,7 @@
+node_modules
+dist
+*.local
+*.tsbuildinfo
+
+# Wrangler 로컬 개발 상태
+.wrangler
