@@ -1,0 +1,70 @@
+name: reservation-deploy
+
+# 공개 저장소다. 비밀값을 쓰는 이 워크플로는 포크의 PR로는 절대 돌지 않게,
+# 태그 푸시와 수동 실행으로만 시작한다.
+on:
+  push:
+    tags:
+      - "reservation-v*"
+  workflow_dispatch:
+
+concurrency:
+  group: reservation-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-backend:
+    name: Backend to Oracle VM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull and restart on the VM
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USERNAME }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd ~/splits
+            git fetch origin --tags
+            git checkout --force "${{ github.sha }}"
+            cd reservation
+            docker compose -f docker-compose.prod.yml up -d --build backend
+            docker image prune -f
+            echo "==> 백엔드 기동 대기"
+            for i in $(seq 1 30); do
+              # 컨테이너 안에서는 인증서 이름(court-api.splits.kr)이 localhost와 달라 검증을 끈다.
+              if docker exec court-prod-backend curl -fsSk https://localhost:8443/api/v1/health >/dev/null 2>&1; then
+                echo "==> 정상 응답"
+                exit 0
+              fi
+              sleep 3
+            done
+            docker logs --tail 60 court-prod-backend
+            exit 1
+
+  deploy-frontend:
+    name: Frontend to Cloudflare Workers
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reservation/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: reservation/frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: reservation/frontend
+          command: deploy

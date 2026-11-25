@@ -1,0 +1,57 @@
+name: reservation-ci
+
+on:
+  pull_request:
+    paths:
+      - "reservation/**"
+      - ".github/workflows/reservation-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "reservation/**"
+      - ".github/workflows/reservation-ci.yml"
+
+jobs:
+  backend-test:
+    name: Backend test (Spring Boot)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reservation/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('reservation/backend/**/*.gradle*', 'reservation/backend/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - run: ./gradlew test --no-daemon
+
+  frontend-build:
+    name: Frontend test and build (Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reservation/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: reservation/frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build

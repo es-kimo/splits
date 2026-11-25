@@ -1,0 +1,63 @@
+/*
+ * 스플릿 디자인 토큰.
+ * 색·모양·간격은 web/src/layouts/Base.astro 의 :root 블록을 그대로 옮긴 것이다.
+ * 리브랜딩 때 두 곳이 한 파일을 보도록 합친다. 그 전에는 값을 여기서만 바꾸지 않는다.
+ */
+:root {
+  /* 면 */
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-2: #fafbfc;
+  --surface-3: #f5f7fa;
+  --fill: #f2f4f7;
+  --line: #f0f2f5;
+  --line-strong: #e3e7ed;
+
+  /* 글자 */
+  --ink: #17181c;
+  --text: #3a3d45;
+  --sub: #5b5f68;
+  --sub-2: #6b6f78;
+  --soft: #6f7683;
+  --faint: #68707d;
+  --faint-2: #808896;
+
+  /* 포인트 — 하나뿐 */
+  --point: #2e63f6;
+  --point-hover: #1b47c4;
+  --point-bg: #e9f0ff;
+  --point-bg-2: #e4ebff;
+  --point-2: #6d95f9;
+  --point-3: #a9c3fa;
+  --point-4: #cfdcfc;
+  --danger: #c2453b;
+
+  /* 모양 */
+  --r-card: 20px;
+  --r-inner: 16px;
+  --r-ctl: 12px;
+  --r-badge: 8px;
+  --r-pill: 999px;
+
+  /* 폭·간격 */
+  --w: 560px;
+  --gutter: 16px;
+  --gap-card: 12px;
+  --gap-section: 20px;
+
+  /*
+   * 여기부터는 예약 화면에서 더한 값.
+   * 쇼트트랙 사이트보다 글자와 버튼을 키운다. 모임원 연령대를 고려해 본문은 17px, 누르는 곳은 52px 이상.
+   */
+  --danger-bg: #fbeceb;
+  --fs-body: 17px;
+  --fs-small: 15px;
+  --fs-title: 21px;
+  --tap: 52px;
+}
+
+@media (max-width: 380px) {
+  :root {
+    --gutter: 14px;
+  }
+}

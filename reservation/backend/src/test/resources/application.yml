@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:reservation-test;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;LOCK_TIMEOUT=10000
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 테스트도 실제 마이그레이션으로 스키마를 만들고, 엔티티와 어긋나면 기동에서 실패시킨다.
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+reservation:
+  admin-token-secret: test-admin-token-secret
+  bootstrap-secret: test-bootstrap

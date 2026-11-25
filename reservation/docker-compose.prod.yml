@@ -1,0 +1,61 @@
+# 오라클 인스턴스용. 같은 인스턴스에 dayuse가 호스트 80/3306 포트를 쓰고 있으므로
+# 여기서는 8443 하나만 연다. Cloudflare가 court-api.splits.kr 로 들어온 요청을 이 포트로 넘긴다.
+# 8443은 Cloudflare가 프록시하는 HTTPS 포트 중 하나다. DB 포트는 열지 않는다.
+name: court
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: court-prod-mysql
+    restart: always
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Seoul
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+09:00
+    volumes:
+      - court_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - court
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: court-prod-backend
+    restart: always
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Seoul
+    ports:
+      - "8443:8443"
+    volumes:
+      # Cloudflare Origin CA 인증서(origin.pem)와 개인 키(origin.key). 저장소에는 넣지 않는다.
+      - ./certs:/certs:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - court
+
+volumes:
+  court_mysql_data:
+
+networks:
+  court:
+    driver: bridge

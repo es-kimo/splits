@@ -1,0 +1,21 @@
+{
+  "name": "splits-court",
+  "compatibility_date": "2026-09-21",
+  "main": "./worker/index.ts",
+
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // /g/토큰 같은 화면 경로는 파일이 없으므로 index.html을 내려준다.
+    "not_found_handling": "single-page-application",
+    // API 프록시와 화면 경로는 Worker를 먼저 태워 보안 헤더를 붙인다.
+    "run_worker_first": ["/api/*", "/g/*", "/admin", "/"]
+  },
+
+  // 공개 주소라 비밀값이 아니다. 로컬에서는 --var 로 덮어쓴다.
+  "vars": {
+    "API_ORIGIN": "https://court-api.splits.kr:8443"
+  },
+
+  "routes": [{ "pattern": "court.splits.kr", "custom_domain": true }]
+}

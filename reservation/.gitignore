@@ -1,0 +1,18 @@
+# Backend
+backend/.gradle/
+backend/build/
+backend/out/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/.wrangler/
+
+# Secrets
+.env
+certs/
+.env.local
+.env.*.local
+*.log
+# 예시는 env.example로 둔다. 저장소 정책(scripts/check_data_commit_policy.py)이 `.env.*` 이름을 모두 막는다.
