@@ -1,0 +1,68 @@
+# 오라클 인스턴스용. 같은 인스턴스에 dayuse가 호스트 80/3306 포트를 쓰고 있으므로
+# 여기서는 호스트 포트를 하나도 열지 않는다. 바깥과의 연결은 cloudflared 터널 하나뿐이다.
+name: court
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: court-prod-mysql
+    restart: always
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Seoul
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+09:00
+    volumes:
+      - court_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - court
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: court-prod-backend
+    restart: always
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Seoul
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - court
+
+  # Cloudflare 대시보드에서 만든 터널. 공개 호스트 이름 court-api.splits.kr 을 http://backend:8080 으로 잇는다.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: court-prod-cloudflared
+    restart: always
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - backend
+    networks:
+      - court
+
+volumes:
+  court_mysql_data:
+
+networks:
+  court:
+    driver: bridge
